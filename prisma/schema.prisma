@@ -1,0 +1,585 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  OPERARIO
+  ADMINISTRACION
+  MANAGER
+  ADMIN
+}
+
+enum SackStatus {
+  PENDIENTE_RECIBIR
+  EN_ALMACEN
+  EN_PRODUCCION
+  PROCESADA
+  PRODUCTO_TERMINADO
+  SUBPRODUCTO
+  RECHAZO
+  EN_TRANSITO
+  ENTREGADA
+  BAJA
+}
+
+enum MaterialType {
+  PELLET_PE
+  PELLET_PP
+  PELLET_PET
+  FILM_PE
+  FILM_PP
+  RIGIDO_MIXTO
+  OTRO
+}
+
+enum LotType {
+  PRODUCTO_TERMINADO
+  SUBPRODUCTO
+  RECHAZO
+}
+
+enum ShipmentStatus {
+  BORRADOR
+  CONFIRMADO
+  EXPEDIDO
+  ENTREGADO
+}
+
+enum IncidentStatus {
+  ABIERTA
+  EN_REVISION
+  EN_PROCESO
+  RESUELTA
+  CERRADA
+}
+
+enum PurchaseOrderStatus {
+  ABIERTA
+  EN_TRANSITO
+  RECIBIDA_PARCIAL
+  COMPLETADA
+  CANCELADA
+}
+
+enum ConsumableType {
+  PALLET
+  SACA_VACIA
+  CAPUCHON
+  OTRO
+}
+
+enum QualityResult {
+  OK
+  NOK
+  PENDIENTE
+}
+
+// ─── Auth (NextAuth v5) ────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String    // bcrypt hash — sin SSO
+  role          UserRole  @default(OPERARIO)
+  active        Boolean   @default(true)
+
+  accounts      Account[]
+  sessions      Session[]
+  incidents     Incident[]
+  auditLogs     AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── Proveedores y compradores ─────────────────────────────────────────────────
+
+model Supplier {
+  id        String  @id @default(cuid())
+  name      String
+  code      String  @unique
+  country   String  @default("ES")
+  active    Boolean @default(true)
+  notes     String?
+
+  containers Container[]
+  purchaseOrders PurchaseOrder[]
+  qualityRecords QualityRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("suppliers")
+}
+
+model Buyer {
+  id      String  @id @default(cuid())
+  name    String
+  code    String  @unique
+  country String  @default("ES")
+  active  Boolean @default(true)
+  notes   String?
+
+  holdedId String? // ID en Holded para generar albaranes
+
+  shipments Shipment[]
+  palletMovements PalletMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("buyers")
+}
+
+model Carrier {
+  id     String  @id @default(cuid())
+  name   String
+  active Boolean @default(true)
+
+  shipments Shipment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("carriers")
+}
+
+// ─── Almacenes y zonas ─────────────────────────────────────────────────────────
+
+model Warehouse {
+  id       String  @id @default(cuid())
+  name     String
+  code     String  @unique
+  location String? // dirección / planta
+  active   Boolean @default(true)
+
+  zones Zone[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("warehouses")
+}
+
+model Zone {
+  id           String  @id @default(cuid())
+  name         String
+  code         String
+  maxCapacity  Int     // máximo de sacas
+  warehouseId  String
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  sacks     Sack[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([code, warehouseId])
+  @@map("zones")
+}
+
+// ─── Materiales ────────────────────────────────────────────────────────────────
+
+model Material {
+  id          String       @id @default(cuid())
+  name        String
+  code        String       @unique
+  type        MaterialType
+  description String?
+  active      Boolean      @default(true)
+
+  sacks          Sack[]
+  productionLots ProductionLot[]
+  qualityRecords QualityRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("materials")
+}
+
+// ─── Contenedores / Camiones ───────────────────────────────────────────────────
+
+model Container {
+  id              String  @id @default(cuid())
+  reference       String  @unique // nº contenedor o matrícula camión
+  billOfLading    String? // para envíos marítimos
+  supplierId      String
+  materialId      String?
+  expectedWeight  Float?  // kg estimados
+  actualWeight    Float?  // kg pesados en Gestruck
+  numSacks        Int?    // nº sacas declaradas
+  numPallets      Int?    @default(0)
+  notes           String?
+
+  // Fechas de tracking
+  estimatedArrival DateTime?
+  arrivedAt        DateTime?
+  registeredAt     DateTime?
+
+  // Pesaje
+  weighedAt    DateTime?
+  weightSource String?  @default("gestruck") // "gestruck" | "manual"
+  scaleId      String?  // ID de báscula Gestruck
+
+  supplierId2  String? // alias para supplier
+  supplier     Supplier @relation(fields: [supplierId], references: [id])
+  sacks        Sack[]
+
+  providerShipmentId String?
+  providerShipment   ProviderShipment? @relation(fields: [providerShipmentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("containers")
+}
+
+// ─── Sacas (Big Bags) — entidad central ───────────────────────────────────────
+
+model Sack {
+  id          String     @id @default(cuid())
+  qrCode      String     @unique // QR impreso en etiqueta
+  status      SackStatus @default(EN_ALMACEN)
+  weight      Float      // kg
+  materialId  String
+  zoneId      String?
+  containerId String?
+  lotId       String?    // lote de producción (si es PT/Subproducto/Rechazo)
+
+  material  Material  @relation(fields: [materialId], references: [id])
+  zone      Zone?     @relation(fields: [zoneId], references: [id])
+  container Container? @relation(fields: [containerId], references: [id])
+  lot       ProductionLot? @relation(fields: [lotId], references: [id])
+
+  transformationInputs  TransformationInput[]
+  shipmentSacks         ShipmentSack[]
+
+  notes       String?
+  batchNumber String? // nº saca dentro del contenedor (ej: 1/50)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([zoneId])
+  @@index([containerId])
+  @@map("sacks")
+}
+
+// ─── Producción — Lotes y Transformaciones ─────────────────────────────────────
+
+model ProductionLot {
+  id         String    @id @default(cuid())
+  lotNumber  String    @unique // DDMMYY-nºcamión — autogenerado
+  type       LotType
+  materialId String
+  producedAt DateTime  @default(now())
+  notes      String?
+
+  material        Material         @relation(fields: [materialId], references: [id])
+  sacks           Sack[]           // sacas de output (PT/Sub/Rechazo)
+  transformations Transformation[]
+  qualityRecords  QualityRecord[]
+  shipmentLots    ShipmentLot[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([producedAt])
+  @@map("production_lots")
+}
+
+model Transformation {
+  id        String   @id @default(cuid())
+  lotId     String
+  operatorId String?
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  notes     String?
+
+  lot    ProductionLot         @relation(fields: [lotId], references: [id])
+  inputs TransformationInput[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("transformations")
+}
+
+model TransformationInput {
+  id               String @id @default(cuid())
+  transformationId String
+  sackId           String
+
+  transformation Transformation @relation(fields: [transformationId], references: [id])
+  sack           Sack           @relation(fields: [sackId], references: [id])
+
+  enteredAt DateTime @default(now())
+
+  @@map("transformation_inputs")
+}
+
+// ─── Expediciones ─────────────────────────────────────────────────────────────
+
+model Shipment {
+  id          String         @id @default(cuid())
+  reference   String         @unique // autogenerado
+  status      ShipmentStatus @default(BORRADOR)
+  buyerId     String
+  carrierId   String?
+  vehiclePlate String?
+  driverName  String?
+  notes       String?
+
+  holdedAlbaranId String? // ID albarán en Holded (generado al confirmar)
+  expeditedAt     DateTime?
+  deliveredAt     DateTime?
+
+  buyer    Buyer    @relation(fields: [buyerId], references: [id])
+  carrier  Carrier? @relation(fields: [carrierId], references: [id])
+  lots     ShipmentLot[]
+  sacks    ShipmentSack[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("shipments")
+}
+
+model ShipmentLot {
+  id         String @id @default(cuid())
+  shipmentId String
+  lotId      String
+  weightKg   Float
+
+  shipment Shipment      @relation(fields: [shipmentId], references: [id])
+  lot      ProductionLot @relation(fields: [lotId], references: [id])
+
+  @@map("shipment_lots")
+}
+
+model ShipmentSack {
+  id         String @id @default(cuid())
+  shipmentId String
+  sackId     String
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id])
+  sack     Sack     @relation(fields: [sackId], references: [id])
+
+  @@map("shipment_sacks")
+}
+
+// ─── Aprovisionamiento (Transporte / POs) ──────────────────────────────────────
+
+model PurchaseOrder {
+  id         String              @id @default(cuid())
+  poNumber   String              @unique
+  supplierId String
+  materialId String?
+  status     PurchaseOrderStatus @default(ABIERTA)
+  orderedTons Float
+  notes      String?
+
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  providerShipments ProviderShipment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("purchase_orders")
+}
+
+model ProviderShipment {
+  id              String   @id @default(cuid())
+  purchaseOrderId String?
+  billOfLading    String?  @unique
+  origin          String?  // puerto origen
+  vessel          String?  // nombre del barco
+  etaValencia     DateTime?
+  etaPlanta       DateTime?
+  arrivedValencia DateTime?
+  arrivedPlanta   DateTime?
+  weightKg        Float?
+  notes           String?
+
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  containers    Container[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("provider_shipments")
+}
+
+// ─── Calidad ──────────────────────────────────────────────────────────────────
+
+model QualityRecord {
+  id         String        @id @default(cuid())
+  lotId      String
+  materialId String
+  supplierId String?
+  shift      String?       // turno: M/T/N
+  result     QualityResult @default(PENDIENTE)
+  overrideReason String?   // motivo si se override NOK→OK
+
+  // Muestras (grid Excel-like)
+  density    Float?
+  pvcPct     Float?
+  gluePct    Float?
+  multilayerPct Float?
+  metalPct   Float?
+  otherPct   Float?
+  notes      String?
+
+  lot      ProductionLot @relation(fields: [lotId], references: [id])
+  material Material      @relation(fields: [materialId], references: [id])
+  supplier Supplier?     @relation(fields: [supplierId], references: [id])
+
+  recordedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("quality_records")
+}
+
+// ─── Consumibles ──────────────────────────────────────────────────────────────
+
+model Consumable {
+  id           String         @id @default(cuid())
+  type         ConsumableType
+  name         String
+  currentStock Int            @default(0)
+  minStock     Int            @default(0) // umbral de alerta
+  unit         String         @default("ud")
+
+  movements ConsumableMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("consumables")
+}
+
+model ConsumableMovement {
+  id           String @id @default(cuid())
+  consumableId String
+  quantity     Int    // positivo = entrada, negativo = salida
+  reason       String // "compra", "expedición", "devolución", "ajuste"
+  vehiclePlate String?
+  condition    String? // "OK" | "NOK" para devoluciones
+  notes        String?
+
+  consumable Consumable @relation(fields: [consumableId], references: [id])
+  createdAt  DateTime   @default(now())
+
+  @@map("consumable_movements")
+}
+
+// ─── Pallets retornables (por cliente) ────────────────────────────────────────
+
+model PalletMovement {
+  id         String   @id @default(cuid())
+  buyerId    String
+  quantity   Int      // positivo = préstamo, negativo = devolución
+  condition  String?  // "OK" | "NOK"
+  shipmentId String?
+  notes      String?
+
+  buyer     Buyer    @relation(fields: [buyerId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@map("pallet_movements")
+}
+
+// ─── Incidencias ──────────────────────────────────────────────────────────────
+
+model Incident {
+  id          String         @id @default(cuid())
+  status      IncidentStatus @default(ABIERTA)
+  title       String
+  description String?
+  warehouseId String?
+  sackQrCode  String?        // QR de saca relacionada
+  photoUrl    String?        // Cloudflare R2
+  reportedById String
+
+  reportedBy User   @relation(fields: [reportedById], references: [id])
+  resolvedAt DateTime?
+  closedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("incidents")
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String   // "CREATE_SACK", "CONFIRM_SHIPMENT", etc.
+  entity     String   // "Sack", "Shipment", etc.
+  entityId   String?
+  payload    Json?    // diff o datos relevantes
+  ip         String?
+
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
