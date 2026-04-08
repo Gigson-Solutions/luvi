@@ -1,5 +1,22 @@
 # Plan: Proyecto Luvi — Webapp de Logística para Luvi2000
 
+---
+
+## Plan de proyecto para cliente — 4 semanas
+
+| Semana | Entregable | Qué ve el cliente |
+|--------|-----------|-------------------|
+| **Semana 1** | Estructura base + Login + Recepciones | Login funcionando, registro de contenedores con pesaje (manual o Gestruck), generación de sacas con QR |
+| **Semana 2** | Almacén + Producción + Trazabilidad | Vista de ocupación por zonas, flujo de tolva, lotes autogenerados (DDMMYY-nºcamión), escaneo QR |
+| **Semana 3** | Expediciones + Aprovisionamiento + Consumibles | Envíos con albarán Holded, pallets retornables por cliente, control de stock |
+| **Semana 4** | Calidad + Incidencias + Dashboards + Polish mobile | 5 dashboards KPI, registros de calidad por lote, vista simplificada móvil para operarios |
+
+**Entrega final:** Semana 4 — versión funcional en producción (Vercel + Neon).
+
+> *Las integraciones con Gestruck (básculas) e impresora de etiquetas están condicionadas a la validación técnica con José (Melder) — se realizan en paralelo durante las semanas 1-2.*
+
+---
+
 ## Context
 
 Luvi2000 procesa plástico reciclado 24/7. Reciben material en sacas (big bags), lo clasifican industrialmente y venden el output por kg/TM. Actualmente gestionan con Excel y sistemas no integrados. Se ha validado un prototipo funcional con la cliente (Paula Pascual, Directora de Logística) en sesiones de Discovery que incluyen feedback concreto sobre flujos, naming y UX.
@@ -343,6 +360,172 @@ Con 2 devs en paralelo (Fases 2-11 son paralelizables): **~3 semanas** de desarr
 - `project-structure/.claude/` — Todo el directorio .claude a copiar y adaptar
 - `vicleoga/Luvi2000_Gigson/backend/server.py` — 75+ endpoints y 20+ modelos a migrar a TypeScript+Prisma
 - `vicleoga/Luvi2000_Gigson/frontend/src/pages/` — 15 páginas a migrar a Next.js App Router
+
+---
+
+## Arquitectura de conectividad — Gestruck (báscula en red local)
+
+### El problema
+
+La báscula expone su API en `http://192.168.1.200:5050/api/v1/weighing/search` — una IP privada de red local en la planta de Montalbos. La webapp corre en Vercel (Internet). **Vercel nunca puede alcanzar esa IP directamente.**
+
+### Opciones evaluadas
+
+| Opción | Cómo funciona | Pros | Contras |
+|--------|--------------|------|---------|
+| **A — Cloudflare Tunnel (recomendada)** | Proceso `cloudflared` en la red local que expone la IP interna como URL pública HTTPS | Sin abrir puertos, sin VPN, HTTPS automático, gratuito, transparente para la app | Requiere instalar `cloudflared` en un PC de la planta (siempre encendido) |
+| **B — Agente local (alternativa)** | Un proceso Node.js en un PC de la planta hace polling a Gestruck y publica en la app vía webhook | Sin VPN, sin infra adicional | Requiere mantener proceso Node corriendo 24/7 |
+| **C — VPN Site-to-Site** | Túnel IPSec/WireGuard entre el router de Montalbos y un servidor VPS | Acceso total a la red local, muy robusto | Requiere router compatible + configuración de red en planta + coste de servidor VPS |
+| **D — Fetch desde el navegador de Laura** | El browser de Laura (en la red local) llama a `192.168.1.200:5050` directamente | Zero infra | Solo funciona desde ese PC; CORS; no funciona desde Valencia ni móvil |
+
+### Solución recomendada: VPN Site-to-Site con WireGuard
+
+**Por qué WireGuard y no Cloudflare Tunnel:** Cloudflare tiene conflictos judiciales activos con LaLiga en España y puede tener caídas o bloqueos parciales durante partidos de fútbol. Para un sistema industrial 24/7, la fiabilidad es crítica.
+
+**WireGuard** es un protocolo VPN moderno, rápido y de código abierto. La solución consiste en un VPS (servidor privado virtual) que actúa de punto de conexión permanente.
+
+#### Arquitectura
+
+```
+[Gestruck 192.168.1.200:5050 — red local Montalbos]
+        ↓ WireGuard (UDP 51820, conexión saliente)
+[VPS — p.ej. Hetzner/DigitalOcean ~5€/mes]
+  IP pública fija: 123.45.67.89
+        ↓ reverse proxy (nginx/caddy)
+[Vercel — /api/gestruck/weight]
+        ↓
+[Frontend Next.js]
+```
+
+#### Qué se necesita
+
+| Componente | Detalle | Coste |
+|-----------|---------|-------|
+| **VPS** | 1 CPU / 1GB RAM — Hetzner CX11 o DigitalOcean Droplet | ~5€/mes |
+| **Dominio/subdominio** | `gestruck.luvi2000.es` apunta a IP del VPS | Ya tenéis dominio |
+| **WireGuard en VPS** | `apt install wireguard` — configuración 20 min | Gratis |
+| **WireGuard en planta** | PC Windows con [WireGuard for Windows](https://www.wireguard.com/install/) | Gratis |
+| **Nginx en VPS** | Reverse proxy HTTP → IP privada Gestruck | Gratis |
+
+#### Setup paso a paso
+
+**1. VPS (Gigson lo configura remotamente):**
+```bash
+# Instalar WireGuard + Nginx
+apt install wireguard nginx certbot python3-certbot-nginx
+
+# Generar claves VPS
+wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey
+
+# Config /etc/wireguard/wg0.conf
+[Interface]
+Address = 10.0.0.1/24
+ListenPort = 51820
+PrivateKey = <clave-privada-vps>
+
+[Peer]  # PC planta Montalbos
+PublicKey = <clave-publica-pc-planta>
+AllowedIPs = 10.0.0.2/32
+```
+
+**2. PC planta Montalbos (José lo instala):**
+- Descargar WireGuard for Windows (exe, 5 min)
+- Importar fichero de configuración que Gigson le envía:
+```ini
+[Interface]
+PrivateKey = <clave-privada-pc-planta>
+Address = 10.0.0.2/24
+DNS = 1.1.1.1
+
+[Peer]  # VPS
+PublicKey = <clave-publica-vps>
+Endpoint = 123.45.67.89:51820
+AllowedIPs = 10.0.0.1/32
+PersistentKeepalive = 25
+```
+- Activar "Run on startup" en WireGuard Windows → conecta automáticamente
+
+**3. Nginx en VPS (reverse proxy):**
+```nginx
+server {
+    listen 443 ssl;
+    server_name gestruck.luvi2000.es;
+
+    location / {
+        # Redirige a Gestruck a través del túnel VPN
+        proxy_pass http://10.0.0.2:5050;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+**Resultado:** `GESTRUCK_API_URL=https://gestruck.luvi2000.es` en Vercel. Independiente de Cloudflare, operativo 24/7.
+
+#### Fiabilidad y redundancia
+
+- Si el PC de la planta se apaga → WireGuard se reconecta solo al arrancar
+- Si el VPS tiene problemas → Luvi cae al fallback manual (ya implementado)
+- `PersistentKeepalive = 25` mantiene el túnel activo aunque no haya tráfico
+- El VPS puede tener SLA 99.9% (Hetzner, DigitalOcean)
+
+### Cambios de código en el proxy
+
+**Archivo:** `src/app/api/gestruck/weight/route.ts`
+
+```diff
+- const res = await fetch(`${gestruck_url}/scale/${scaleId}/weight`, {
++ const res = await fetch(`${gestruck_url}/api/v1/weighing/search`, {
+    headers: { "ApiKey": gestruck_key ?? "" },
+```
+
+Schema de respuesta (`WeighingViewDto`) a confirmar con José via `http://192.168.1.200/swagger/index.html`.
+
+### Variables de entorno
+
+```env
+GESTRUCK_API_URL="https://gestruck.luvi2000.es"
+GESTRUCK_API_KEY="<ApiKey de producción — pedir a José>"
+
+# Desarrollo local (en la misma red que la báscula):
+# GESTRUCK_API_URL="http://192.168.1.200:5050"
+```
+
+### Lo que sabemos de la API Gestruck (Swagger demo: api.gesnet.giropes-solutions.com)
+
+**Autenticación:** Header `ApiKey` requerido en todos los endpoints.
+
+**Endpoints relevantes:**
+- `GET /api/v1/weighing/search` — Búsqueda de pesajes con filtros: `StartDate`, `EndDate`, `Vehicle`, `DriverCode`, `OrderCode`, `Status`, `Page`, `Size`
+- `POST /api/v1/externalweigher/addnetweighing/{identifier}/{code}` — Registrar pesaje neto desde sistema externo. **Retorna `WeighingViewDto`** — también puede usarse como webhook inverso.
+
+**Schema de respuesta `WeighingViewDto`:** propiedades exactas pendientes de confirmar con José (el Swagger demo lo trunca).
+
+### Estrategia de ingesta — dos modos
+
+**Modo 1 — Pull/polling (implementar primero):**
+```
+Frontend Recepciones
+  → polling cada 5s mientras hay contenedor pendiente de pesar
+  → GET /api/gestruck/weight?vehicle=XX
+  → proxy Next.js → GET /api/v1/weighing/search?Vehicle=XX&Status=Completed
+  → mapear WeighingViewDto → { weight, weighedAt, scaleId }
+  → autofill en formulario de recepción
+```
+
+**Modo 2 — Push/webhook (mejora futura si José puede configurarlo):**
+```
+Gestruck termina pesaje
+  → POST https://luvi.vercel.app/api/gestruck/webhook
+  → Server Action actualiza Container automáticamente
+  → notificación en tiempo real al operador
+```
+
+### Pendiente de validar con José (técnico Melder)
+
+1. **ApiKey** de producción (IP 192.168.1.200) — o si en red local no requiere auth
+2. **Schema exacto** del `WeighingViewDto` — visitar `http://192.168.1.200/swagger/index.html`
+3. **¿Puede Gestruck configurar un webhook** que haga POST a nuestra URL al terminar un pesaje?
+4. **PC disponible** en la planta para el túnel Cloudflare (siempre encendido)
 
 ---
 
