@@ -2,18 +2,145 @@
 
 ---
 
-## Plan de proyecto para cliente — 4 semanas
+## Plan de proyecto para cliente — 6 semanas
 
-| Semana | Entregable | Qué ve el cliente |
-|--------|-----------|-------------------|
-| **Semana 1** | Estructura base + Login + Recepciones | Login funcionando, registro de contenedores con pesaje (manual o Gestruck), generación de sacas con QR |
-| **Semana 2** | Almacén + Producción + Trazabilidad | Vista de ocupación por zonas, flujo de tolva, lotes autogenerados (DDMMYY-nºcamión), escaneo QR |
-| **Semana 3** | Expediciones + Aprovisionamiento + Consumibles | Envíos con albarán Holded, pallets retornables por cliente, control de stock |
-| **Semana 4** | Calidad + Incidencias + Dashboards + Polish mobile | 5 dashboards KPI, registros de calidad por lote, vista simplificada móvil para operarios |
+### Resumen ejecutivo
 
-**Entrega final:** Semana 4 — versión funcional en producción (Vercel + Neon).
+| | |
+|--|--|
+| **Inicio** | Semana 0 — validaciones técnicas e infra en paralelo con el arranque del desarrollo |
+| **Entrega beta** | Final semana 4 — aplicación completa para validación con cliente |
+| **Entrega producción** | Final semana 6 — versión estable, testeada y desplegada |
+| **Stack** | Next.js 16 + Prisma + NextAuth v5 — desplegado en Vercel + Neon |
+| **Integraciones** | Gestruck (básculas), Holded (albaranes), impresora etiquetas (ZPL) |
 
-> *Las integraciones con Gestruck (básculas) e impresora de etiquetas están condicionadas a la validación técnica con José (Melder) — se realizan en paralelo durante las semanas 1-2.*
+---
+
+### Timeline
+
+#### Semana 0 — Infra y validaciones técnicas *(en paralelo con Semana 1)*
+
+> Responsable conjunto: Gigson + José (Melder) + Paula (Luvi2000)
+> Objetivo: desbloquear integraciones antes de que el desarrollo las necesite.
+
+| Tarea | Quién | Bloquea |
+|-------|-------|---------|
+| Configurar VPS (Hetzner ~5€/mes) + WireGuard + Nginx | Gigson | Integración Gestruck |
+| Instalar WireGuard for Windows en PC planta Montalbos | José (Melder) | Integración Gestruck |
+| Validar API Gestruck: `ApiKey`, schema `WeighingViewDto`, Swagger en `192.168.1.200/swagger` | Gigson + José | Módulo Recepciones |
+| Confirmar marca y modelo impresora de etiquetas | Paula | QR en Recepciones |
+| Confirmar Holded: `ApiKey`, permisos de API, sandbox disponible | Paula | Módulo Expediciones |
+| Configurar Vercel + Neon (entornos producción y preview) | Gigson | Todo el desarrollo |
+| Identificar el PC de planta que queda siempre encendido para el túnel VPN | Paula / José | Conectividad báscula |
+
+---
+
+#### Semana 1 — Fundaciones + Recepciones
+
+> **Qué ve Paula al final de la semana:** Login funcional con roles, registro de contenedores con pesaje (Gestruck o manual), generación automática de sacas con QR imprimible.
+
+| | |
+|-|-|
+| Auth + RBAC | Login credenciales, 4 roles, sidebar filtrado por rol |
+| Prisma schema | 20+ modelos: Sack (10 estados), Lote, Container, Shipment… |
+| UI base | Sidebar, layout, componentes, tema Industrial Zen |
+| **Recepciones** | Registro de contenedor, absorción peso Gestruck (polling + fallback manual), generación de sacas, cola impresión QR |
+
+---
+
+#### Semana 2 — Almacén + Producción + Trazabilidad
+
+> **Qué ve Paula:** Zonas de almacén con ocupación en tiempo real, flujo completo de producción con lotes autogenerados (`DDMMYY-nºcamión`), trazabilidad forward/backward escaneando QR.
+
+| | |
+|-|-|
+| **Almacén** | Mapa de zonas, ocupación actual + proyección, listado sacas, traslados |
+| **Producción** | Entrada tolva (QR), saca de salida (PT / Subproducto / Rechazo), autogeneración lote |
+| **Trazabilidad** | QR → cadena atrás (proveedor → camión → lote) + adelante (envío → comprador) |
+
+*Hito: demo remota 1h con Paula — Semana 2.*
+
+---
+
+#### Semana 3 — Expediciones + Aprovisionamiento + Consumibles
+
+> **Qué ve Paula:** Envíos con albarán generado en Holded, control de pallets retornables por cliente, stock de consumibles con alertas.
+
+| | |
+|-|-|
+| **Expediciones** | Crear envío, confirmar → albarán en Holded, pallets retornables por cliente |
+| **Aprovisionamiento** | Órdenes de compra, tránsito marítimo, ETA planta |
+| **Consumibles** | Stock pallets / sacas vacías / capuchones, alertas de mínimo |
+
+---
+
+#### Semana 4 — Calidad + Incidencias + Dashboards + Mobile
+
+> **Qué ve Paula:** Beta completa. 5 dashboards KPI, registros de calidad por lote, incidencias con foto, vista móvil para operarios.
+
+| | |
+|-|-|
+| **Calidad** | Registro por lote (densidad, % PVC, cola…), validación OK/NOK, promedios proveedor |
+| **Incidencias** | Creación con foto (Cloudflare R2), lifecycle, comparativa mensual |
+| **Dashboards** | 5 dashboards: Almacén, Logística, Producción, Calidad, Aprovisionamiento + filtros fecha |
+| **Mobile OPERARIO** | Vista simplificada 4-5 acciones, QR scanner con cámara |
+
+**→ Entrega beta a Paula — acceso a entorno de staging con datos de prueba.**
+
+---
+
+#### Semana 5 — Validación con cliente + Ajustes
+
+> **Objetivo:** Recoger feedback real del equipo, corregir, ajustar UX, y validar las integraciones con hardware físico.
+
+| Actividad | Detalle |
+|-----------|---------|
+| Sesión de validación | Demo presencial o remota con Paula + operarios planta Montalbos |
+| QA E2E con datos reales | Recepción → Producción → Expedición → Trazabilidad |
+| QA Gestruck en planta | Prueba con básculas físicas; validar protocolo SIGS báscula pequeña |
+| QA impresora | Imprimir etiquetas QR reales; ajustar template ZPL si es necesario |
+| Ajustes post-validación | Correcciones de UX, naming, edge cases detectados por el equipo |
+
+---
+
+#### Semana 6 — Hardening + Entrega en producción
+
+> **Objetivo:** Versión estable, segura y documentada. Go-live.
+
+| Actividad | Detalle |
+|-----------|---------|
+| Tests automatizados | Auth flow, Recepción E2E, Expedición E2E |
+| Seguridad | Audit RBAC, variables Vercel, headers HTTP |
+| Performance | Typecheck limpio, build sin warnings, Core Web Vitals |
+| Documentación | Guía de onboarding para operarios (1 página) |
+| Formación | Sesión 1h con Paula y Laura — walkthrough completo |
+| Go-live | Dominio producción, credenciales iniciales, monitorización 48h |
+
+**→ Entrega oficial en producción.**
+
+---
+
+### Dependencias que pueden retrasar el plan
+
+| Dependencia | Semana límite | Plan B si no está |
+|------------|---------------|-------------------|
+| VPS + WireGuard configurado | Inicio semana 2 | Gestruck funciona con entrada manual |
+| ApiKey Gestruck + schema Swagger | Inicio semana 2 | Recepciones funciona con peso manual |
+| Marca/modelo impresora | Inicio semana 2 | QR se genera pero sin impresión física |
+| Sandbox Holded + ApiKey | Inicio semana 3 | Expediciones sin albarán automático |
+| Acceso físico a planta para QA | Semana 5 | Validación remota (menos ideal) |
+
+---
+
+### Hitos de comunicación
+
+| Hito | Semana | Formato |
+|------|--------|---------|
+| Kickoff + confirmación de validaciones pendientes | 0 | Call 30 min |
+| Demo intermedia: Login + Recepciones + Almacén | 2 | Demo remota 1h |
+| Entrega beta completa | 4 | Demo + acceso a staging |
+| Sesión de validación con operarios | 5 | Presencial en planta |
+| Go-live + formación | 6 | Presencial en planta |
 
 ---
 
