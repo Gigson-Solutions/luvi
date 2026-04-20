@@ -14,6 +14,15 @@
 | **Stack** | Next.js 16 + Prisma + NextAuth v5 — desplegado en Vercel + Neon |
 | **Integraciones** | Gestruck (básculas), Holded (albaranes), impresora etiquetas (ZPL) |
 
+> **Por qué 6 semanas es alcanzable**
+>
+> Gigson ya dispone de un prototipo funcional y validado con el equipo de Luvi2000 — desarrollado en Emergent (React + FastAPI + MongoDB) con las **15 pantallas principales** y **75+ endpoints** de negocio operativos. Este prototipo ha sido validado directamente con Paula, lo que significa:
+> - Todos los flujos de negocio están definidos y validados (no hay discovery pendiente)
+> - El naming, UX y decisiones de dominio ya están acordadas con el cliente
+> - La lógica de negocio ya existe — el trabajo es **migración** a la stack de producción, no diseño desde cero
+>
+> La nueva webapp migra este prototipo a Next.js + Prisma + PostgreSQL con mejoras de stack (tipado, RBAC, integraciones reales, impresora, móvil). El desarrollo con Claude Code se estima en **~170h** (vs 407h sin asistencia AI), una reducción del 58% posible gracias al prototipo como referencia directa.
+
 ---
 
 ### Timeline
