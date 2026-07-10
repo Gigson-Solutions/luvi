@@ -1,7 +1,16 @@
-import { PrismaClient, UserRole, MaterialType, ConsumableType } from "@prisma/client";
+import "dotenv/config";
+import {
+  PrismaClient,
+  UserRole,
+  MaterialType,
+  ConsumableType,
+} from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { hash } from "crypto";
 
-const prisma = new PrismaClient();
+// Prisma 7 exige adapter explícito. Seed corre en local (Postgres/Docker) → node-postgres.
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter });
 
 async function hashPassword(password: string): Promise<string> {
   // En producción usar bcrypt — aquí SHA256 solo para seed
@@ -124,9 +133,24 @@ async function main() {
 
   // ─── Consumibles ──────────────────────────────────────────────────────────
   const consumables = [
-    { type: ConsumableType.PALLET, name: "Pallet Europeo", currentStock: 100, minStock: 20 },
-    { type: ConsumableType.SACA_VACIA, name: "Saca vacía 1000L", currentStock: 500, minStock: 100 },
-    { type: ConsumableType.CAPUCHON, name: "Capuchón PE transparente", currentStock: 500, minStock: 100 },
+    {
+      type: ConsumableType.PALLET,
+      name: "Pallet Europeo",
+      currentStock: 100,
+      minStock: 20,
+    },
+    {
+      type: ConsumableType.SACA_VACIA,
+      name: "Saca vacía 1000L",
+      currentStock: 500,
+      minStock: 100,
+    },
+    {
+      type: ConsumableType.CAPUCHON,
+      name: "Capuchón PE transparente",
+      currentStock: 500,
+      minStock: 100,
+    },
   ];
 
   for (const cons of consumables) {

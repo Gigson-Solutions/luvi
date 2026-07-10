@@ -8,7 +8,14 @@ const { auth } = NextAuth(authConfig);
 
 // Rutas accesibles por rol
 const ROLE_ROUTES: Record<UserRole, string[]> = {
-  OPERARIO: ["/recepciones", "/produccion", "/trazabilidad", "/almacen"],
+  OPERARIO: [
+    "/operario",
+    "/recepciones",
+    "/produccion",
+    "/trazabilidad",
+    "/almacen",
+    "/incidencias",
+  ],
   ADMINISTRACION: [
     "/recepciones",
     "/almacen",
@@ -35,36 +42,42 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
   ADMIN: [], // acceso a todo
 };
 
-export default auth((req: NextRequest & { auth: { user?: { role?: string } } | null }) => {
-  const isLoggedIn = !!req.auth;
-  const { pathname } = req.nextUrl;
-  const isLoginPage = pathname === "/login";
-  const isApiAuth = pathname.startsWith("/api/auth");
-  const isApiRoute = pathname.startsWith("/api/");
+// Página de inicio según rol (el operario tiene su vista móvil propia).
+function homeFor(role?: UserRole): string {
+  return role === UserRole.OPERARIO ? "/operario" : "/dashboards";
+}
 
-  if (isApiAuth || isApiRoute) return NextResponse.next();
-  if (!isLoggedIn && !isLoginPage) {
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
-  if (isLoggedIn && isLoginPage) {
-    return NextResponse.redirect(new URL("/dashboards", req.url));
-  }
+export default auth(
+  (req: NextRequest & { auth: { user?: { role?: string } } | null }) => {
+    const isLoggedIn = !!req.auth;
+    const { pathname } = req.nextUrl;
+    const isLoginPage = pathname === "/login";
+    const isApiAuth = pathname.startsWith("/api/auth");
+    const isApiRoute = pathname.startsWith("/api/");
+    const role = req.auth?.user?.role as UserRole | undefined;
 
-  if (!isLoggedIn) return NextResponse.next();
+    if (isApiAuth || isApiRoute) return NextResponse.next();
+    if (!isLoggedIn && !isLoginPage) {
+      return NextResponse.redirect(new URL("/login", req.url));
+    }
+    if (isLoggedIn && isLoginPage) {
+      return NextResponse.redirect(new URL(homeFor(role), req.url));
+    }
 
-  const role = req.auth?.user?.role as UserRole | undefined;
-  if (!role) return NextResponse.next();
-  if (role === UserRole.ADMIN) return NextResponse.next();
+    if (!isLoggedIn) return NextResponse.next();
+    if (!role) return NextResponse.next();
+    if (role === UserRole.ADMIN) return NextResponse.next();
 
-  const allowedRoutes = ROLE_ROUTES[role] ?? [];
-  const isAllowed = allowedRoutes.some((route) => pathname.startsWith(route));
+    const allowedRoutes = ROLE_ROUTES[role] ?? [];
+    const isAllowed = allowedRoutes.some((route) => pathname.startsWith(route));
 
-  if (!isAllowed && pathname !== "/") {
-    return NextResponse.redirect(new URL("/dashboards", req.url));
-  }
+    if (!isAllowed && pathname !== "/") {
+      return NextResponse.redirect(new URL(homeFor(role), req.url));
+    }
 
-  return NextResponse.next();
-});
+    return NextResponse.next();
+  },
+);
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

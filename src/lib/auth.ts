@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import type { Adapter } from "next-auth/adapters";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./prisma";
@@ -10,7 +11,10 @@ const loginSchema = z.object({
   password: z.string().min(6),
 });
 
-async function verifyPassword(password: string, hash: string): Promise<boolean> {
+async function verifyPassword(
+  password: string,
+  hash: string,
+): Promise<boolean> {
   // TODO: reemplazar con bcrypt.compare en producción
   const { createHash } = await import("crypto");
   return createHash("sha256").update(password).digest("hex") === hash;
@@ -18,7 +22,8 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
-  adapter: PrismaAdapter(prisma),
+  // Cast: desfase de patch entre @auth/core que arrastran next-auth y prisma-adapter.
+  adapter: PrismaAdapter(prisma) as Adapter,
   session: { strategy: "jwt" },
   providers: [
     Credentials({

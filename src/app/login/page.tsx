@@ -2,11 +2,12 @@ import { signIn } from "@/lib/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { error?: string };
-}): React.JSX.Element {
+  searchParams: Promise<{ error?: string }>;
+}): Promise<React.JSX.Element> {
+  const { error } = await searchParams;
   async function login(formData: FormData) {
     "use server";
     try {
@@ -29,7 +30,9 @@ export default function LoginPage({
         {/* Logo / marca */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--color-primary)] mb-4">
-            <span className="text-white font-bold text-2xl font-[var(--font-public-sans)]">L</span>
+            <span className="text-white font-bold text-2xl font-[var(--font-public-sans)]">
+              L
+            </span>
           </div>
           <h1 className="text-white text-2xl font-semibold">Luvi</h1>
           <p className="text-[var(--color-sidebar-text)] text-sm mt-1">
@@ -39,7 +42,7 @@ export default function LoginPage({
 
         {/* Card */}
         <div className="bg-[var(--color-surface)] rounded-2xl p-8 shadow-xl">
-          {searchParams.error && (
+          {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
               Credenciales incorrectas. Inténtalo de nuevo.
             </div>
