@@ -13,9 +13,5 @@ declare module "next-auth" {
   }
 }
 
-declare module "next-auth/jwt" {
-  interface JWT {
-    id: string;
-    role: UserRole;
-  }
-}
+// Nota: la augmentación de "next-auth/jwt" da TS2664 bajo moduleResolution "bundler".
+// El callback jwt() en auth.ts ya castea token.id/token.role, así que no es necesaria.
