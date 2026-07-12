@@ -1,15 +1,353 @@
+import Link from "next/link";
+import { Package, Warehouse as WarehouseIcon } from "lucide-react";
+import { SackStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  StatCard,
+} from "@/components/ui/card";
+import { SackStatusBadge, SACK_LABELS } from "@/components/ui/status-badge";
+import { formatKg } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import {
+  getWarehouseOverview,
+  listSacks,
+  getWarehouseFilterData,
+} from "@/lib/services/warehouse.service";
+import { MoveSackDialog } from "./warehouse-client";
 
-export default function AlmacenPage(): React.JSX.Element {
+const STATUS_VALUES = Object.values(SackStatus);
+
+function isSackStatus(value: string | undefined): value is SackStatus {
+  return value !== undefined && (STATUS_VALUES as string[]).includes(value);
+}
+
+/** Construye una query string preservando los filtros no modificados. */
+function buildQuery(params: {
+  status?: string;
+  material?: string;
+  zone?: string;
+}): string {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.material) qs.set("material", params.material);
+  if (params.zone) qs.set("zone", params.zone);
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
+export default async function AlmacenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; material?: string; zone?: string }>;
+}): Promise<React.JSX.Element> {
+  const params = await searchParams;
+  const statusFilter = isSackStatus(params.status) ? params.status : undefined;
+  const materialFilter = params.material || undefined;
+  const zoneFilter = params.zone || undefined;
+
+  const [overview, sacks, filterData] = await Promise.all([
+    getWarehouseOverview(),
+    listSacks({
+      status: statusFilter,
+      materialId: materialFilter,
+      zoneId: zoneFilter,
+    }),
+    getWarehouseFilterData(),
+  ]);
+
   return (
     <div>
       <PageHeader
         title="Almacén"
-        description="Zonas, sacas, ocupación actual y proyección."
+        description="Ocupación por zona, inventario de sacas y traslados entre zonas."
       />
-      <p className="text-[var(--color-muted)] text-sm mt-8">
-        Módulo pendiente de implementar — Fase 3 del plan de desarrollo.
-      </p>
+
+      {/* StatCards — totales globales */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+        <StatCard
+          label="Sacas en almacén"
+          value={overview.stats.totalSacks}
+          accent="var(--color-primary)"
+        />
+        <StatCard label="Peso total" value={formatKg(overview.stats.totalKg)} />
+        <StatCard
+          label="Zonas al límite"
+          value={overview.stats.zonesAtLimit}
+          accent={
+            overview.stats.zonesAtLimit > 0
+              ? "var(--color-status-rechazo)"
+              : "var(--color-muted)"
+          }
+        />
+      </div>
+
+      {/* ─── Ocupación por zona, agrupada por almacén ─── */}
+      <section className="mb-10 space-y-6">
+        <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+          Ocupación por zona
+        </h2>
+        {overview.warehouses.length === 0 ? (
+          <EmptyState
+            icon={WarehouseIcon}
+            title="No hay almacenes configurados"
+            description="Configura almacenes y zonas para ver su ocupación."
+          />
+        ) : (
+          overview.warehouses.map((wh) => (
+            <Card key={wh.id}>
+              <CardHeader className="flex items-center justify-between">
+                <CardTitle>
+                  {wh.name}
+                  <span className="ml-2 font-normal text-[var(--color-muted)]">
+                    {wh.code}
+                  </span>
+                </CardTitle>
+                <span className="text-xs text-[var(--color-muted)]">
+                  {wh.totalSacks}/{wh.totalCapacity} sacas
+                </span>
+              </CardHeader>
+              <CardContent>
+                {wh.zones.length === 0 ? (
+                  <p className="text-sm text-[var(--color-muted)]">
+                    Sin zonas configuradas.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {wh.zones.map((z) => (
+                      <div key={z.id}>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <Link
+                            href={`/almacen${buildQuery({ zone: z.id })}`}
+                            className="font-medium text-[var(--color-foreground)] hover:underline"
+                          >
+                            {z.name}
+                            <span className="ml-1.5 text-xs font-normal text-[var(--color-muted)]">
+                              {z.code}
+                            </span>
+                          </Link>
+                          <span
+                            className={cn(
+                              "text-xs tabular-nums",
+                              z.atLimit
+                                ? "text-[var(--color-status-rechazo)] font-medium"
+                                : "text-[var(--color-muted)]",
+                            )}
+                          >
+                            {z.sackCount}/{z.maxCapacity} · {z.pct}%
+                          </span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-[var(--color-surface-hover)] overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${z.pct}%`,
+                              backgroundColor: z.atLimit
+                                ? "var(--color-status-rechazo)"
+                                : "var(--color-primary)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </section>
+
+      {/* ─── Inventario de sacas + filtros ─── */}
+      <section>
+        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
+          Inventario de sacas
+          <span className="ml-2 font-normal text-[var(--color-muted)]">
+            {sacks.length}
+          </span>
+        </h2>
+
+        {/* Filtro por estado */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
+            Estado:
+          </span>
+          <FilterChip
+            href={buildQuery({ material: materialFilter, zone: zoneFilter })}
+            active={!statusFilter}
+            label="Todos"
+          />
+          {STATUS_VALUES.map((s) => (
+            <FilterChip
+              key={s}
+              href={buildQuery({
+                status: s,
+                material: materialFilter,
+                zone: zoneFilter,
+              })}
+              active={statusFilter === s}
+              label={SACK_LABELS[s]}
+            />
+          ))}
+        </div>
+
+        {/* Filtro por material */}
+        {filterData.materials.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
+              Material:
+            </span>
+            <FilterChip
+              href={buildQuery({ status: statusFilter, zone: zoneFilter })}
+              active={!materialFilter}
+              label="Todos"
+            />
+            {filterData.materials.map((m) => (
+              <FilterChip
+                key={m.id}
+                href={buildQuery({
+                  status: statusFilter,
+                  material: m.id,
+                  zone: zoneFilter,
+                })}
+                active={materialFilter === m.id}
+                label={m.name}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Filtro por zona */}
+        {filterData.zones.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
+              Zona:
+            </span>
+            <FilterChip
+              href={buildQuery({
+                status: statusFilter,
+                material: materialFilter,
+              })}
+              active={!zoneFilter}
+              label="Todas"
+            />
+            {filterData.zones.map((z) => (
+              <FilterChip
+                key={z.id}
+                href={buildQuery({
+                  status: statusFilter,
+                  material: materialFilter,
+                  zone: z.id,
+                })}
+                active={zoneFilter === z.id}
+                label={`${z.warehouseName} · ${z.name}`}
+              />
+            ))}
+          </div>
+        )}
+
+        {sacks.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="No hay sacas"
+            description="No se han encontrado sacas con los filtros seleccionados."
+          />
+        ) : (
+          <Table>
+            <THead>
+              <TR>
+                <TH>QR</TH>
+                <TH>Material</TH>
+                <TH>Peso</TH>
+                <TH>Estado</TH>
+                <TH>Zona</TH>
+                <TH>Lote / Contenedor</TH>
+                <TH className="text-right">Acción</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {sacks.map((s) => (
+                <TR key={s.id}>
+                  <TD className="font-medium">
+                    <Link
+                      href={`/almacen/${s.id}`}
+                      className="text-[var(--color-primary)] hover:underline"
+                    >
+                      {s.qrCode}
+                    </Link>
+                  </TD>
+                  <TD>{s.material.name}</TD>
+                  <TD>{formatKg(s.weight)}</TD>
+                  <TD>
+                    <SackStatusBadge status={s.status} />
+                  </TD>
+                  <TD>
+                    {s.zone ? (
+                      <span>
+                        {s.zone.warehouse.name} · {s.zone.name}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TD>
+                  <TD>
+                    {s.lot ? (
+                      <span className="text-[var(--color-foreground)]">
+                        {s.lot.lotNumber}
+                      </span>
+                    ) : s.container ? (
+                      <span className="text-[var(--color-muted)]">
+                        {s.container.reference}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TD>
+                  <TD className="text-right">
+                    {s.status === SackStatus.EN_ALMACEN && (
+                      <MoveSackDialog
+                        sackId={s.id}
+                        qrCode={s.qrCode}
+                        currentZoneId={s.zoneId}
+                        zones={filterData.zones}
+                      />
+                    )}
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </section>
     </div>
+  );
+}
+
+function FilterChip({
+  href,
+  active,
+  label,
+}: {
+  href: string;
+  active: boolean;
+  label: string;
+}): React.JSX.Element {
+  return (
+    <Link
+      href={`/almacen${href}`}
+      className={cn(
+        "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+        active
+          ? "bg-[var(--color-primary)] text-white"
+          : "bg-[var(--color-surface-hover)] text-[var(--color-foreground)] hover:bg-[var(--color-border)]",
+      )}
+    >
+      {label}
+    </Link>
   );
 }
