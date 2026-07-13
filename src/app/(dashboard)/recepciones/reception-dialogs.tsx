@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useEffect } from "react";
+import { useActionState, useState } from "react";
 import { Plus, Scale, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,7 @@ interface Option {
   warehouseName?: string;
 }
 
-interface FormData {
+interface ReceptionOptions {
   suppliers: Option[];
   materials: Option[];
   zones: Option[];
@@ -40,13 +40,16 @@ interface FormData {
 export function NewReceptionDialog({
   suppliers,
   materials,
-}: FormData): React.JSX.Element {
+}: ReceptionOptions): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [state, action] = useActionState(registerContainerAction, INITIAL);
-
-  useEffect(() => {
-    if (state.ok) setOpen(false);
-  }, [state.ok]);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await registerContainerAction(prev, formData);
+      if (result.ok) setOpen(false);
+      return result;
+    },
+    INITIAL,
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -167,15 +170,18 @@ export function ReceiveDialog({
   estimatedSacks?: number | null;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [state, action] = useActionState(weighAndConfirmAction, INITIAL);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await weighAndConfirmAction(prev, formData);
+      if (result.ok) setOpen(false);
+      return result;
+    },
+    INITIAL,
+  );
   const [weight, setWeight] = useState("");
   const [source, setSource] = useState<"gestruck" | "manual">("manual");
   const [reading, setReading] = useState(false);
   const [readMsg, setReadMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (state.ok) setOpen(false);
-  }, [state.ok]);
 
   async function readFromScale(): Promise<void> {
     setReading(true);

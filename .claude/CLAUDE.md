@@ -11,16 +11,16 @@ Webapp de logística industrial para **Luvi2000**, empresa que procesa plástico
 
 ## Stack
 
-| Capa | Tecnología |
-|------|-----------|
-| Framework | Next.js 16 (App Router) + TypeScript |
-| ORM | Prisma v7 + PostgreSQL (Neon serverless) |
-| Auth | NextAuth v5 + credenciales (sin SSO) |
-| UI | Radix UI + Tailwind CSS v4 |
-| Forms | React Hook Form + Zod |
-| Charts | Recharts |
-| Package manager | pnpm |
-| Deploy | Vercel + Neon |
+| Capa            | Tecnología                               |
+| --------------- | ---------------------------------------- |
+| Framework       | Next.js 16 (App Router) + TypeScript     |
+| ORM             | Prisma v7 + PostgreSQL (Neon serverless) |
+| Auth            | NextAuth v5 + credenciales (sin SSO)     |
+| UI              | Radix UI + Tailwind CSS v4               |
+| Forms           | React Hook Form + Zod                    |
+| Charts          | Recharts                                 |
+| Package manager | pnpm                                     |
+| Deploy          | Vercel + Neon                            |
 
 ---
 
@@ -28,13 +28,13 @@ Webapp de logística industrial para **Luvi2000**, empresa que procesa plástico
 
 ⚠️ Respetar siempre este naming en código, UI, comentarios y variables:
 
-| ❌ Evitar | ✅ Usar |
-|-----------|---------|
-| Despachado | **Expedido** |
-| Lote de salida | **Lote** (siempre con fecha de producción) |
-| Saca de salida | **Producto Terminado / Subproducto / Rechazo** |
-| Transporte | **Aprovisionamiento** (para importaciones de MP) |
-| Camiones pendientes de pesaje | **Contenedores/Camiones pendientes de recibir** |
+| ❌ Evitar                     | ✅ Usar                                          |
+| ----------------------------- | ------------------------------------------------ |
+| Despachado                    | **Expedido**                                     |
+| Lote de salida                | **Lote** (siempre con fecha de producción)       |
+| Saca de salida                | **Producto Terminado / Subproducto / Rechazo**   |
+| Transporte                    | **Aprovisionamiento** (para importaciones de MP) |
+| Camiones pendientes de pesaje | **Contenedores/Camiones pendientes de recibir**  |
 
 ---
 
@@ -75,6 +75,7 @@ enum SackStatus {
 ## Flujos clave
 
 ### Recepción (Módulo Recepciones)
+
 1. Paula/Alejandro registran el contenedor previamente desde Valencia
 2. Laura (planta Montalbos) pesa en Gestruck → app absorbe automáticamente
 3. Laura añade campos post-pesaje: almacén destino, nº sacas, palés
@@ -83,6 +84,7 @@ enum SackStatus {
 **Importante:** No hay "sacas sin ubicar". El almacén destino se asigna siempre al registrar.
 
 ### Producción (Módulo Producción)
+
 1. Operario escanea QR de saca → confirma entrada a tolva
 2. Operario registra saca de salida: PT / Subproducto / Rechazo
 3. Nº de lote se **autogenera** con formato `DDMMYY-nºcamión` (operario solo confirma)
@@ -90,6 +92,7 @@ enum SackStatus {
 5. Subproductos/Rechazos crean lote manualmente (o se añaden a lote existente)
 
 ### Expedición (Módulo Expediciones)
+
 1. Crear envío: comprador + lotes + transportista
 2. Confirmar expedición → genera albarán en Holded automáticamente
 3. Holded NO sincroniza inventario — la app es la única fuente de verdad
@@ -99,17 +102,20 @@ enum SackStatus {
 ## Integraciones
 
 ### Gestruck (Básculas)
+
 - 2 básculas industriales en planta Montalbos
 - API pendiente de validar con José (informático Melder)
 - Fallback obligatorio: entrada manual de peso
 - Báscula pequeña: necesita reconfiguración protocolo SIGS para decimales
 
 ### Holded
+
 - **Solo** para generar albaranes y facturas en expediciones confirmadas
 - NO se sincroniza inventario (app = fuente de verdad)
 - Pendiente confirmar con Paula si rol "Ventas" es solo-lectura en inventario
 
 ### Impresora etiquetas
+
 - Probablemente Zebra (ZPL) — pendiente confirmación de marca
 - La abstracción de cola de impresión debe ser extensible a otras marcas
 

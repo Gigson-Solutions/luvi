@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useEffect } from "react";
+import { useActionState, useState } from "react";
 import { PackagePlus, ArrowDownToLine, ScanLine, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,13 +51,16 @@ export function HopperEntry({
 }: {
   sacks: WarehouseSack[];
 }): React.JSX.Element {
-  const [state, action] = useActionState(enterHopperAction, INITIAL);
   const [scanned, setScanned] = useState<WarehouseSack | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (state.ok) setScanned(null);
-  }, [state.ok]);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await enterHopperAction(prev, formData);
+      if (result.ok) setScanned(null);
+      return result;
+    },
+    INITIAL,
+  );
 
   async function handleScan(code: string): Promise<void> {
     setScanError(null);
@@ -182,11 +185,14 @@ export function OutputSackDialog({
   zones: Option[];
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [state, action] = useActionState(createOutputSackAction, INITIAL);
-
-  useEffect(() => {
-    if (state.ok) setOpen(false);
-  }, [state.ok]);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await createOutputSackAction(prev, formData);
+      if (result.ok) setOpen(false);
+      return result;
+    },
+    INITIAL,
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

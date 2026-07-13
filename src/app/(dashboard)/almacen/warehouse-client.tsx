@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -40,11 +40,14 @@ export function MoveSackDialog({
   variant?: "outline" | "primary" | "secondary";
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [state, action] = useActionState(moveSackAction, INITIAL);
-
-  useEffect(() => {
-    if (state.ok) setOpen(false);
-  }, [state.ok]);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await moveSackAction(prev, formData);
+      if (result.ok) setOpen(false);
+      return result;
+    },
+    INITIAL,
+  );
 
   const targets = zones.filter((z) => z.id !== currentZoneId);
 

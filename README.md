@@ -34,29 +34,29 @@ pnpm dev
 
 ## Módulos
 
-| Módulo | Ruta | Descripción |
-|--------|------|-------------|
-| Recepciones | `/recepciones` | Registro de contenedores/camiones + pesaje Gestruck |
-| Almacén | `/almacen` | Zonas, sacas, ocupación, traslados |
-| Producción | `/produccion` | Transformaciones, lotes, tolva |
-| Trazabilidad | `/trazabilidad` | Forward/backward + QR scan |
-| Expediciones | `/expediciones` | Envíos, pallets retornables, albaranes Holded |
-| Aprovisionamiento | `/aprovisionamiento` | POs, tránsito marítimo, tracking |
-| Calidad | `/calidad` | Registros por lote, promedios por proveedor |
-| Consumibles | `/consumibles` | Stock pallets, sacas vacías, capuchones |
-| Incidencias | `/incidencias` | Gestión de incidencias con fotos |
-| Dashboards | `/dashboards` | 5 dashboards KPI |
-| Usuarios | `/usuarios` | Gestión de usuarios y roles |
-| Configuración | `/configuracion` | Materiales, almacenes, zonas, umbrales |
+| Módulo            | Ruta                 | Descripción                                         |
+| ----------------- | -------------------- | --------------------------------------------------- |
+| Recepciones       | `/recepciones`       | Registro de contenedores/camiones + pesaje Gestruck |
+| Almacén           | `/almacen`           | Zonas, sacas, ocupación, traslados                  |
+| Producción        | `/produccion`        | Transformaciones, lotes, tolva                      |
+| Trazabilidad      | `/trazabilidad`      | Forward/backward + QR scan                          |
+| Expediciones      | `/expediciones`      | Envíos, pallets retornables, albaranes Holded       |
+| Aprovisionamiento | `/aprovisionamiento` | POs, tránsito marítimo, tracking                    |
+| Calidad           | `/calidad`           | Registros por lote, promedios por proveedor         |
+| Consumibles       | `/consumibles`       | Stock pallets, sacas vacías, capuchones             |
+| Incidencias       | `/incidencias`       | Gestión de incidencias con fotos                    |
+| Dashboards        | `/dashboards`        | 5 dashboards KPI                                    |
+| Usuarios          | `/usuarios`          | Gestión de usuarios y roles                         |
+| Configuración     | `/configuracion`     | Materiales, almacenes, zonas, umbrales              |
 
 ## Roles
 
-| Rol | Acceso |
-|-----|--------|
-| OPERARIO | Recepciones, Producción, Trazabilidad, Almacén (lectura) — móvil-first |
-| ADMINISTRACIÓN | Expediciones, Consumibles, Aprovisionamiento |
-| MANAGER | Todo excepto configuración de sistema |
-| ADMIN | Acceso completo |
+| Rol            | Acceso                                                                 |
+| -------------- | ---------------------------------------------------------------------- |
+| OPERARIO       | Recepciones, Producción, Trazabilidad, Almacén (lectura) — móvil-first |
+| ADMINISTRACIÓN | Expediciones, Consumibles, Aprovisionamiento                           |
+| MANAGER        | Todo excepto configuración de sistema                                  |
+| ADMIN          | Acceso completo                                                        |
 
 ## Integraciones
 

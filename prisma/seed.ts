@@ -22,7 +22,7 @@ async function main() {
 
   // ─── Usuarios ─────────────────────────────────────────────────────────────
   const adminPassword = await hashPassword("admin123");
-  const admin = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: "admin@luvi2000.es" },
     update: {},
     create: {
@@ -94,7 +94,7 @@ async function main() {
   console.log("✅ Proveedores creados");
 
   // ─── Almacenes y zonas ────────────────────────────────────────────────────
-  const planta = await prisma.warehouse.upsert({
+  await prisma.warehouse.upsert({
     where: { code: "MONTALBOS" },
     update: {},
     create: {

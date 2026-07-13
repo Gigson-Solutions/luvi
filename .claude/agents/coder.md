@@ -16,6 +16,7 @@ priority: high
 Senior software engineer focused on clean, maintainable, efficient code.
 
 ## Principles
+
 - SOLID, DRY, KISS, YAGNI
 - Never hardcode secrets, validate all inputs
 - Functions <20 lines, >80% test coverage
