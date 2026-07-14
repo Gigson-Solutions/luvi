@@ -6,17 +6,18 @@
 
 ### Resumen ejecutivo
 
-| | |
-|--|--|
-| **Inicio** | Semana 0 — validaciones técnicas e infra en paralelo con el arranque del desarrollo |
-| **Entrega beta** | Final semana 4 — aplicación completa para validación con cliente |
-| **Entrega producción** | Final semana 6 — versión estable, testeada y desplegada |
-| **Stack** | Next.js 16 + Prisma + NextAuth v5 — desplegado en Vercel + Neon |
-| **Integraciones** | Gestruck (básculas), Holded (albaranes), impresora etiquetas (ZPL) |
+|                        |                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| **Inicio**             | Semana 0 — validaciones técnicas e infra en paralelo con el arranque del desarrollo |
+| **Entrega beta**       | Final semana 4 — aplicación completa para validación con cliente                    |
+| **Entrega producción** | Final semana 6 — versión estable, testeada y desplegada                             |
+| **Stack**              | Next.js 16 + Prisma + NextAuth v5 — desplegado en Vercel + Neon                     |
+| **Integraciones**      | Gestruck (básculas), Holded (albaranes), impresora etiquetas (ZPL)                  |
 
 > **Por qué 6 semanas es alcanzable**
 >
 > Gigson ya dispone de un prototipo funcional y validado con el equipo de Luvi2000 — desarrollado en Emergent (React + FastAPI + MongoDB) con las **15 pantallas principales** y **75+ endpoints** de negocio operativos. Este prototipo ha sido validado directamente con Paula, lo que significa:
+>
 > - Todos los flujos de negocio están definidos y validados (no hay discovery pendiente)
 > - El naming, UX y decisiones de dominio ya están acordadas con el cliente
 > - La lógica de negocio ya existe — el trabajo es **migración** a la stack de producción, no diseño desde cero
@@ -27,20 +28,20 @@
 
 ### Timeline
 
-#### Semana 0 — Infra y validaciones técnicas *(en paralelo con Semana 1)*
+#### Semana 0 — Infra y validaciones técnicas _(en paralelo con Semana 1)_
 
 > Responsable conjunto: Gigson + José (Melder) + Paula (Luvi2000)
 > Objetivo: desbloquear integraciones antes de que el desarrollo las necesite.
 
-| Tarea | Quién | Bloquea |
-|-------|-------|---------|
-| Configurar VPS (Hetzner ~5€/mes) + WireGuard + Nginx | Gigson | Integración Gestruck |
-| Instalar WireGuard for Windows en PC planta Montalbos | José (Melder) | Integración Gestruck |
-| Validar API Gestruck: `ApiKey`, schema `WeighingViewDto`, Swagger en `192.168.1.200/swagger` | Gigson + José | Módulo Recepciones |
-| Confirmar marca y modelo impresora de etiquetas | Paula | QR en Recepciones |
-| Confirmar Holded: `ApiKey`, permisos de API, sandbox disponible | Paula | Módulo Expediciones |
-| Configurar Vercel + Neon (entornos producción y preview) | Gigson | Todo el desarrollo |
-| Identificar el PC de planta que queda siempre encendido para el túnel VPN | Paula / José | Conectividad báscula |
+| Tarea                                                                                        | Quién         | Bloquea              |
+| -------------------------------------------------------------------------------------------- | ------------- | -------------------- |
+| Configurar VPS (Hetzner ~5€/mes) + WireGuard + Nginx                                         | Gigson        | Integración Gestruck |
+| Instalar WireGuard for Windows en PC planta Montalbos                                        | José (Melder) | Integración Gestruck |
+| Validar API Gestruck: `ApiKey`, schema `WeighingViewDto`, Swagger en `192.168.1.200/swagger` | Gigson + José | Módulo Recepciones   |
+| Confirmar marca y modelo impresora de etiquetas                                              | Paula         | QR en Recepciones    |
+| Confirmar Holded: `ApiKey`, permisos de API, sandbox disponible                              | Paula         | Módulo Expediciones  |
+| Configurar Vercel + Neon (entornos producción y preview)                                     | Gigson        | Todo el desarrollo   |
+| Identificar el PC de planta que queda siempre encendido para el túnel VPN                    | Paula / José  | Conectividad báscula |
 
 ---
 
@@ -48,11 +49,11 @@
 
 > **Qué ve Paula al final de la semana:** Login funcional con roles, registro de contenedores con pesaje (Gestruck o manual), generación automática de sacas con QR imprimible.
 
-| | |
-|-|-|
-| Auth + RBAC | Login credenciales, 4 roles, sidebar filtrado por rol |
-| Prisma schema | 20+ modelos: Sack (10 estados), Lote, Container, Shipment… |
-| UI base | Sidebar, layout, componentes, tema Industrial Zen |
+|                 |                                                                                                                     |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Auth + RBAC     | Login credenciales, 4 roles, sidebar filtrado por rol                                                               |
+| Prisma schema   | 20+ modelos: Sack (10 estados), Lote, Container, Shipment…                                                          |
+| UI base         | Sidebar, layout, componentes, tema Industrial Zen                                                                   |
 | **Recepciones** | Registro de contenedor, absorción peso Gestruck (polling + fallback manual), generación de sacas, cola impresión QR |
 
 ---
@@ -61,13 +62,13 @@
 
 > **Qué ve Paula:** Zonas de almacén con ocupación en tiempo real, flujo completo de producción con lotes autogenerados (`DDMMYY-nºcamión`), trazabilidad forward/backward escaneando QR.
 
-| | |
-|-|-|
-| **Almacén** | Mapa de zonas, ocupación actual + proyección, listado sacas, traslados |
-| **Producción** | Entrada tolva (QR), saca de salida (PT / Subproducto / Rechazo), autogeneración lote |
-| **Trazabilidad** | QR → cadena atrás (proveedor → camión → lote) + adelante (envío → comprador) |
+|                  |                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| **Almacén**      | Mapa de zonas, ocupación actual + proyección, listado sacas, traslados               |
+| **Producción**   | Entrada tolva (QR), saca de salida (PT / Subproducto / Rechazo), autogeneración lote |
+| **Trazabilidad** | QR → cadena atrás (proveedor → camión → lote) + adelante (envío → comprador)         |
 
-*Hito: demo remota 1h con Paula — Semana 2.*
+_Hito: demo remota 1h con Paula — Semana 2._
 
 ---
 
@@ -75,11 +76,11 @@
 
 > **Qué ve Paula:** Envíos con albarán generado en Holded, control de pallets retornables por cliente, stock de consumibles con alertas.
 
-| | |
-|-|-|
-| **Expediciones** | Crear envío, confirmar → albarán en Holded, pallets retornables por cliente |
-| **Aprovisionamiento** | Órdenes de compra, tránsito marítimo, ETA planta |
-| **Consumibles** | Stock pallets / sacas vacías / capuchones, alertas de mínimo |
+|                       |                                                                             |
+| --------------------- | --------------------------------------------------------------------------- |
+| **Expediciones**      | Crear envío, confirmar → albarán en Holded, pallets retornables por cliente |
+| **Aprovisionamiento** | Órdenes de compra, tránsito marítimo, ETA planta                            |
+| **Consumibles**       | Stock pallets / sacas vacías / capuchones, alertas de mínimo                |
 
 ---
 
@@ -87,12 +88,12 @@
 
 > **Qué ve Paula:** Beta completa. 5 dashboards KPI, registros de calidad por lote, incidencias con foto, vista móvil para operarios.
 
-| | |
-|-|-|
-| **Calidad** | Registro por lote (densidad, % PVC, cola…), validación OK/NOK, promedios proveedor |
-| **Incidencias** | Creación con foto (Cloudflare R2), lifecycle, comparativa mensual |
-| **Dashboards** | 5 dashboards: Almacén, Logística, Producción, Calidad, Aprovisionamiento + filtros fecha |
-| **Mobile OPERARIO** | Vista simplificada 4-5 acciones, QR scanner con cámara |
+|                     |                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| **Calidad**         | Registro por lote (densidad, % PVC, cola…), validación OK/NOK, promedios proveedor       |
+| **Incidencias**     | Creación con foto (Cloudflare R2), lifecycle, comparativa mensual                        |
+| **Dashboards**      | 5 dashboards: Almacén, Logística, Producción, Calidad, Aprovisionamiento + filtros fecha |
+| **Mobile OPERARIO** | Vista simplificada 4-5 acciones, QR scanner con cámara                                   |
 
 **→ Entrega beta a Paula — acceso a entorno de staging con datos de prueba.**
 
@@ -102,13 +103,13 @@
 
 > **Objetivo:** Recoger feedback real del equipo, corregir, ajustar UX, y validar las integraciones con hardware físico.
 
-| Actividad | Detalle |
-|-----------|---------|
-| Sesión de validación | Demo presencial o remota con Paula + operarios planta Montalbos |
-| QA E2E con datos reales | Recepción → Producción → Expedición → Trazabilidad |
-| QA Gestruck en planta | Prueba con básculas físicas; validar protocolo SIGS báscula pequeña |
-| QA impresora | Imprimir etiquetas QR reales; ajustar template ZPL si es necesario |
-| Ajustes post-validación | Correcciones de UX, naming, edge cases detectados por el equipo |
+| Actividad               | Detalle                                                             |
+| ----------------------- | ------------------------------------------------------------------- |
+| Sesión de validación    | Demo presencial o remota con Paula + operarios planta Montalbos     |
+| QA E2E con datos reales | Recepción → Producción → Expedición → Trazabilidad                  |
+| QA Gestruck en planta   | Prueba con básculas físicas; validar protocolo SIGS báscula pequeña |
+| QA impresora            | Imprimir etiquetas QR reales; ajustar template ZPL si es necesario  |
+| Ajustes post-validación | Correcciones de UX, naming, edge cases detectados por el equipo     |
 
 ---
 
@@ -116,14 +117,14 @@
 
 > **Objetivo:** Versión estable, segura y documentada. Go-live.
 
-| Actividad | Detalle |
-|-----------|---------|
-| Tests automatizados | Auth flow, Recepción E2E, Expedición E2E |
-| Seguridad | Audit RBAC, variables Vercel, headers HTTP |
-| Performance | Typecheck limpio, build sin warnings, Core Web Vitals |
-| Documentación | Guía de onboarding para operarios (1 página) |
-| Formación | Sesión 1h con Paula y Laura — walkthrough completo |
-| Go-live | Dominio producción, credenciales iniciales, monitorización 48h |
+| Actividad           | Detalle                                                        |
+| ------------------- | -------------------------------------------------------------- |
+| Tests automatizados | Auth flow, Recepción E2E, Expedición E2E                       |
+| Seguridad           | Audit RBAC, variables Vercel, headers HTTP                     |
+| Performance         | Typecheck limpio, build sin warnings, Core Web Vitals          |
+| Documentación       | Guía de onboarding para operarios (1 página)                   |
+| Formación           | Sesión 1h con Paula y Laura — walkthrough completo             |
+| Go-live             | Dominio producción, credenciales iniciales, monitorización 48h |
 
 **→ Entrega oficial en producción.**
 
@@ -131,25 +132,25 @@
 
 ### Dependencias que pueden retrasar el plan
 
-| Dependencia | Semana límite | Plan B si no está |
-|------------|---------------|-------------------|
-| VPS + WireGuard configurado | Inicio semana 2 | Gestruck funciona con entrada manual |
-| ApiKey Gestruck + schema Swagger | Inicio semana 2 | Recepciones funciona con peso manual |
-| Marca/modelo impresora | Inicio semana 2 | QR se genera pero sin impresión física |
-| Sandbox Holded + ApiKey | Inicio semana 3 | Expediciones sin albarán automático |
-| Acceso físico a planta para QA | Semana 5 | Validación remota (menos ideal) |
+| Dependencia                      | Semana límite   | Plan B si no está                      |
+| -------------------------------- | --------------- | -------------------------------------- |
+| VPS + WireGuard configurado      | Inicio semana 2 | Gestruck funciona con entrada manual   |
+| ApiKey Gestruck + schema Swagger | Inicio semana 2 | Recepciones funciona con peso manual   |
+| Marca/modelo impresora           | Inicio semana 2 | QR se genera pero sin impresión física |
+| Sandbox Holded + ApiKey          | Inicio semana 3 | Expediciones sin albarán automático    |
+| Acceso físico a planta para QA   | Semana 5        | Validación remota (menos ideal)        |
 
 ---
 
 ### Hitos de comunicación
 
-| Hito | Semana | Formato |
-|------|--------|---------|
-| Kickoff + confirmación de validaciones pendientes | 0 | Call 30 min |
-| Demo intermedia: Login + Recepciones + Almacén | 2 | Demo remota 1h |
-| Entrega beta completa | 4 | Demo + acceso a staging |
-| Sesión de validación con operarios | 5 | Presencial en planta |
-| Go-live + formación | 6 | Presencial en planta |
+| Hito                                              | Semana | Formato                 |
+| ------------------------------------------------- | ------ | ----------------------- |
+| Kickoff + confirmación de validaciones pendientes | 0      | Call 30 min             |
+| Demo intermedia: Login + Recepciones + Almacén    | 2      | Demo remota 1h          |
+| Entrega beta completa                             | 4      | Demo + acceso a staging |
+| Sesión de validación con operarios                | 5      | Presencial en planta    |
+| Go-live + formación                               | 6      | Presencial en planta    |
 
 ---
 
@@ -166,6 +167,7 @@ Luvi2000 procesa plástico reciclado 24/7. Reciben material en sacas (big bags),
 ## Decisiones clave del Discovery (reuniones ReadAI)
 
 ### Naming validado con cliente
+
 - "Despachado" → **"Expedido"** (no confundir con despacho de aduanas)
 - "Lote de salida" → ambiguo; el lote siempre lleva **fecha de producción**, no de salida
 - "Saca de salida" → **"Producto terminado"** / "Subproducto" / "Rechazo"
@@ -173,6 +175,7 @@ Luvi2000 procesa plástico reciclado 24/7. Reciben material en sacas (big bags),
 - "Camiones pendientes de pesaje" → **"Contenedores/Camiones pendientes de recibir"**
 
 ### Flujos clarificados
+
 - **Entradas:** 90% son contenedores. Paula/Alejandro los registran previamente desde Valencia. Laura (planta Montalbos) los pesa en Gestruck → app absorbe datos automáticamente → Laura añade campos adicionales (almacén destino, nº sacas). **No hay "sacas sin ubicar"** — el almacén destino se asigna en el momento del registro.
 - **Almacén:** Capacidad máxima por zona configurable. Vista de ocupación actual + proyección futura según entradas previstas.
 - **Producción:** El nº de lote se **autogenera** (formato: DDMMYY-nºcamión). El operario solo confirma. Las sacas de PT van automáticamente al lote. Subproductos y rechazos crean lote manualmente.
@@ -187,17 +190,17 @@ Luvi2000 procesa plástico reciclado 24/7. Reciben material en sacas (big bags),
 
 ## Stack técnico
 
-| Capa | Tecnología | Justificación |
-|------|-----------|---------------|
-| Framework | Next.js 16 (App Router) + TypeScript | Consistencia con Awesomely |
-| ORM | Prisma + PostgreSQL (Neon) | Reemplaza MongoDB del prototipo |
-| Auth | NextAuth v5 + credenciales | Sin SSO (operarios sin Microsoft) |
-| UI | Radix UI + Tailwind CSS v4 | Mismo que prototipo |
-| Forms | React Hook Form + Zod | Mismo que prototipo |
-| Charts | Recharts | Mismo que prototipo |
-| QR | @yudiel/react-qr-scanner + qrcode.react | Mismo que prototipo |
-| Package manager | pnpm | Estándar Awesomely |
-| Deploy | Vercel + Neon | Estándar Awesomely |
+| Capa            | Tecnología                              | Justificación                     |
+| --------------- | --------------------------------------- | --------------------------------- |
+| Framework       | Next.js 16 (App Router) + TypeScript    | Consistencia con Awesomely        |
+| ORM             | Prisma + PostgreSQL (Neon)              | Reemplaza MongoDB del prototipo   |
+| Auth            | NextAuth v5 + credenciales              | Sin SSO (operarios sin Microsoft) |
+| UI              | Radix UI + Tailwind CSS v4              | Mismo que prototipo               |
+| Forms           | React Hook Form + Zod                   | Mismo que prototipo               |
+| Charts          | Recharts                                | Mismo que prototipo               |
+| QR              | @yudiel/react-qr-scanner + qrcode.react | Mismo que prototipo               |
+| Package manager | pnpm                                    | Estándar Awesomely                |
+| Deploy          | Vercel + Neon                           | Estándar Awesomely                |
 
 **Tema visual:** "Industrial Zen" — Forest Green `#15803d` primary, Safety Yellow `#facc15` warnings, fuentes Manrope + Public Sans (del prototipo).
 
@@ -282,168 +285,182 @@ luvi/
 ## Estimación días/horas por feature
 
 ### Fase 0 — Setup y estructura (11h)
-| Feature | Horas |
-|---------|-------|
-| Scaffold Next.js 16, pnpm, .claude/ desde project-structure | 3 |
-| Tailwind v4 + Industrial Zen theme tokens | 2 |
-| CI/CD GitHub Actions (typecheck + lint) | 2 |
-| Neon PostgreSQL + Vercel setup | 2 |
-| CLAUDE.md del proyecto | 2 |
+
+| Feature                                                     | Horas |
+| ----------------------------------------------------------- | ----- |
+| Scaffold Next.js 16, pnpm, .claude/ desde project-structure | 3     |
+| Tailwind v4 + Industrial Zen theme tokens                   | 2     |
+| CI/CD GitHub Actions (typecheck + lint)                     | 2     |
+| Neon PostgreSQL + Vercel setup                              | 2     |
+| CLAUDE.md del proyecto                                      | 2     |
 
 ### Fase 1 — Auth y foundation (55h)
-| Feature | Horas |
-|---------|-------|
-| NextAuth v5 + credenciales (sin SSO) + roles | 5 |
-| Middleware RBAC (4 roles) | 4 |
-| Login page | 3 |
-| Prisma schema completo (20+ modelos) | 12 |
-| Migrations + seed (materiales, almacenes, zonas de ejemplo) | 4 |
-| Sidebar con navegación role-filtered | 5 |
-| Componentes UI base (Button, Badge, Table, Dialog, Form wrappers) | 12 |
-| Skeleton/loading states por ruta | 3 |
-| Audit log infrastructure | 4 |
-| lib/utils.ts, lib/permissions.ts | 3 |
+
+| Feature                                                           | Horas |
+| ----------------------------------------------------------------- | ----- |
+| NextAuth v5 + credenciales (sin SSO) + roles                      | 5     |
+| Middleware RBAC (4 roles)                                         | 4     |
+| Login page                                                        | 3     |
+| Prisma schema completo (20+ modelos)                              | 12    |
+| Migrations + seed (materiales, almacenes, zonas de ejemplo)       | 4     |
+| Sidebar con navegación role-filtered                              | 5     |
+| Componentes UI base (Button, Badge, Table, Dialog, Form wrappers) | 12    |
+| Skeleton/loading states por ruta                                  | 3     |
+| Audit log infrastructure                                          | 4     |
+| lib/utils.ts, lib/permissions.ts                                  | 3     |
 
 ### Fase 2 — Módulo Recepciones (30h)
-| Feature | Horas |
-|---------|-------|
-| Lista contenedores/camiones pendientes de recibir (filtros por fecha, zona) | 5 |
-| Formulario registro previo (Paula/Alejandro desde Valencia) | 6 |
-| Absorción automática desde Gestruck al llegar pesaje | 5 |
-| Campos adicionales post-pesaje: almacén destino, nº sacas, palés | 4 |
-| Generación automática de sacas + QRs al confirmar | 5 |
-| Envío a cola de impresión (ZPL/PDF según impresora) | 5 |
+
+| Feature                                                                     | Horas |
+| --------------------------------------------------------------------------- | ----- |
+| Lista contenedores/camiones pendientes de recibir (filtros por fecha, zona) | 5     |
+| Formulario registro previo (Paula/Alejandro desde Valencia)                 | 6     |
+| Absorción automática desde Gestruck al llegar pesaje                        | 5     |
+| Campos adicionales post-pesaje: almacén destino, nº sacas, palés            | 4     |
+| Generación automática de sacas + QRs al confirmar                           | 5     |
+| Envío a cola de impresión (ZPL/PDF según impresora)                         | 5     |
 
 ### Fase 3 — Módulo Almacén e Inventario (30h)
-| Feature | Horas |
-|---------|-------|
-| Gestión almacenes + zonas (CRUD con capacidad máxima) | 5 |
-| Vista ocupación por zona: actual + proyectada (entradas previstas) | 7 |
-| Listado sacas con filtros (estado, material, almacén, proveedor) | 5 |
-| Detalle saca (lifecycle completo + movimientos) | 4 |
-| Traslados entre almacenes (manual + via QR escaneo) | 5 |
-| Movimientos manuales (corrección operativa) | 4 |
+
+| Feature                                                            | Horas |
+| ------------------------------------------------------------------ | ----- |
+| Gestión almacenes + zonas (CRUD con capacidad máxima)              | 5     |
+| Vista ocupación por zona: actual + proyectada (entradas previstas) | 7     |
+| Listado sacas con filtros (estado, material, almacén, proveedor)   | 5     |
+| Detalle saca (lifecycle completo + movimientos)                    | 4     |
+| Traslados entre almacenes (manual + via QR escaneo)                | 5     |
+| Movimientos manuales (corrección operativa)                        | 4     |
 
 ### Fase 4 — Módulo Producción y Lotes (32h)
-| Feature | Horas |
-|---------|-------|
-| Registro entrada a tolva (confirmar saca vía QR) | 4 |
-| Registro saca de salida: PT / Subproducto / Rechazo | 5 |
-| Autogeneración número de lote (DDMMYY-nºcamión, confirmado por operario) | 4 |
-| Lote PT: acumulación automática de sacas | 5 |
-| Lote Subproductos/Rechazos: creación manual, búsqueda por lote para sustituir sacas | 5 |
-| Historial de producción diaria/semanal | 5 |
-| Reprocesos (rechazo → tolva) | 4 |
+
+| Feature                                                                             | Horas |
+| ----------------------------------------------------------------------------------- | ----- |
+| Registro entrada a tolva (confirmar saca vía QR)                                    | 4     |
+| Registro saca de salida: PT / Subproducto / Rechazo                                 | 5     |
+| Autogeneración número de lote (DDMMYY-nºcamión, confirmado por operario)            | 4     |
+| Lote PT: acumulación automática de sacas                                            | 5     |
+| Lote Subproductos/Rechazos: creación manual, búsqueda por lote para sustituir sacas | 5     |
+| Historial de producción diaria/semanal                                              | 5     |
+| Reprocesos (rechazo → tolva)                                                        | 4     |
 
 ### Fase 5 — Módulo Trazabilidad (24h)
-| Feature | Horas |
-|---------|-------|
-| Búsqueda por saca ID o QR scan | 4 |
-| Trazabilidad hacia atrás (saca → camión → proveedor) | 6 |
-| Trazabilidad hacia adelante (saca → lote → envío) | 6 |
-| Componente visual de cadena de trazabilidad | 5 |
-| Página QR scanner (funciona en desktop con/sin cámara + entrada manual) | 3 |
+
+| Feature                                                                 | Horas |
+| ----------------------------------------------------------------------- | ----- |
+| Búsqueda por saca ID o QR scan                                          | 4     |
+| Trazabilidad hacia atrás (saca → camión → proveedor)                    | 6     |
+| Trazabilidad hacia adelante (saca → lote → envío)                       | 6     |
+| Componente visual de cadena de trazabilidad                             | 5     |
+| Página QR scanner (funciona en desktop con/sin cámara + entrada manual) | 3     |
 
 ### Fase 6 — Módulo Expediciones (34h)
-| Feature | Horas |
-|---------|-------|
-| Listado envíos con estado (Borrador / Confirmado / Expedido / Entregado) | 4 |
-| Creación envío: comprador, lotes, transportista | 6 |
-| Confirmación expedición → genera albarán en Holded | 6 |
-| Pallets retornables: registro préstamo por cliente, devoluciones (OK/NOK) | 8 |
-| Stock pallets con proyección retornables en fianza | 4 |
-| Gestión compradores (CRUD) | 3 |
-| Gestión transportistas (CRUD) | 3 |
+
+| Feature                                                                   | Horas |
+| ------------------------------------------------------------------------- | ----- |
+| Listado envíos con estado (Borrador / Confirmado / Expedido / Entregado)  | 4     |
+| Creación envío: comprador, lotes, transportista                           | 6     |
+| Confirmación expedición → genera albarán en Holded                        | 6     |
+| Pallets retornables: registro préstamo por cliente, devoluciones (OK/NOK) | 8     |
+| Stock pallets con proyección retornables en fianza                        | 4     |
+| Gestión compradores (CRUD)                                                | 3     |
+| Gestión transportistas (CRUD)                                             | 3     |
 
 ### Fase 7 — Módulo Aprovisionamiento (antes Transporte) (28h)
-| Feature | Horas |
-|---------|-------|
-| POs de compra a proveedor (nº toneladas pedidas, enviadas, recibidas) | 6 |
-| Envío de proveedor: múltiples contenedores por Bill of Lading | 6 |
-| Tracking estado (En tránsito marítimo → Valencia → Planta) con fechas estimadas | 5 |
-| Generación automática de entrada pendiente al registrar envío | 4 |
-| Confirmación recepción en planta → descuenta del PO → suma al stock | 4 |
-| Vista pivot: stock actual + tránsito + comprado por material+proveedor | 3 |
+
+| Feature                                                                         | Horas |
+| ------------------------------------------------------------------------------- | ----- |
+| POs de compra a proveedor (nº toneladas pedidas, enviadas, recibidas)           | 6     |
+| Envío de proveedor: múltiples contenedores por Bill of Lading                   | 6     |
+| Tracking estado (En tránsito marítimo → Valencia → Planta) con fechas estimadas | 5     |
+| Generación automática de entrada pendiente al registrar envío                   | 4     |
+| Confirmación recepción en planta → descuenta del PO → suma al stock             | 4     |
+| Vista pivot: stock actual + tránsito + comprado por material+proveedor          | 3     |
 
 ### Fase 8 — Módulo Calidad (20h)
-| Feature | Horas |
-|---------|-------|
-| Registro de calidad por lote (turno, tipo MP/PT) | 4 |
-| Grid Excel-like de muestras (densidad, PVC, cola, multicapa, metal, otros) | 7 |
-| Validación automática vs rangos configurables (OK/NOK) con override manual | 4 |
-| Vista promedio por proveedor/material (histórico mensual) | 5 |
+
+| Feature                                                                    | Horas |
+| -------------------------------------------------------------------------- | ----- |
+| Registro de calidad por lote (turno, tipo MP/PT)                           | 4     |
+| Grid Excel-like de muestras (densidad, PVC, cola, multicapa, metal, otros) | 7     |
+| Validación automática vs rangos configurables (OK/NOK) con override manual | 4     |
+| Vista promedio por proveedor/material (histórico mensual)                  | 5     |
 
 ### Fase 9 — Módulo Consumibles (16h)
-| Feature | Horas |
-|---------|-------|
-| Stock pallets, sacas vacías, capuchones | 3 |
-| Registro compras + devoluciones (camión, matrícula, OK/NOK) | 5 |
-| Alertas de stock mínimo (umbral configurable por unidades) | 3 |
-| Descuento automático en expediciones | 3 |
-| Historial semanal de consumo | 2 |
+
+| Feature                                                     | Horas |
+| ----------------------------------------------------------- | ----- |
+| Stock pallets, sacas vacías, capuchones                     | 3     |
+| Registro compras + devoluciones (camión, matrícula, OK/NOK) | 5     |
+| Alertas de stock mínimo (umbral configurable por unidades)  | 3     |
+| Descuento automático en expediciones                        | 3     |
+| Historial semanal de consumo                                | 2     |
 
 ### Fase 10 — Módulo Incidencias (15h)
-| Feature | Horas |
-|---------|-------|
-| Creación incidencia (foto, QR saca, descripción, almacén) | 5 |
-| Usuario + fecha auto-asignados del sesión | 1 |
-| Lifecycle: Abierta → En revisión → En proceso → Resuelta → Cerrada | 4 |
-| Listado con filtros por mes/almacén (comparativa mensual) | 3 |
-| Upload foto (Cloudflare R2 o similar) | 2 |
+
+| Feature                                                            | Horas |
+| ------------------------------------------------------------------ | ----- |
+| Creación incidencia (foto, QR saca, descripción, almacén)          | 5     |
+| Usuario + fecha auto-asignados del sesión                          | 1     |
+| Lifecycle: Abierta → En revisión → En proceso → Resuelta → Cerrada | 4     |
+| Listado con filtros por mes/almacén (comparativa mensual)          | 3     |
+| Upload foto (Cloudflare R2 o similar)                              | 2     |
 
 ### Fase 11 — 5 Dashboards (40h)
-| Dashboard | Horas |
-|-----------|-------|
-| Almacén (stock TN, sacas, ocupación por zona, packing lists activos) | 8 |
-| Logística/Expediciones (TN expedidas, nº envíos, % cumplimiento, pendiente embarcar) | 8 |
-| Producción (TN procesadas día/semana, rendimiento, nº sacas in/out, % reproceso) | 8 |
-| Calidad (lotes OK/NOK, % rechazo, desviación media) | 7 |
-| Aprovisionamiento (stock actual, consumo medio, cobertura días, pedidos en tránsito) | 7 |
-| Componente date-range + filtros reutilizables | 2 |
+
+| Dashboard                                                                            | Horas |
+| ------------------------------------------------------------------------------------ | ----- |
+| Almacén (stock TN, sacas, ocupación por zona, packing lists activos)                 | 8     |
+| Logística/Expediciones (TN expedidas, nº envíos, % cumplimiento, pendiente embarcar) | 8     |
+| Producción (TN procesadas día/semana, rendimiento, nº sacas in/out, % reproceso)     | 8     |
+| Calidad (lotes OK/NOK, % rechazo, desviación media)                                  | 7     |
+| Aprovisionamiento (stock actual, consumo medio, cobertura días, pedidos en tránsito) | 7     |
+| Componente date-range + filtros reutilizables                                        | 2     |
 
 ### Fase 12 — Integraciones (34h)
-| Feature | Horas |
-|---------|-------|
-| Cliente Gestruck API (lectura peso, 2 básculas, fallback manual) | 8 |
-| Auto-fill peso en recepción + expedición | 3 |
-| Cliente Holded (albarán on expedición confirmada) | 8 |
-| Cron Vercel para sync Holded (solo albaranes, no inventario) | 3 |
-| Cola impresión ZPL (Zebra) — adaptar si es otra marca | 8 |
-| Trigger impresión desde creación de sacas y página QR | 4 |
+
+| Feature                                                          | Horas |
+| ---------------------------------------------------------------- | ----- |
+| Cliente Gestruck API (lectura peso, 2 básculas, fallback manual) | 8     |
+| Auto-fill peso en recepción + expedición                         | 3     |
+| Cliente Holded (albarán on expedición confirmada)                | 8     |
+| Cron Vercel para sync Holded (solo albaranes, no inventario)     | 3     |
+| Cola impresión ZPL (Zebra) — adaptar si es otra marca            | 8     |
+| Trigger impresión desde creación de sacas y página QR            | 4     |
 
 ### Fase 13 — Polish, mobile y hardening (38h)
-| Feature | Horas |
-|---------|-------|
-| Vista OPERARIO mobile-first: 4-5 botones principales (QR scan, tolva, saca salida, traslado) | 12 |
-| Responsive audit completo 15 pantallas en tablet/móvil | 6 |
-| WCAG 2.1 AA: keyboard nav, ARIA, contraste | 5 |
-| Error boundaries + páginas 404/500 | 2 |
-| Degradación graceful si Gestruck o Holded fallan | 3 |
-| Optimización queries Prisma + índices | 3 |
-| Tests integración path crítico (auth, recepción, expedición) | 5 |
-| README + .env.example | 2 |
+
+| Feature                                                                                      | Horas |
+| -------------------------------------------------------------------------------------------- | ----- |
+| Vista OPERARIO mobile-first: 4-5 botones principales (QR scan, tolva, saca salida, traslado) | 12    |
+| Responsive audit completo 15 pantallas en tablet/móvil                                       | 6     |
+| WCAG 2.1 AA: keyboard nav, ARIA, contraste                                                   | 5     |
+| Error boundaries + páginas 404/500                                                           | 2     |
+| Degradación graceful si Gestruck o Holded fallan                                             | 3     |
+| Optimización queries Prisma + índices                                                        | 3     |
+| Tests integración path crítico (auth, recepción, expedición)                                 | 5     |
+| README + .env.example                                                                        | 2     |
 
 ---
 
 ## Resumen estimación total
 
-| Fase | Horas |
-|------|-------|
-| 0 — Setup | 11 |
-| 1 — Auth + Foundation | 55 |
-| 2 — Recepciones | 30 |
-| 3 — Almacén + Inventario | 30 |
-| 4 — Producción + Lotes | 32 |
-| 5 — Trazabilidad | 24 |
-| 6 — Expediciones | 34 |
-| 7 — Aprovisionamiento | 28 |
-| 8 — Calidad | 20 |
-| 9 — Consumibles | 16 |
-| 10 — Incidencias | 15 |
-| 11 — Dashboards (5) | 40 |
-| 12 — Integraciones | 34 |
-| 13 — Polish + Mobile + Tests | 38 |
-| **TOTAL** | **407h** |
+| Fase                         | Horas    |
+| ---------------------------- | -------- |
+| 0 — Setup                    | 11       |
+| 1 — Auth + Foundation        | 55       |
+| 2 — Recepciones              | 30       |
+| 3 — Almacén + Inventario     | 30       |
+| 4 — Producción + Lotes       | 32       |
+| 5 — Trazabilidad             | 24       |
+| 6 — Expediciones             | 34       |
+| 7 — Aprovisionamiento        | 28       |
+| 8 — Calidad                  | 20       |
+| 9 — Consumibles              | 16       |
+| 10 — Incidencias             | 15       |
+| 11 — Dashboards (5)          | 40       |
+| 12 — Integraciones           | 34       |
+| 13 — Polish + Mobile + Tests | 38       |
+| **TOTAL**                    | **407h** |
 
 **Equivale a ~4-5 semanas** con 1 dev full-stack senior + PM (Victor) a tiempo parcial.
 Con 2 devs en paralelo (Fases 2-11 son paralelizables): **~3 semanas** de desarrollo.
@@ -454,12 +471,12 @@ Con 2 devs en paralelo (Fases 2-11 son paralelizables): **~3 semanas** de desarr
 
 ## Riesgos y dependencias
 
-| Riesgo | Impacto | Mitigación |
-|--------|---------|-----------|
-| API Gestruck sin webhooks o con protocolo limitado | Alto | Fallback manual ya diseñado; validar antes del 9 de abril con José (informático) y Laura (planta) |
-| Impresora etiquetas: marca/protocolo no confirmado | Medio | Diseñar abstracción de cola de impresión; ZPL para Zebra ya conocido |
-| Holded: permisos de solo-lectura en inventario | Bajo | Paula confirmará con Holded si rol "Ventas" solo-lectura cubre esto |
-| Reconfiguración protocolo SIGS báscula pequeña | Medio | Tarea de técnico de Melder, no bloquea desarrollo, sí bloquea QA final |
+| Riesgo                                             | Impacto | Mitigación                                                                                        |
+| -------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| API Gestruck sin webhooks o con protocolo limitado | Alto    | Fallback manual ya diseñado; validar antes del 9 de abril con José (informático) y Laura (planta) |
+| Impresora etiquetas: marca/protocolo no confirmado | Medio   | Diseñar abstracción de cola de impresión; ZPL para Zebra ya conocido                              |
+| Holded: permisos de solo-lectura en inventario     | Bajo    | Paula confirmará con Holded si rol "Ventas" solo-lectura cubre esto                               |
+| Reconfiguración protocolo SIGS báscula pequeña     | Medio   | Tarea de técnico de Melder, no bloquea desarrollo, sí bloquea QA final                            |
 
 ---
 
@@ -507,12 +524,12 @@ La báscula expone su API en `http://192.168.1.200:5050/api/v1/weighing/search` 
 
 ### Opciones evaluadas
 
-| Opción | Cómo funciona | Pros | Contras |
-|--------|--------------|------|---------|
-| **A — Cloudflare Tunnel (recomendada)** | Proceso `cloudflared` en la red local que expone la IP interna como URL pública HTTPS | Sin abrir puertos, sin VPN, HTTPS automático, gratuito, transparente para la app | Requiere instalar `cloudflared` en un PC de la planta (siempre encendido) |
-| **B — Agente local (alternativa)** | Un proceso Node.js en un PC de la planta hace polling a Gestruck y publica en la app vía webhook | Sin VPN, sin infra adicional | Requiere mantener proceso Node corriendo 24/7 |
-| **C — VPN Site-to-Site** | Túnel IPSec/WireGuard entre el router de Montalbos y un servidor VPS | Acceso total a la red local, muy robusto | Requiere router compatible + configuración de red en planta + coste de servidor VPS |
-| **D — Fetch desde el navegador de Laura** | El browser de Laura (en la red local) llama a `192.168.1.200:5050` directamente | Zero infra | Solo funciona desde ese PC; CORS; no funciona desde Valencia ni móvil |
+| Opción                                    | Cómo funciona                                                                                    | Pros                                                                             | Contras                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| **A — Cloudflare Tunnel (recomendada)**   | Proceso `cloudflared` en la red local que expone la IP interna como URL pública HTTPS            | Sin abrir puertos, sin VPN, HTTPS automático, gratuito, transparente para la app | Requiere instalar `cloudflared` en un PC de la planta (siempre encendido)           |
+| **B — Agente local (alternativa)**        | Un proceso Node.js en un PC de la planta hace polling a Gestruck y publica en la app vía webhook | Sin VPN, sin infra adicional                                                     | Requiere mantener proceso Node corriendo 24/7                                       |
+| **C — VPN Site-to-Site**                  | Túnel IPSec/WireGuard entre el router de Montalbos y un servidor VPS                             | Acceso total a la red local, muy robusto                                         | Requiere router compatible + configuración de red en planta + coste de servidor VPS |
+| **D — Fetch desde el navegador de Laura** | El browser de Laura (en la red local) llama a `192.168.1.200:5050` directamente                  | Zero infra                                                                       | Solo funciona desde ese PC; CORS; no funciona desde Valencia ni móvil               |
 
 ### Solución recomendada: VPN Site-to-Site con WireGuard
 
@@ -535,17 +552,18 @@ La báscula expone su API en `http://192.168.1.200:5050/api/v1/weighing/search` 
 
 #### Qué se necesita
 
-| Componente | Detalle | Coste |
-|-----------|---------|-------|
-| **VPS** | 1 CPU / 1GB RAM — Hetzner CX11 o DigitalOcean Droplet | ~5€/mes |
-| **Dominio/subdominio** | `gestruck.luvi2000.es` apunta a IP del VPS | Ya tenéis dominio |
-| **WireGuard en VPS** | `apt install wireguard` — configuración 20 min | Gratis |
-| **WireGuard en planta** | PC Windows con [WireGuard for Windows](https://www.wireguard.com/install/) | Gratis |
-| **Nginx en VPS** | Reverse proxy HTTP → IP privada Gestruck | Gratis |
+| Componente              | Detalle                                                                    | Coste             |
+| ----------------------- | -------------------------------------------------------------------------- | ----------------- |
+| **VPS**                 | 1 CPU / 1GB RAM — Hetzner CX11 o DigitalOcean Droplet                      | ~5€/mes           |
+| **Dominio/subdominio**  | `gestruck.luvi2000.es` apunta a IP del VPS                                 | Ya tenéis dominio |
+| **WireGuard en VPS**    | `apt install wireguard` — configuración 20 min                             | Gratis            |
+| **WireGuard en planta** | PC Windows con [WireGuard for Windows](https://www.wireguard.com/install/) | Gratis            |
+| **Nginx en VPS**        | Reverse proxy HTTP → IP privada Gestruck                                   | Gratis            |
 
 #### Setup paso a paso
 
 **1. VPS (Gigson lo configura remotamente):**
+
 ```bash
 # Instalar WireGuard + Nginx
 apt install wireguard nginx certbot python3-certbot-nginx
@@ -565,8 +583,10 @@ AllowedIPs = 10.0.0.2/32
 ```
 
 **2. PC planta Montalbos (José lo instala):**
+
 - Descargar WireGuard for Windows (exe, 5 min)
 - Importar fichero de configuración que Gigson le envía:
+
 ```ini
 [Interface]
 PrivateKey = <clave-privada-pc-planta>
@@ -579,9 +599,11 @@ Endpoint = 123.45.67.89:51820
 AllowedIPs = 10.0.0.1/32
 PersistentKeepalive = 25
 ```
+
 - Activar "Run on startup" en WireGuard Windows → conecta automáticamente
 
 **3. Nginx en VPS (reverse proxy):**
+
 ```nginx
 server {
     listen 443 ssl;
@@ -631,6 +653,7 @@ GESTRUCK_API_KEY="<ApiKey de producción — pedir a José>"
 **Autenticación:** Header `ApiKey` requerido en todos los endpoints.
 
 **Endpoints relevantes:**
+
 - `GET /api/v1/weighing/search` — Búsqueda de pesajes con filtros: `StartDate`, `EndDate`, `Vehicle`, `DriverCode`, `OrderCode`, `Status`, `Page`, `Size`
 - `POST /api/v1/externalweigher/addnetweighing/{identifier}/{code}` — Registrar pesaje neto desde sistema externo. **Retorna `WeighingViewDto`** — también puede usarse como webhook inverso.
 
@@ -639,6 +662,7 @@ GESTRUCK_API_KEY="<ApiKey de producción — pedir a José>"
 ### Estrategia de ingesta — dos modos
 
 **Modo 1 — Pull/polling (implementar primero):**
+
 ```
 Frontend Recepciones
   → polling cada 5s mientras hay contenedor pendiente de pesar
@@ -649,6 +673,7 @@ Frontend Recepciones
 ```
 
 **Modo 2 — Push/webhook (mejora futura si José puede configurarlo):**
+
 ```
 Gestruck termina pesaje
   → POST https://luvi.vercel.app/api/gestruck/webhook
@@ -670,6 +695,7 @@ Gestruck termina pesaje
 > El repo ya existe vacío en GitHub. Se genera el scaffold completo y se hace push.
 
 ### Versiones exactas (de erp-awesomely)
+
 ```json
 {
   "next": "16.2.1",
@@ -685,11 +711,13 @@ Gestruck termina pesaje
   "typescript": "^5"
 }
 ```
+
 Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, `@radix-ui/*`, `@yudiel/react-qr-scanner`, `qrcode.react`, `lucide-react`, `date-fns`, `clsx`, `tailwind-merge`, `nextjs-toploader`
 
 ### Archivos a generar en el scaffold
 
 **Raíz:**
+
 - `package.json` — dependencias arriba, scripts: dev/build/start/lint/typecheck/format
 - `next.config.ts` — config vacía tipada
 - `tsconfig.json` — igual que project-structure (paths `@/*`)
@@ -700,12 +728,14 @@ Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, 
 - `README.md` — descripción + setup básico
 
 **`.claude/`** (copiar de project-structure y adaptar):
+
 - `CLAUDE.md` — contexto específico de Luvi (stack, módulos, naming, roles, decisiones clave del Discovery)
 - `settings.json` — igual que project-structure (deny .env, hooks PostToolUse format+lint)
 - `.mcp.json` — ruflo@latest
 - `agents/` — 13 agentes copiados verbatim (web-frontend-dev, backend-api-dev, coder, planner, researcher, reviewer, security-auditor, swarm-coordinator, system-architect, task-router, tester, ui-design-dev, cicd-engineer)
 
 **`prisma/`:**
+
 - `schema.prisma` — datasource postgresql + generator + modelos completos de Luvi:
   - Auth: User (con campo `role: UserRole`), Account, Session, VerificationToken
   - Enums: `UserRole` (OPERARIO, ADMINISTRACION, MANAGER, ADMIN), `SackStatus` (10 estados), `MaterialType`, `ShipmentStatus`, `LotType` (PT, SUBPRODUCTO, RECHAZO), `IncidentStatus`
@@ -713,12 +743,13 @@ Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, 
 - `seed.ts` — admin user + materiales ejemplo + almacenes/zonas + configuración
 
 **`src/app/`:**
+
 - `layout.tsx` — Manrope+PublicSans fonts, NextTopLoader verde `#15803d`, lang="es"
 - `globals.css` — `@import "tailwindcss"` + `@theme inline` con tokens Industrial Zen:
   ```css
-  --color-primary: #15803d;       /* Forest Green */
+  --color-primary: #15803d; /* Forest Green */
   --color-primary-hover: #166534;
-  --color-warning: #facc15;       /* Safety Yellow */
+  --color-warning: #facc15; /* Safety Yellow */
   --color-sidebar-bg: #1c1917;
   --font-sans: var(--font-manrope);
   ```
@@ -732,6 +763,7 @@ Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, 
 - `api/sync/holded/route.ts` — stub cron
 
 **`src/lib/`:**
+
 - `prisma.ts` — Neon singleton (copiar verbatim de erp-awesomely)
 - `auth.ts` — NextAuth v5 credentials provider (sin SSO, con roles en JWT)
 - `auth.config.ts` — pages: { signIn: '/login' }
@@ -740,6 +772,7 @@ Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, 
 - `permissions.ts` — matriz de acceso por rol a cada módulo
 
 **`src/components/`:**
+
 - `layout/sidebar.tsx` — navegación filtrada por rol, iconos Lucide, tema oscuro sidebar
 - `layout/topbar.tsx` — breadcrumb + user avatar + logout
 - `layout/page-header.tsx` — título + subtitle + actions slot
@@ -750,6 +783,7 @@ Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, 
 - `ui/input.tsx`, `ui/label.tsx`, `ui/select.tsx`, `ui/textarea.tsx`
 
 **`src/types/`:**
+
 - `index.ts` — re-exports de tipos Prisma + tipos extendidos con sesión
 
 ### Secuencia de acciones para el scaffold
@@ -768,11 +802,13 @@ Añadir para Luvi: `react-hook-form`, `zod`, `@hookform/resolvers`, `recharts`, 
 ### Metodología de reducción
 
 Claude Code acelera principalmente en tres vectores:
+
 - **Scaffolding y boilerplate** (80-90% reducción): estructura de archivos, configuración, tipos TypeScript, Prisma schema desde modelos existentes
 - **Migración de lógica** (50-70% reducción): traducir endpoints FastAPI → Server Actions, MongoDB → Prisma queries, con el prototipo como referencia directa
 - **UI y componentes** (40-60% reducción): las 15 páginas del prototipo son referencia directa; Claude migra JSX y adapta a App Router
 
 Las tareas que NO se aceleran significativamente:
+
 - **Integración Gestruck** — protocolo desconocido, requiere iterar con hardware real
 - **Integración impresora ZPL** — mismo motivo
 - **QA y validación con cliente** — requiere presencia humana
@@ -780,30 +816,30 @@ Las tareas que NO se aceleran significativamente:
 
 ### Estimación por fase con Claude Code
 
-| Fase | Horas (senior solo) | Horas (con Claude) | Reducción | Motivo |
-|------|---------------------|-------------------|-----------|--------|
-| 0 — Setup + estructura | 11 | 3 | 73% | Scaffold, config, CI/CD completamente automatizable |
-| 1 — Auth + Foundation | 55 | 18 | 67% | Schema desde modelos del prototipo; auth copiado de erp-awesomely |
-| 2 — Recepciones | 30 | 12 | 60% | Página + API ya existe en prototipo; migración directa |
-| 3 — Almacén + Inventario | 30 | 13 | 57% | Lógica clara; UI compleja requiere revisión manual |
-| 4 — Producción + Lotes | 32 | 14 | 56% | Autogeneración de lotes tiene lógica de negocio a validar |
-| 5 — Trazabilidad | 24 | 9 | 63% | Consultas Prisma complejas pero patrón claro |
-| 6 — Expediciones | 34 | 14 | 59% | Pallets retornables: lógica nueva sin referencia en prototipo |
-| 7 — Aprovisionamiento | 28 | 13 | 54% | Módulo nuevo (era básico en prototipo); más diseño requerido |
-| 8 — Calidad | 20 | 8 | 60% | Grid Excel-like es componente complejo pero bien definido |
-| 9 — Consumibles | 16 | 6 | 63% | CRUD + alertas; bien especificado |
-| 10 — Incidencias | 15 | 6 | 60% | Upload fotos requiere integración Cloudflare R2 |
-| 11 — Dashboards (5) | 40 | 16 | 60% | Recharts + queries, patrón repetible entre dashboards |
-| 12 — Integraciones | 34 | 20 | 41% | Gestruck e impresora requieren validación con hardware; Claude ayuda en cliente HTTP y abstracción |
-| 13 — Polish + Mobile + Tests | 38 | 18 | 53% | Tests automatizables; responsive requiere revisión manual |
-| **TOTAL** | **407h** | **170h** | **~58%** | |
+| Fase                         | Horas (senior solo) | Horas (con Claude) | Reducción | Motivo                                                                                             |
+| ---------------------------- | ------------------- | ------------------ | --------- | -------------------------------------------------------------------------------------------------- |
+| 0 — Setup + estructura       | 11                  | 3                  | 73%       | Scaffold, config, CI/CD completamente automatizable                                                |
+| 1 — Auth + Foundation        | 55                  | 18                 | 67%       | Schema desde modelos del prototipo; auth copiado de erp-awesomely                                  |
+| 2 — Recepciones              | 30                  | 12                 | 60%       | Página + API ya existe en prototipo; migración directa                                             |
+| 3 — Almacén + Inventario     | 30                  | 13                 | 57%       | Lógica clara; UI compleja requiere revisión manual                                                 |
+| 4 — Producción + Lotes       | 32                  | 14                 | 56%       | Autogeneración de lotes tiene lógica de negocio a validar                                          |
+| 5 — Trazabilidad             | 24                  | 9                  | 63%       | Consultas Prisma complejas pero patrón claro                                                       |
+| 6 — Expediciones             | 34                  | 14                 | 59%       | Pallets retornables: lógica nueva sin referencia en prototipo                                      |
+| 7 — Aprovisionamiento        | 28                  | 13                 | 54%       | Módulo nuevo (era básico en prototipo); más diseño requerido                                       |
+| 8 — Calidad                  | 20                  | 8                  | 60%       | Grid Excel-like es componente complejo pero bien definido                                          |
+| 9 — Consumibles              | 16                  | 6                  | 63%       | CRUD + alertas; bien especificado                                                                  |
+| 10 — Incidencias             | 15                  | 6                  | 60%       | Upload fotos requiere integración Cloudflare R2                                                    |
+| 11 — Dashboards (5)          | 40                  | 16                 | 60%       | Recharts + queries, patrón repetible entre dashboards                                              |
+| 12 — Integraciones           | 34                  | 20                 | 41%       | Gestruck e impresora requieren validación con hardware; Claude ayuda en cliente HTTP y abstracción |
+| 13 — Polish + Mobile + Tests | 38                  | 18                 | 53%       | Tests automatizables; responsive requiere revisión manual                                          |
+| **TOTAL**                    | **407h**            | **170h**           | **~58%**  |                                                                                                    |
 
 ### Resumen ejecutivo
 
-| Modalidad | Horas totales | Perfil | Timeline (1 dev) | Timeline (2 devs) |
-|-----------|--------------|--------|-----------------|------------------|
-| Senior solo | 407h | Full-stack senior | 10-12 semanas | 5-6 semanas |
-| Claude Code | ~170h | 1 dev (junior/mid apto) | 4-5 semanas | 2-3 semanas |
+| Modalidad   | Horas totales | Perfil                  | Timeline (1 dev) | Timeline (2 devs) |
+| ----------- | ------------- | ----------------------- | ---------------- | ----------------- |
+| Senior solo | 407h          | Full-stack senior       | 10-12 semanas    | 5-6 semanas       |
+| Claude Code | ~170h         | 1 dev (junior/mid apto) | 4-5 semanas      | 2-3 semanas       |
 
 > **Nota de honestidad:** La estimación "con Claude" asume que el dev sabe revisar el output de Claude críticamente, hace QA real de cada feature, y no acepta código sin entenderlo. Con un dev sin experiencia en el stack, añadir +20-30%.
 
@@ -818,6 +854,7 @@ Las tareas que NO se aceleran significativamente:
 ### Incertidumbre en estimación con Claude
 
 ±20% según:
+
 - Si Gestruck expone una API REST bien documentada (−8h) o requiere reverse engineering de protocolo (+12h)
 - Si la impresora es Zebra con ZPL estándar (−4h) o requiere driver propietario (+8h)
 - Complejidad real del componente Grid de Calidad (±6h)
