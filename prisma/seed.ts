@@ -113,6 +113,23 @@ async function main() {
     },
   });
 
+  await prisma.warehouse.upsert({
+    where: { code: "GINETA" },
+    update: {},
+    create: {
+      name: "Almacén La Gineta",
+      code: "GINETA",
+      location: "La Gineta, Albacete",
+      zones: {
+        create: [
+          { name: "Zona G1 — MP", code: "G1", maxCapacity: 200 },
+          { name: "Zona G2 — MP", code: "G2", maxCapacity: 200 },
+          { name: "Zona G3 — PT", code: "G3", maxCapacity: 150 },
+        ],
+      },
+    },
+  });
+
   console.log("✅ Almacenes y zonas creados");
 
   // ─── Compradores ──────────────────────────────────────────────────────────

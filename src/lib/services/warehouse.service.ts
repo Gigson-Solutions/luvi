@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { SackStatus, type Prisma } from "@prisma/client";
+import { createAlbaran } from "@/lib/integrations/holded";
 
 /**
  * Servicio de Almacén / Inventario — lógica de negocio sobre Zone + Sack.
@@ -238,6 +239,108 @@ export async function moveSack(input: MoveSackInput): Promise<SackWithRefs> {
       lot: true,
     },
   });
+}
+
+// ─── 5. Traslado múltiple entre zonas (+ albarán si es entre plantas) ────────
+
+export interface TransferSacksInput {
+  sackIds: string[];
+  zoneId: string;
+}
+
+export interface TransferResult {
+  movedCount: number;
+  /** El traslado cruza de una planta a otra (La Gineta ↔ Montalbos). */
+  interWarehouse: boolean;
+  albaran: {
+    generated: boolean;
+    simulated: boolean;
+    holdedId?: string;
+    error?: string;
+  } | null;
+}
+
+/**
+ * Traslada varias sacas a una zona destino. Si alguna procede de un almacén
+ * distinto al destino (traslado entre plantas), genera UN albarán en Holded
+ * con todas las sacas, a nombre de la planta destino. La báscula/Holded nunca
+ * bloquea: si el albarán falla, el traslado igualmente se realiza.
+ */
+export async function transferSacks(
+  input: TransferSacksInput,
+): Promise<TransferResult> {
+  if (input.sackIds.length === 0) {
+    throw new Error("Selecciona al menos una saca.");
+  }
+
+  const [sacks, zone] = await Promise.all([
+    prisma.sack.findMany({
+      where: { id: { in: input.sackIds } },
+      include: {
+        material: { select: { name: true } },
+        zone: { include: { warehouse: { select: { id: true, name: true } } } },
+      },
+    }),
+    prisma.zone.findUniqueOrThrow({
+      where: { id: input.zoneId },
+      include: { warehouse: { select: { id: true, name: true } } },
+    }),
+  ]);
+
+  if (sacks.length !== input.sackIds.length) {
+    throw new Error("Alguna de las sacas seleccionadas no existe.");
+  }
+
+  const toMove = sacks.filter((s) => s.zoneId !== input.zoneId);
+  if (toMove.length === 0) {
+    throw new Error("Las sacas seleccionadas ya están en la zona destino.");
+  }
+
+  const occupied = await prisma.sack.count({
+    where: { zoneId: input.zoneId, status: SackStatus.EN_ALMACEN },
+  });
+  if (occupied + toMove.length > zone.maxCapacity) {
+    throw new Error(
+      `La zona destino (${zone.name}) no tiene capacidad suficiente: ${occupied}/${zone.maxCapacity}, intentas añadir ${toMove.length}.`,
+    );
+  }
+
+  await prisma.sack.updateMany({
+    where: { id: { in: toMove.map((s) => s.id) } },
+    data: { zoneId: input.zoneId },
+  });
+
+  // ¿El traslado cruza de planta? (origen ≠ almacén destino)
+  const destWarehouseId = zone.warehouse.id;
+  const sourceWarehouses = new Map<string, string>();
+  for (const s of toMove) {
+    const wh = s.zone?.warehouse;
+    if (wh && wh.id !== destWarehouseId) sourceWarehouses.set(wh.id, wh.name);
+  }
+  const interWarehouse = sourceWarehouses.size > 0;
+
+  let albaran: TransferResult["albaran"] = null;
+  if (interWarehouse) {
+    const sourceNames = Array.from(sourceWarehouses.values()).join(", ");
+    const result = await createAlbaran({
+      buyerName: zone.warehouse.name, // contacto = planta destino
+      reference: `TRASLADO ${sourceNames} → ${zone.warehouse.name}`,
+      notes: `Traslado interno de ${toMove.length} saca(s): ${sourceNames} → ${zone.warehouse.name}`,
+      lines: toMove.map((s) => ({
+        name: `${s.material.name} · ${s.qrCode}`,
+        units: s.weight,
+        price: 0,
+      })),
+    });
+    albaran = {
+      generated: result.ok,
+      simulated: result.simulated,
+      holdedId: result.holdedId,
+      error: result.error,
+    };
+  }
+
+  return { movedCount: toMove.length, interWarehouse, albaran };
 }
 
 // ─── Datos auxiliares para filtros / formularios ────────────────────────────

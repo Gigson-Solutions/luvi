@@ -19,7 +19,7 @@ import {
   listSacks,
   getWarehouseFilterData,
 } from "@/lib/services/warehouse.service";
-import { MoveSackDialog } from "./warehouse-client";
+import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
 
 const STATUS_VALUES = Object.values(SackStatus);
 
@@ -60,6 +60,17 @@ export default async function AlmacenPage({
     }),
     getWarehouseFilterData(),
   ]);
+
+  const movableSacks = sacks
+    .filter((s) => s.status === SackStatus.EN_ALMACEN)
+    .map((s) => ({
+      id: s.id,
+      qrCode: s.qrCode,
+      materialName: s.material.name,
+      weight: s.weight,
+      zoneId: s.zoneId,
+      warehouseName: s.zone?.warehouse.name ?? null,
+    }));
 
   return (
     <div>
@@ -165,12 +176,20 @@ export default async function AlmacenPage({
 
       {/* ─── Inventario de sacas + filtros ─── */}
       <section>
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Inventario de sacas
-          <span className="ml-2 font-normal text-[var(--color-muted)]">
-            {sacks.length}
-          </span>
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+            Inventario de sacas
+            <span className="ml-2 font-normal text-[var(--color-muted)]">
+              {sacks.length}
+            </span>
+          </h2>
+          {movableSacks.length > 0 && (
+            <TransferSacksDialog
+              movableSacks={movableSacks}
+              zones={filterData.zones}
+            />
+          )}
+        </div>
 
         {/* Filtro por estado */}
         <div className="flex flex-wrap items-center gap-1.5 mb-2">
