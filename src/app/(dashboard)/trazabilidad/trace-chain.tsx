@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   ChevronRight,
   Factory,
@@ -7,11 +8,70 @@ import {
   Building2,
   ShoppingCart,
   Layers,
+  ArrowLeft,
+  ArrowRight,
+  Link2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SackStatusBadge } from "@/components/ui/status-badge";
 import { formatKg, formatDate } from "@/lib/utils";
-import type { SackTrace } from "@/lib/services/traceability.service";
+import type {
+  SackTrace,
+  TraceRelatedSack,
+} from "@/lib/services/traceability.service";
+
+/** Enlace navegable a la traza de otra saca (por su QR). */
+function SackLink({ sack }: { sack: TraceRelatedSack }): React.JSX.Element {
+  return (
+    <Link
+      href={`/trazabilidad?q=${encodeURIComponent(sack.qrCode)}`}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm hover:border-[var(--color-primary)] hover:ring-1 hover:ring-[var(--color-primary)] transition-colors"
+      title={`Trazar ${sack.qrCode}`}
+    >
+      <Package className="w-3.5 h-3.5 text-[var(--color-muted)] shrink-0" />
+      <span className="font-medium text-[var(--color-foreground)]">
+        {sack.qrCode}
+      </span>
+      <span className="text-[var(--color-muted)]">
+        {sack.materialName} · {formatKg(sack.weight)}
+      </span>
+    </Link>
+  );
+}
+
+/** Bloque de sacas navegables (padres / hijos / relacionadas). */
+function NavGroup({
+  icon: Icon,
+  label,
+  hint,
+  sacks,
+}: {
+  icon: React.ElementType;
+  label: string;
+  hint: string;
+  sacks: TraceRelatedSack[];
+}): React.JSX.Element | null {
+  if (sacks.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="w-4 h-4 text-[var(--color-primary)]" />
+        <span className="text-sm font-semibold text-[var(--color-foreground)]">
+          {label}
+        </span>
+        <span className="text-xs text-[var(--color-muted)]">
+          ({sacks.length})
+        </span>
+      </div>
+      <p className="text-xs text-[var(--color-muted)] mb-3">{hint}</p>
+      <div className="flex flex-wrap gap-2">
+        {sacks.map((s) => (
+          <SackLink key={s.id} sack={s} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const LOT_TYPE_LABELS: Record<string, string> = {
   PRODUCTO_TERMINADO: "Producto terminado",
@@ -323,6 +383,37 @@ export function TraceChain({ trace }: { trace: SackTrace }): React.JSX.Element {
         )}
       </section>
 
+      {/* Navegación por sacas: padres / hijos / relacionadas */}
+      {(trace.parents.length > 0 ||
+        trace.children.length > 0 ||
+        trace.related.length > 0) && (
+        <section>
+          <h3 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
+            Navegación por sacas
+          </h3>
+          <div className="grid gap-3 md:grid-cols-3">
+            <NavGroup
+              icon={ArrowLeft}
+              label="Padres"
+              hint="Sacas de entrada de las que proviene."
+              sacks={trace.parents}
+            />
+            <NavGroup
+              icon={ArrowRight}
+              label="Hijos"
+              hint="Sacas finales en las que se transformó."
+              sacks={trace.children}
+            />
+            <NavGroup
+              icon={Link2}
+              label="Relacionadas"
+              hint="Hermanas del mismo lote o transformación."
+              sacks={trace.related}
+            />
+          </div>
+        </section>
+      )}
+
       {/* Detalle de sacas de entrada consumidas (solo sacas de salida) */}
       {trace.originTransformations.length > 0 && (
         <section>
@@ -352,9 +443,13 @@ export function TraceChain({ trace }: { trace: SackTrace }): React.JSX.Element {
                       className="flex items-center gap-2 text-sm flex-wrap"
                     >
                       <Package className="w-3.5 h-3.5 text-[var(--color-muted)] shrink-0" />
-                      <span className="font-medium text-[var(--color-foreground)]">
+                      <Link
+                        href={`/trazabilidad?q=${encodeURIComponent(inp.qrCode)}`}
+                        className="font-medium text-[var(--color-foreground)] hover:text-[var(--color-primary)] hover:underline"
+                        title={`Trazar ${inp.qrCode}`}
+                      >
                         {inp.qrCode}
-                      </span>
+                      </Link>
                       <span className="text-[var(--color-muted)]">
                         {inp.materialName} · {formatKg(inp.weight)}
                       </span>

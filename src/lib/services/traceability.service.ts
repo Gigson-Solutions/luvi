@@ -57,7 +57,18 @@ export interface TraceInputSack {
   qrCode: string;
   weight: number;
   materialName: string;
+  status: SackStatus;
   container: TraceContainer | null;
+}
+
+/** Saca navegable (padre / hijo / relacionada) — clic → nueva traza. */
+export interface TraceRelatedSack {
+  id: string;
+  qrCode: string;
+  weight: number;
+  materialName: string;
+  status: SackStatus;
+  isOutput: boolean;
 }
 
 export interface TraceTransformation {
@@ -94,6 +105,14 @@ export interface SackTrace {
   producedLots: TraceLot[];
   /** Envíos donde acabó la saca (directa o vía lote). */
   shipments: TraceShipment[];
+
+  // ── Navegación por sacas (padres / hijos / relacionadas) ──
+  /** Padres: sacas de entrada que se transformaron en esta (solo sacas de salida). */
+  parents: TraceRelatedSack[];
+  /** Hijos: sacas finales producidas a partir de esta (solo sacas de entrada). */
+  children: TraceRelatedSack[];
+  /** Relacionadas: hermanas del mismo lote o de la misma transformación. */
+  related: TraceRelatedSack[];
 }
 
 // ─── Helpers de mapeo ───────────────────────────────────────────────────────────
@@ -242,6 +261,7 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
                 id: true,
                 qrCode: true,
                 weight: true,
+                status: true,
                 material: { select: { name: true } },
                 container: {
                   select: {
@@ -268,6 +288,7 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
         qrCode: inp.sack.qrCode,
         weight: inp.sack.weight,
         materialName: inp.sack.material.name,
+        status: inp.sack.status,
         container: mapContainer(inp.sack.container),
       })),
     }));
@@ -364,6 +385,88 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
     a.reference.localeCompare(b.reference),
   );
 
+  // ── Navegación por sacas: padres / hijos / relacionadas ──
+  const relatedSelect = {
+    id: true,
+    qrCode: true,
+    weight: true,
+    status: true,
+    lotId: true,
+    material: { select: { name: true } },
+  } as const;
+
+  const toRelated = (s: {
+    id: string;
+    qrCode: string;
+    weight: number;
+    status: SackStatus;
+    lotId: string | null;
+    material: { name: string };
+  }): TraceRelatedSack => ({
+    id: s.id,
+    qrCode: s.qrCode,
+    weight: s.weight,
+    materialName: s.material.name,
+    status: s.status,
+    isOutput: s.lotId != null || OUTPUT_STATUSES.has(s.status),
+  });
+
+  const parents: TraceRelatedSack[] = [];
+  let children: TraceRelatedSack[] = [];
+  let related: TraceRelatedSack[] = [];
+
+  if (isOutput) {
+    // Padres: sacas de entrada consumidas para producir su lote.
+    const seenParents = new Set<string>();
+    for (const t of originTransformations) {
+      for (const inp of t.inputs) {
+        if (seenParents.has(inp.id)) continue;
+        seenParents.add(inp.id);
+        parents.push({
+          id: inp.id,
+          qrCode: inp.qrCode,
+          weight: inp.weight,
+          materialName: inp.materialName,
+          status: inp.status,
+          isOutput: false,
+        });
+      }
+    }
+    // Relacionadas: hermanas del mismo lote de salida.
+    if (sack.lotId) {
+      const siblings = await prisma.sack.findMany({
+        where: { lotId: sack.lotId, id: { not: sack.id } },
+        select: relatedSelect,
+        orderBy: { qrCode: "asc" },
+      });
+      related = siblings.map(toRelated);
+    }
+  } else {
+    // Hijos: sacas finales producidas a partir de los lotes que alimentó.
+    const producedLotIds = Array.from(producedLotsById.keys());
+    if (producedLotIds.length > 0) {
+      const outputs = await prisma.sack.findMany({
+        where: { lotId: { in: producedLotIds } },
+        select: relatedSelect,
+        orderBy: { qrCode: "asc" },
+      });
+      children = outputs.map(toRelated);
+    }
+    // Relacionadas: otras sacas de entrada consumidas en las mismas transformaciones.
+    const txs = await prisma.transformation.findMany({
+      where: { inputs: { some: { sackId: sack.id } } },
+      select: { inputs: { select: { sack: { select: relatedSelect } } } },
+    });
+    const seenRel = new Set<string>([sack.id]);
+    for (const t of txs) {
+      for (const inp of t.inputs) {
+        if (seenRel.has(inp.sack.id)) continue;
+        seenRel.add(inp.sack.id);
+        related.push(toRelated(inp.sack));
+      }
+    }
+  }
+
   return {
     sack: traceSackDto,
     originContainer,
@@ -371,5 +474,8 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
     originTransformations,
     producedLots: Array.from(producedLotsById.values()),
     shipments,
+    parents,
+    children,
+    related,
   };
 }
