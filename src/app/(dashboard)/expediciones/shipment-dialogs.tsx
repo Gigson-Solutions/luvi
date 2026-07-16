@@ -61,6 +61,7 @@ export function NewShipmentDialog({
   const [selected, setSelected] = useState<SelectedLot[]>([]);
   const [lotId, setLotId] = useState("");
   const [weight, setWeight] = useState("");
+  const [returnablePallets, setReturnablePallets] = useState(false);
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await createShipmentAction(prev, formData);
@@ -69,6 +70,7 @@ export function NewShipmentDialog({
         setSelected([]);
         setLotId("");
         setWeight("");
+        setReturnablePallets(false);
       }
       return result;
     },
@@ -223,6 +225,38 @@ export function NewShipmentDialog({
           <div>
             <Label htmlFor="notes">Notas</Label>
             <Textarea id="notes" name="notes" />
+          </div>
+
+          {/* Palés retornables → enlaza con Consumibles (préstamo al comprador) */}
+          <div className="rounded-lg border border-[var(--color-border)] p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                name="returnablePallets"
+                checked={returnablePallets}
+                onChange={(e) => setReturnablePallets(e.target.checked)}
+              />
+              <span className="font-medium text-[var(--color-foreground)]">
+                Palés retornables
+              </span>
+            </label>
+            {returnablePallets && (
+              <div>
+                <Label htmlFor="palletCount">Nº de palés prestados</Label>
+                <Input
+                  id="palletCount"
+                  name="palletCount"
+                  type="number"
+                  min={1}
+                  step={1}
+                  defaultValue={1}
+                />
+                <p className="text-xs text-[var(--color-muted)] mt-1">
+                  Se registrará como préstamo de palés al comprador en
+                  Consumibles.
+                </p>
+              </div>
+            )}
           </div>
 
           {state.error && <p className="text-sm text-red-600">{state.error}</p>}

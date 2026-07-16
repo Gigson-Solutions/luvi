@@ -30,6 +30,11 @@ const createSchema = z.object({
   vehiclePlate: z.string().optional(),
   driverName: z.string().optional(),
   notes: z.string().optional(),
+  returnablePallets: z
+    .string()
+    .optional()
+    .transform((v) => v === "on" || v === "true"),
+  palletCount: z.coerce.number().int().nonnegative().optional(),
   lots: z
     .string()
     .transform((s, ctx) => {
@@ -59,14 +64,24 @@ export async function createShipmentAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { buyerId, carrierId, vehiclePlate, driverName, notes, lots } =
-      parsed.data;
+    const {
+      buyerId,
+      carrierId,
+      vehiclePlate,
+      driverName,
+      notes,
+      returnablePallets,
+      palletCount,
+      lots,
+    } = parsed.data;
     const shipment = await createShipment({
       buyerId,
       carrierId: carrierId || undefined,
       vehiclePlate: vehiclePlate || undefined,
       driverName: driverName || undefined,
       notes: notes || undefined,
+      returnablePallets,
+      palletCount,
       lots,
     });
     revalidatePath("/expediciones");

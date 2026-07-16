@@ -136,6 +136,9 @@ export interface CreateShipmentInput {
   driverName?: string;
   notes?: string;
   lots: { lotId: string; weightKg: number }[];
+  /** Palés retornables prestados al comprador con este envío (enlaza con Consumibles). */
+  returnablePallets?: boolean;
+  palletCount?: number;
 }
 
 /** Genera una referencia autogenerada tipo EXP-YYMMDD-NNN (secuencial diario). */
@@ -164,7 +167,7 @@ export async function createShipment(
 
   return prisma.$transaction(async (tx) => {
     const reference = await nextReference(tx);
-    return tx.shipment.create({
+    const shipment = await tx.shipment.create({
       data: {
         reference,
         status: ShipmentStatus.BORRADOR,
@@ -182,6 +185,22 @@ export async function createShipment(
       },
       include: shipmentInclude,
     });
+
+    // Palés retornables → préstamo al comprador enlazado con el envío.
+    // Aparece en Consumibles (saldos de palés por comprador).
+    if (input.returnablePallets && input.palletCount && input.palletCount > 0) {
+      await tx.palletMovement.create({
+        data: {
+          buyerId: input.buyerId,
+          quantity: input.palletCount, // positivo = préstamo
+          condition: "OK",
+          shipmentId: shipment.id,
+          notes: `Palés retornables del envío ${shipment.reference}`,
+        },
+      });
+    }
+
+    return shipment;
   });
 }
 
