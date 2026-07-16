@@ -1,0 +1,4 @@
+# pnpm v11 lee la configuración desde aquí (ya no desde el campo "pnpm" de package.json).
+# Permitimos los build scripts de las dependencias (prisma, esbuild, sharp…) en el
+# deploy self-hosted. Instalamos siempre con --frozen-lockfile desde el lockfile versionado.
+dangerouslyAllowAllBuilds: true
