@@ -201,7 +201,8 @@ model Warehouse {
   location String? // dirección / planta
   active   Boolean @default(true)
 
-  zones Zone[]
+  zones      Zone[]
+  containers Container[] // contenedores con este almacén como destino declarado
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -269,6 +270,11 @@ model Container {
   weighedAt    DateTime?
   weightSource String?  @default("gestruck") // "gestruck" | "manual"
   scaleId      String?  // ID de báscula Gestruck
+
+  // Almacén destino declarado al registrar (antes de pesar). Permite proyectar
+  // la ocupación por almacén con las sacas entrantes aún no recibidas.
+  warehouseId  String?
+  warehouse    Warehouse? @relation(fields: [warehouseId], references: [id])
 
   supplierId2  String? // alias para supplier
   supplier     Supplier @relation(fields: [supplierId], references: [id])

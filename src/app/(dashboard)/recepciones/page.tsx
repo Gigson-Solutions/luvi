@@ -29,6 +29,7 @@ export default async function RecepcionesPage(): Promise<React.JSX.Element> {
             suppliers={formData.suppliers}
             materials={formData.materials}
             zones={formData.zones}
+            warehouses={formData.warehouses}
           />
         }
       />

@@ -21,6 +21,7 @@ const registerSchema = z.object({
   reference: z.string().min(1, "La referencia es obligatoria"),
   supplierId: z.string().min(1, "Selecciona un proveedor"),
   materialId: z.string().optional(),
+  warehouseId: z.string().optional(),
   billOfLading: z.string().optional(),
   expectedWeight: z.coerce.number().positive().optional(),
   numSacks: z.coerce.number().int().positive().optional(),
@@ -42,10 +43,11 @@ export async function registerContainerAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { estimatedArrival, materialId, ...rest } = parsed.data;
+    const { estimatedArrival, materialId, warehouseId, ...rest } = parsed.data;
     await registerContainer({
       ...rest,
       materialId: materialId || undefined,
+      warehouseId: warehouseId || undefined,
       estimatedArrival: estimatedArrival
         ? new Date(estimatedArrival)
         : undefined,

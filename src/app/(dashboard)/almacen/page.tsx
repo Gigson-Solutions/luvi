@@ -98,6 +98,11 @@ export default async function AlmacenPage({
         />
       </div>
 
+      {/* ─── Ocupación proyectada (global) ─── */}
+      {overview.stats.totalCapacity > 0 && (
+        <ProjectedOccupancy stats={overview.stats} />
+      )}
+
       {/* ─── Ocupación por zona, agrupada por almacén ─── */}
       <section className="mb-10 space-y-6">
         <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
@@ -166,6 +171,58 @@ export default async function AlmacenPage({
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Proyección del almacén: actual + entrantes declarados */}
+                {wh.totalCapacity > 0 && (
+                  <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-[var(--color-muted)]">
+                        Proyectada{" "}
+                        {wh.incomingSacks > 0 ? (
+                          <span className="text-[var(--color-foreground)]">
+                            +{wh.incomingSacks} entrante
+                            {wh.incomingSacks === 1 ? "" : "s"} (
+                            {wh.pendingContainers} pdte
+                            {wh.pendingContainers === 1 ? "" : "s"})
+                          </span>
+                        ) : (
+                          "sin entrantes"
+                        )}
+                      </span>
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          wh.projectedSacks > wh.totalCapacity
+                            ? "font-medium text-[var(--color-status-rechazo)]"
+                            : "text-[var(--color-muted)]",
+                        )}
+                      >
+                        {wh.projectedSacks}/{wh.totalCapacity} · {wh.pctProjected}
+                        %
+                      </span>
+                    </div>
+                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-hover)]">
+                      <div
+                        className="h-full"
+                        style={{
+                          width: `${wh.pctActual}%`,
+                          backgroundColor: "var(--color-primary)",
+                        }}
+                      />
+                      <div
+                        className="h-full"
+                        style={{
+                          width: `${Math.max(0, wh.pctProjected - wh.pctActual)}%`,
+                          backgroundColor:
+                            wh.projectedSacks > wh.totalCapacity
+                              ? "var(--color-status-rechazo)"
+                              : "var(--color-primary)",
+                          opacity: 0.4,
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -344,6 +401,108 @@ export default async function AlmacenPage({
         )}
       </section>
     </div>
+  );
+}
+
+function ProjectedOccupancy({
+  stats,
+}: {
+  stats: {
+    totalSacks: number;
+    totalCapacity: number;
+    incomingSacks: number;
+    pendingContainers: number;
+    projectedSacks: number;
+    pctActual: number;
+    pctProjected: number;
+    unassignedIncoming: number;
+    unassignedContainers: number;
+  };
+}): React.JSX.Element {
+  // Segmento de entrantes = tramo que la proyección añade sobre lo actual.
+  const incomingPct = Math.max(0, stats.pctProjected - stats.pctActual);
+  const overCapacity = stats.projectedSacks > stats.totalCapacity;
+
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-sm font-semibold text-[var(--color-foreground)]">
+        Ocupación proyectada
+        <span className="ml-2 font-normal text-[var(--color-muted)]">total</span>
+      </h2>
+      <Card>
+        <CardContent className="py-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
+            <span className="text-[var(--color-muted)]">
+              Actual{" "}
+              <span className="font-medium text-[var(--color-foreground)] tabular-nums">
+                {stats.totalSacks}/{stats.totalCapacity}
+              </span>{" "}
+              · {stats.pctActual}%
+            </span>
+            <span className="text-[var(--color-muted)]">
+              {stats.incomingSacks > 0 ? (
+                <>
+                  +{" "}
+                  <span className="font-medium text-[var(--color-foreground)] tabular-nums">
+                    {stats.incomingSacks}
+                  </span>{" "}
+                  entrantes ({stats.pendingContainers} contenedor
+                  {stats.pendingContainers === 1 ? "" : "es"} pdte
+                  {stats.pendingContainers === 1 ? "" : "s"})
+                </>
+              ) : (
+                "Sin contenedores pendientes"
+              )}
+            </span>
+            <span
+              className={cn(
+                "font-medium tabular-nums",
+                overCapacity
+                  ? "text-[var(--color-status-rechazo)]"
+                  : "text-[var(--color-foreground)]",
+              )}
+            >
+              → Proyectada {stats.projectedSacks}/{stats.totalCapacity} ·{" "}
+              {stats.pctProjected}%
+            </span>
+          </div>
+          <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--color-surface-hover)]">
+            <div
+              className="h-full transition-all"
+              style={{
+                width: `${stats.pctActual}%`,
+                backgroundColor: "var(--color-primary)",
+              }}
+            />
+            <div
+              className="h-full transition-all"
+              style={{
+                width: `${incomingPct}%`,
+                backgroundColor: overCapacity
+                  ? "var(--color-status-rechazo)"
+                  : "var(--color-primary)",
+                opacity: 0.4,
+              }}
+            />
+          </div>
+          {overCapacity && (
+            <p className="mt-2 text-xs font-medium text-[var(--color-status-rechazo)]">
+              Los entrantes superan la capacidad global disponible.
+            </p>
+          )}
+          {stats.unassignedIncoming > 0 && (
+            <p className="mt-2 text-xs text-[var(--color-muted)]">
+              Incluye {stats.unassignedIncoming} saca
+              {stats.unassignedIncoming === 1 ? "" : "s"} de{" "}
+              {stats.unassignedContainers} contenedor
+              {stats.unassignedContainers === 1 ? "" : "es"} pendiente
+              {stats.unassignedContainers === 1 ? "" : "s"} sin almacén destino
+              asignado (no se reparten por almacén).
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 

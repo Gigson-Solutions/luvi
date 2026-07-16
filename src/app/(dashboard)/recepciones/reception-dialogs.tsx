@@ -34,12 +34,14 @@ interface ReceptionOptions {
   suppliers: Option[];
   materials: Option[];
   zones: Option[];
+  warehouses: Option[];
 }
 
 // ─── Diálogo: registro previo de contenedor ────────────────────────────────────
 export function NewReceptionDialog({
   suppliers,
   materials,
+  warehouses,
 }: ReceptionOptions): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(
@@ -104,6 +106,17 @@ export function NewReceptionDialog({
                 ))}
               </Select>
             </div>
+          </div>
+          <div>
+            <Label htmlFor="warehouseId">Almacén destino</Label>
+            <Select id="warehouseId" name="warehouseId" defaultValue="">
+              <option value="">Sin definir</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

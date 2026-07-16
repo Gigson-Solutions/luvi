@@ -6,7 +6,9 @@ import { createAlbaran } from "@/lib/integrations/holded";
  * Servicio de Almacén / Inventario — lógica de negocio sobre Zone + Sack.
  *
  * Cubre:
- *  1. Ocupación por zona (sacas EN_ALMACEN vs maxCapacity), agrupada por almacén.
+ *  1. Ocupación por zona (sacas EN_ALMACEN vs maxCapacity), agrupada por almacén,
+ *     + ocupación proyectada por almacén y global (actual + sacas declaradas de
+ *     contenedores pendientes según su almacén destino).
  *  2. Listado de sacas con filtros (estado, material, zona).
  *  3. Detalle de una saca con su ciclo de vida.
  *  4. Traslado de sacas entre zonas (validando capacidad de la zona destino).
@@ -39,12 +41,41 @@ export interface WarehouseOccupancy {
   zones: ZoneOccupancy[];
   totalSacks: number;
   totalCapacity: number;
+  /** Sacas declaradas en contenedores pendientes con este almacén como destino. */
+  incomingSacks: number;
+  /** Nº de contenedores pendientes con este almacén como destino. */
+  pendingContainers: number;
+  /** Ocupación proyectada del almacén = totalSacks + incomingSacks. */
+  projectedSacks: number;
+  /** % de ocupación actual sobre la capacidad del almacén (0–100, capado). */
+  pctActual: number;
+  /** % de ocupación proyectada sobre la capacidad del almacén (0–100, capado). */
+  pctProjected: number;
 }
 
 export interface WarehouseStats {
   totalSacks: number;
   totalKg: number;
   zonesAtLimit: number;
+  /** Capacidad global (suma de maxCapacity de todas las zonas activas). */
+  totalCapacity: number;
+  /**
+   * Sacas declaradas en contenedores pendientes de recibir (aún sin pesar),
+   * sumando todos los almacenes destino + los pendientes sin destino asignado.
+   */
+  incomingSacks: number;
+  /** Nº de contenedores/camiones pendientes de recibir. */
+  pendingContainers: number;
+  /** Ocupación proyectada global = totalSacks + incomingSacks. */
+  projectedSacks: number;
+  /** % de ocupación actual sobre la capacidad global (0–100, capado). */
+  pctActual: number;
+  /** % de ocupación proyectada sobre la capacidad global (0–100, capado). */
+  pctProjected: number;
+  /** Sacas de contenedores pendientes que aún no tienen almacén destino. */
+  unassignedIncoming: number;
+  /** Nº de contenedores pendientes sin almacén destino asignado. */
+  unassignedContainers: number;
 }
 
 export interface WarehouseOverview {
@@ -74,7 +105,7 @@ export type SackDetail = Prisma.SackGetPayload<{
 
 /** Ocupación de todas las zonas agrupada por almacén + totales globales. */
 export async function getWarehouseOverview(): Promise<WarehouseOverview> {
-  const [warehouses, grouped] = await Promise.all([
+  const [warehouses, grouped, pendingAgg] = await Promise.all([
     prisma.warehouse.findMany({
       where: { active: true },
       include: { zones: { orderBy: { code: "asc" } } },
@@ -85,6 +116,15 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
       where: { status: SackStatus.EN_ALMACEN, zoneId: { not: null } },
       _count: { _all: true },
       _sum: { weight: true },
+    }),
+    // Entrantes: contenedores pendientes de recibir (sin pesar todavía),
+    // agrupados por su almacén destino declarado. Los que no tienen destino
+    // asignado (warehouseId null) alimentan solo el total global.
+    prisma.container.groupBy({
+      by: ["warehouseId"],
+      where: { actualWeight: null },
+      _sum: { numSacks: true },
+      _count: { _all: true },
     }),
   ]);
 
@@ -98,9 +138,35 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
     }
   }
 
+  // Entrantes por almacén destino + bucket global de pendientes sin destino.
+  const incomingByWarehouse = new Map<
+    string,
+    { sacks: number; containers: number }
+  >();
+  let incomingSacks = 0;
+  let pendingContainers = 0;
+  let unassignedIncoming = 0;
+  let unassignedContainers = 0;
+  for (const row of pendingAgg) {
+    const sacks = row._sum.numSacks ?? 0;
+    const containers = row._count._all;
+    incomingSacks += sacks;
+    pendingContainers += containers;
+    if (row.warehouseId) {
+      incomingByWarehouse.set(row.warehouseId, { sacks, containers });
+    } else {
+      unassignedIncoming += sacks;
+      unassignedContainers += containers;
+    }
+  }
+
+  const pct = (n: number, cap: number): number =>
+    cap > 0 ? Math.min(100, Math.round((n / cap) * 100)) : 0;
+
   let totalSacks = 0;
   let totalKg = 0;
   let zonesAtLimit = 0;
+  let totalCapacity = 0;
 
   const result: WarehouseOccupancy[] = warehouses.map((w) => {
     let whSacks = 0;
@@ -118,6 +184,7 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
       whCapacity += z.maxCapacity;
       totalSacks += agg.sacks;
       totalKg += agg.weight;
+      totalCapacity += z.maxCapacity;
       if (atLimit) zonesAtLimit += 1;
 
       return {
@@ -132,6 +199,12 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
       };
     });
 
+    const whIncoming = incomingByWarehouse.get(w.id) ?? {
+      sacks: 0,
+      containers: 0,
+    };
+    const whProjected = whSacks + whIncoming.sacks;
+
     return {
       id: w.id,
       name: w.name,
@@ -140,12 +213,31 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
       zones,
       totalSacks: whSacks,
       totalCapacity: whCapacity,
+      incomingSacks: whIncoming.sacks,
+      pendingContainers: whIncoming.containers,
+      projectedSacks: whProjected,
+      pctActual: pct(whSacks, whCapacity),
+      pctProjected: pct(whProjected, whCapacity),
     };
   });
 
+  const projectedSacks = totalSacks + incomingSacks;
+
   return {
     warehouses: result,
-    stats: { totalSacks, totalKg, zonesAtLimit },
+    stats: {
+      totalSacks,
+      totalKg,
+      zonesAtLimit,
+      totalCapacity,
+      incomingSacks,
+      pendingContainers,
+      projectedSacks,
+      pctActual: pct(totalSacks, totalCapacity),
+      pctProjected: pct(projectedSacks, totalCapacity),
+      unassignedIncoming,
+      unassignedContainers,
+    },
   };
 }
 

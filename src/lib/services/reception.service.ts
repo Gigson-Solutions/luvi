@@ -41,6 +41,8 @@ export interface RegisterContainerInput {
   reference: string;
   supplierId: string;
   materialId?: string;
+  /** Almacén destino declarado (para proyectar ocupación de entrantes). */
+  warehouseId?: string;
   billOfLading?: string;
   expectedWeight?: number;
   numSacks?: number;
@@ -58,6 +60,7 @@ export function registerContainer(
       reference: input.reference,
       supplierId: input.supplierId,
       materialId: input.materialId ?? null,
+      warehouseId: input.warehouseId ?? null,
       billOfLading: input.billOfLading ?? null,
       expectedWeight: input.expectedWeight ?? null,
       numSacks: input.numSacks ?? null,
@@ -165,6 +168,7 @@ export function getReceptionFormData(): Promise<{
   suppliers: { id: string; name: string; code: string }[];
   materials: { id: string; name: string; code: string }[];
   zones: { id: string; name: string; code: string; warehouseName: string }[];
+  warehouses: { id: string; name: string; code: string }[];
 }> {
   return Promise.all([
     prisma.supplier.findMany({
@@ -186,7 +190,12 @@ export function getReceptionFormData(): Promise<{
       },
       orderBy: { code: "asc" },
     }),
-  ]).then(([suppliers, materials, zones]) => ({
+    prisma.warehouse.findMany({
+      where: { active: true },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: "asc" },
+    }),
+  ]).then(([suppliers, materials, zones, warehouses]) => ({
     suppliers,
     materials,
     zones: zones.map((z) => ({
@@ -195,5 +204,6 @@ export function getReceptionFormData(): Promise<{
       code: z.code,
       warehouseName: z.warehouse.name,
     })),
+    warehouses,
   }));
 }
