@@ -536,12 +536,13 @@ model ConsumableMovement {
 // ─── Pallets retornables (por cliente) ────────────────────────────────────────
 
 model PalletMovement {
-  id         String   @id @default(cuid())
-  buyerId    String
-  quantity   Int      // positivo = préstamo, negativo = devolución
-  condition  String?  // "OK" | "NOK"
-  shipmentId String?
-  notes      String?
+  id           String   @id @default(cuid())
+  buyerId      String
+  quantity     Int      // positivo = préstamo, negativo = devolución
+  condition    String?  // "OK" | "NOK"
+  vehiclePlate String?  // matrícula del camión (devoluciones)
+  shipmentId   String?
+  notes        String?
 
   buyer     Buyer    @relation(fields: [buyerId], references: [id])
   createdAt DateTime @default(now())
