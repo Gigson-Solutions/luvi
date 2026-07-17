@@ -434,6 +434,7 @@ model PurchaseOrder {
   materialId String?
   status     PurchaseOrderStatus @default(ABIERTA)
   orderedTons Float
+  pricePerTon Float? // €/tonelada de compra — base del coste por tonelada del lote final
   notes      String?
 
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
@@ -475,6 +476,7 @@ model QualityRecord {
   materialId String
   supplierId String?
   shift      String?       // turno: M/T/N
+  sampleType String?       // tipo de muestra: MP/PT (provisional, pendiente confirmar con Paula)
   result     QualityResult @default(PENDIENTE)
   overrideReason String?   // motivo si se override NOK→OK
 

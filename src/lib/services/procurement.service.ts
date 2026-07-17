@@ -146,6 +146,7 @@ export interface CreatePurchaseOrderInput {
   supplierId: string;
   materialId?: string;
   orderedTons: number;
+  pricePerTon?: number;
   notes?: string;
 }
 
@@ -173,6 +174,7 @@ export async function createPurchaseOrder(
       supplierId: input.supplierId,
       materialId: input.materialId ?? null,
       orderedTons: input.orderedTons,
+      pricePerTon: input.pricePerTon ?? null,
       notes: input.notes ?? null,
     },
     include: {

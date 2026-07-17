@@ -24,6 +24,10 @@ const createOrderSchema = z.object({
   orderedTons: z.coerce
     .number()
     .positive("Las toneladas deben ser mayores que 0"),
+  pricePerTon: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().nonnegative("El precio no puede ser negativo").optional(),
+  ),
   notes: z.string().optional(),
 });
 

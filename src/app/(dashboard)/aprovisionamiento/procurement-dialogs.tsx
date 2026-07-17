@@ -100,16 +100,29 @@ export function NewPurchaseOrderDialog({
               </Select>
             </div>
           </div>
-          <div>
-            <Label htmlFor="po-orderedTons">Toneladas pedidas (TM)</Label>
-            <Input
-              id="po-orderedTons"
-              name="orderedTons"
-              type="number"
-              step="0.01"
-              required
-              placeholder="0.00"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="po-orderedTons">Toneladas pedidas (TM)</Label>
+              <Input
+                id="po-orderedTons"
+                name="orderedTons"
+                type="number"
+                step="0.01"
+                required
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <Label htmlFor="po-pricePerTon">Precio compra (€/t)</Label>
+              <Input
+                id="po-pricePerTon"
+                name="pricePerTon"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+              />
+            </div>
           </div>
           <div>
             <Label htmlFor="po-notes">Notas</Label>
