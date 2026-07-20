@@ -11,10 +11,12 @@ export default async function DashboardLayout({
   if (!session) redirect("/login");
 
   return (
-    <div className="flex min-h-screen">
+    <div className="md:flex min-h-screen">
       <Sidebar role={(session.user as { role?: string }).role ?? "OPERARIO"} />
-      <main className="flex-1 overflow-auto">
-        <div className="px-6 py-5 max-w-screen-2xl mx-auto">{children}</div>
+      <main className="flex-1 min-w-0 overflow-auto">
+        <div className="px-4 md:px-6 py-5 max-w-screen-2xl mx-auto">
+          {children}
+        </div>
       </main>
     </div>
   );
