@@ -1,13 +1,21 @@
 /**
- * Integración con básculas Gestruck (Giropes / Gesnet).
+ * Integración con básculas Gestruck (Básculas Romero).
  *
- * API real (validar con José/Melder en http://192.168.1.200/swagger):
- *   - Auth: header `ApiKey`
- *   - GET /api/v1/weighing/search?Vehicle=XX&Status=Completed
- *   - Respuesta: WeighingViewDto (esquema exacto pendiente)
+ * Contrato API confirmado por José Manuel (Básculas Romero), jul 2026:
+ *   - El servicio corre en el PC de planta (Laura), Swagger en :5050/swagger/index.html
+ *   - Auth: header `X-Api-Key`
+ *   - GET /api/v1/weighing/search  (accept: text/plain) → listado de pesajes
+ *   - Ejemplo: curl -H 'X-Api-Key: <key>' http://<host>:5050/api/v1/weighing/search
+ *   - Respuesta: WeighingViewDto (campos exactos pendientes de ver en Swagger)
+ *
+ * `GESTRUCK_API_URL` debe incluir host:puerto (p.ej. http://10.8.0.2:5050 por el
+ * túnel WireGuard, o http://192.168.1.200:5050 en LAN). `GESTRUCK_API_KEY` y URL
+ * viven SOLO en el servidor (/root/luvi.env), nunca en el repo.
  *
  * Conectividad en producción: WireGuard + VPS (NO Cloudflare, por bloqueos
  * LaLiga en ES en sistema 24/7). En local no está configurado → fallback manual.
+ * NOTA planta: la API escuchaba solo en `localhost:5050`; para alcanzarla por el
+ * túnel debe bindear a 0.0.0.0:5050 y abrir el puerto 5050 en el firewall del PC.
  *
  * REGLA DE ORO: si Gestruck no está configurado o falla, SIEMPRE devolvemos
  * `{ manual: true }` para que el operario introduzca el peso a mano. La báscula
@@ -52,7 +60,7 @@ export async function readWeight(params: {
     if (params.vehicle) qs.set("Vehicle", params.vehicle);
 
     const res = await fetch(`${url}/api/v1/weighing/search?${qs.toString()}`, {
-      headers: { ApiKey: key },
+      headers: { "X-Api-Key": key, accept: "text/plain" },
       signal: AbortSignal.timeout(TIMEOUT_MS),
       cache: "no-store",
     });
