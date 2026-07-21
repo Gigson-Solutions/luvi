@@ -1,15 +1,36 @@
 import { PageHeader } from "@/components/layout/page-header";
+import {
+  listMaterials,
+  listSuppliers,
+  listBuyers,
+  listCarriers,
+  listWarehouses,
+} from "@/lib/services/config.service";
+import { ConfigSections } from "./config-sections";
 
-export default function ConfiguracionPage(): React.JSX.Element {
+export default async function ConfiguracionPage(): Promise<React.JSX.Element> {
+  const [materials, suppliers, buyers, carriers, warehouses] =
+    await Promise.all([
+      listMaterials(),
+      listSuppliers(),
+      listBuyers(),
+      listCarriers(),
+      listWarehouses(),
+    ]);
+
   return (
     <div>
       <PageHeader
         title="Configuración"
-        description="Materiales, almacenes, zonas, umbrales de alerta."
+        description="Catálogos maestros: materiales, proveedores, compradores, transportistas, almacenes y zonas."
       />
-      <p className="text-[var(--color-muted)] text-sm mt-8">
-        Módulo pendiente de implementar. Solo accesible para ADMIN.
-      </p>
+      <ConfigSections
+        materials={materials}
+        suppliers={suppliers}
+        buyers={buyers}
+        carriers={carriers}
+        warehouses={warehouses}
+      />
     </div>
   );
 }

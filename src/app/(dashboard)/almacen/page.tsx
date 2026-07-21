@@ -199,8 +199,8 @@ export default async function AlmacenPage({
                             : "text-[var(--color-muted)]",
                         )}
                       >
-                        {wh.projectedSacks}/{wh.totalCapacity} · {wh.pctProjected}
-                        %
+                        {wh.projectedSacks}/{wh.totalCapacity} ·{" "}
+                        {wh.pctProjected}%
                       </span>
                     </div>
                     <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-hover)]">
@@ -427,7 +427,9 @@ function ProjectedOccupancy({
     <section className="mb-8">
       <h2 className="mb-3 text-sm font-semibold text-[var(--color-foreground)]">
         Ocupación proyectada
-        <span className="ml-2 font-normal text-[var(--color-muted)]">total</span>
+        <span className="ml-2 font-normal text-[var(--color-muted)]">
+          total
+        </span>
       </h2>
       <Card>
         <CardContent className="py-4">
