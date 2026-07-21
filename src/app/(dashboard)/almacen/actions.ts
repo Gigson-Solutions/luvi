@@ -2,14 +2,15 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import { moveSack, transferSacks } from "@/lib/services/warehouse.service";
+import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
-async function requireSession(): Promise<void> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
+function requireSession(): Promise<CurrentUser> {
+  return requireModule("almacen");
 }
 
 const moveSchema = z.object({
@@ -23,7 +24,7 @@ export async function moveSackAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = moveSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -32,6 +33,13 @@ export async function moveSackAction(
       };
     }
     await moveSack(parsed.data);
+    await logAudit({
+      userId: actor.id,
+      action: "MOVE_SACK",
+      entity: "Sack",
+      entityId: parsed.data.sackId,
+      payload: { zoneId: parsed.data.zoneId },
+    });
     revalidatePath("/almacen");
     revalidatePath(`/almacen/${parsed.data.sackId}`);
     return { ok: true, message: "Saca trasladada" };
@@ -57,7 +65,7 @@ export async function transferSacksAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = transferSchema.safeParse({
       zoneId: formData.get("zoneId"),
       sackIds: formData.getAll("sackIds"),
@@ -69,6 +77,18 @@ export async function transferSacksAction(
       };
     }
     const res = await transferSacks(parsed.data);
+    await logAudit({
+      userId: actor.id,
+      action: "TRANSFER_SACKS",
+      entity: "Sack",
+      entityId: parsed.data.sackIds[0],
+      payload: {
+        zoneId: parsed.data.zoneId,
+        sackIds: parsed.data.sackIds,
+        movedCount: res.movedCount,
+        interWarehouse: res.interWarehouse,
+      },
+    });
     revalidatePath("/almacen");
 
     let message = `${res.movedCount} saca(s) trasladada(s)`;

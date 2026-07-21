@@ -4,6 +4,8 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./prisma";
 import { authConfig } from "./auth.config";
+import { logAudit } from "./services/audit.service";
+import { compare } from "bcryptjs";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -15,7 +17,11 @@ async function verifyPassword(
   password: string,
   hash: string,
 ): Promise<boolean> {
-  // TODO: reemplazar con bcrypt.compare en producción
+  // Hashes bcrypt empiezan por $2 ($2a/$2b/$2y). Se verifican con bcrypt.compare.
+  if (hash.startsWith("$2")) {
+    return compare(password, hash);
+  }
+  // Compatibilidad hacia atrás: contraseñas antiguas hasheadas con SHA-256 hex.
   const { createHash } = await import("crypto");
   return createHash("sha256").update(password).digest("hex") === hash;
 }
@@ -40,6 +46,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const valid = await verifyPassword(password, user.password);
         if (!valid) return null;
+
+        await logAudit({
+          userId: user.id,
+          action: "LOGIN",
+          entity: "User",
+          entityId: user.id,
+        });
 
         return {
           id: user.id,

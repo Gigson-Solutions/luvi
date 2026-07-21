@@ -224,6 +224,7 @@ model Zone {
   updatedAt DateTime @updatedAt
 
   @@unique([code, warehouseId])
+  @@index([warehouseId])
   @@map("zones")
 }
 
@@ -286,6 +287,9 @@ model Container {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([supplierId])
+  @@index([warehouseId])
+  @@index([providerShipmentId])
   @@map("containers")
 }
 
@@ -318,6 +322,8 @@ model Sack {
   @@index([status])
   @@index([zoneId])
   @@index([containerId])
+  @@index([materialId])
+  @@index([lotId])
   @@map("sacks")
 }
 
@@ -341,6 +347,7 @@ model ProductionLot {
   updatedAt DateTime @updatedAt
 
   @@index([producedAt])
+  @@index([materialId])
   @@map("production_lots")
 }
 
@@ -358,6 +365,7 @@ model Transformation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([lotId])
   @@map("transformations")
 }
 
@@ -371,6 +379,8 @@ model TransformationInput {
 
   enteredAt DateTime @default(now())
 
+  @@index([transformationId])
+  @@index([sackId])
   @@map("transformation_inputs")
 }
 
@@ -399,6 +409,8 @@ model Shipment {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([buyerId])
+  @@index([carrierId])
   @@map("shipments")
 }
 
@@ -411,6 +423,8 @@ model ShipmentLot {
   shipment Shipment      @relation(fields: [shipmentId], references: [id])
   lot      ProductionLot @relation(fields: [lotId], references: [id])
 
+  @@index([shipmentId])
+  @@index([lotId])
   @@map("shipment_lots")
 }
 
@@ -422,6 +436,8 @@ model ShipmentSack {
   shipment Shipment @relation(fields: [shipmentId], references: [id])
   sack     Sack     @relation(fields: [sackId], references: [id])
 
+  @@index([shipmentId])
+  @@index([sackId])
   @@map("shipment_sacks")
 }
 
@@ -443,6 +459,8 @@ model PurchaseOrder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([supplierId])
+  @@index([status])
   @@map("purchase_orders")
 }
 
@@ -465,6 +483,7 @@ model ProviderShipment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([purchaseOrderId])
   @@map("provider_shipments")
 }
 
@@ -497,6 +516,10 @@ model QualityRecord {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  @@index([lotId])
+  @@index([materialId])
+  @@index([supplierId])
+  @@index([recordedAt])
   @@map("quality_records")
 }
 
@@ -530,6 +553,7 @@ model ConsumableMovement {
   consumable Consumable @relation(fields: [consumableId], references: [id])
   createdAt  DateTime   @default(now())
 
+  @@index([consumableId])
   @@map("consumable_movements")
 }
 
@@ -547,6 +571,8 @@ model PalletMovement {
   buyer     Buyer    @relation(fields: [buyerId], references: [id])
   createdAt DateTime @default(now())
 
+  @@index([buyerId])
+  @@index([shipmentId])
   @@map("pallet_movements")
 }
 
@@ -589,5 +615,6 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([createdAt])
+  @@index([userId])
   @@map("audit_logs")
 }

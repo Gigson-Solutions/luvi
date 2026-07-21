@@ -2,19 +2,20 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import {
   createPurchaseOrder,
   createProviderShipment,
   markArrivedValencia,
   markArrivedPlanta,
 } from "@/lib/services/procurement.service";
+import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
-async function requireSession(): Promise<void> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
+function requireSession(): Promise<CurrentUser> {
+  return requireModule("aprovisionamiento");
 }
 
 // ─── Crear orden de compra ──────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ export async function createPurchaseOrderAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = createOrderSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -48,6 +49,13 @@ export async function createPurchaseOrderAction(
     const order = await createPurchaseOrder({
       ...rest,
       materialId: materialId || undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "CREATE_PURCHASE_ORDER",
+      entity: "PurchaseOrder",
+      entityId: order.id,
+      payload: { poNumber: order.poNumber },
     });
     revalidatePath("/aprovisionamiento");
     return { ok: true, message: `Orden de compra ${order.poNumber} creada` };
@@ -77,7 +85,7 @@ export async function createShipmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = createShipmentSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -87,13 +95,20 @@ export async function createShipmentAction(
     }
     const { etaValencia, etaPlanta, billOfLading, origin, vessel, ...rest } =
       parsed.data;
-    await createProviderShipment({
+    const shipment = await createProviderShipment({
       ...rest,
       billOfLading: billOfLading || undefined,
       origin: origin || undefined,
       vessel: vessel || undefined,
       etaValencia: etaValencia ? new Date(etaValencia) : undefined,
       etaPlanta: etaPlanta ? new Date(etaPlanta) : undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "CREATE_PROVIDER_SHIPMENT",
+      entity: "ProviderShipment",
+      entityId: shipment.id,
+      payload: { purchaseOrderId: shipment.purchaseOrderId },
     });
     revalidatePath("/aprovisionamiento");
     return { ok: true, message: "Envío registrado" };
@@ -113,10 +128,17 @@ export async function markArrivedValenciaAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = shipmentIdSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) return { ok: false, error: "Envío inválido" };
-    await markArrivedValencia(parsed.data.shipmentId);
+    const shipment = await markArrivedValencia(parsed.data.shipmentId);
+    await logAudit({
+      userId: actor.id,
+      action: "MARK_SHIPMENT_ARRIVED_VALENCIA",
+      entity: "ProviderShipment",
+      entityId: shipment.id,
+      payload: { arrivedValencia: shipment.arrivedValencia?.toISOString() },
+    });
     revalidatePath("/aprovisionamiento");
     return { ok: true, message: "Envío marcado como llegado a Valencia" };
   } catch (e) {
@@ -132,10 +154,17 @@ export async function markArrivedPlantaAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = shipmentIdSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) return { ok: false, error: "Envío inválido" };
-    await markArrivedPlanta(parsed.data.shipmentId);
+    const shipment = await markArrivedPlanta(parsed.data.shipmentId);
+    await logAudit({
+      userId: actor.id,
+      action: "MARK_SHIPMENT_ARRIVED_PLANTA",
+      entity: "ProviderShipment",
+      entityId: shipment.id,
+      payload: { arrivedPlanta: shipment.arrivedPlanta?.toISOString() },
+    });
     revalidatePath("/aprovisionamiento");
     return { ok: true, message: "Envío marcado como llegado a planta" };
   } catch (e) {

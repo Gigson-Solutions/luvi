@@ -2,19 +2,20 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
 import {
   registerContainer,
   weighContainer,
   confirmReception,
 } from "@/lib/services/reception.service";
+import { logAudit } from "@/lib/services/audit.service";
 import { readWeight } from "@/lib/integrations/gestruck";
+import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
-async function requireSession(): Promise<void> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
+function requireSession(): Promise<CurrentUser> {
+  return requireModule("recepciones");
 }
 
 const registerSchema = z.object({
@@ -35,7 +36,7 @@ export async function registerContainerAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = registerSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -44,13 +45,23 @@ export async function registerContainerAction(
       };
     }
     const { estimatedArrival, materialId, warehouseId, ...rest } = parsed.data;
-    await registerContainer({
+    const container = await registerContainer({
       ...rest,
       materialId: materialId || undefined,
       warehouseId: warehouseId || undefined,
       estimatedArrival: estimatedArrival
         ? new Date(estimatedArrival)
         : undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "REGISTER_CONTAINER",
+      entity: "Container",
+      entityId: container.id,
+      payload: {
+        reference: container.reference,
+        supplierId: container.supplierId,
+      },
     });
     revalidatePath("/recepciones");
     return { ok: true, message: "Contenedor registrado" };
@@ -88,7 +99,7 @@ export async function weighAndConfirmAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = confirmSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -109,6 +120,13 @@ export async function weighAndConfirmAction(
       zoneId: d.zoneId,
       numSacks: d.numSacks,
       numPallets: d.numPallets,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "WEIGH_AND_CONFIRM_RECEPTION",
+      entity: "Container",
+      entityId: d.containerId,
+      payload: { sacksCreated },
     });
     revalidatePath("/recepciones");
     revalidatePath("/almacen");

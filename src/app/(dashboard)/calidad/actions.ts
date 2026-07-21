@@ -3,18 +3,19 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { QualityResult } from "@prisma/client";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import {
   createQualityRecord,
   updateQualityResult,
 } from "@/lib/services/quality.service";
+import type { CurrentUser } from "@/lib/rbac";
 import { getOutOfRangeMeasures } from "./quality-thresholds";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
-async function requireSession(): Promise<void> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
+function requireSession(): Promise<CurrentUser> {
+  return requireModule("calidad");
 }
 
 const optionalNumber = z.preprocess(
@@ -44,7 +45,7 @@ export async function createQualityRecordAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = createSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -75,7 +76,7 @@ export async function createQualityRecordAction(
       };
     }
 
-    await createQualityRecord({
+    const record = await createQualityRecord({
       lotId: d.lotId,
       materialId: d.materialId,
       supplierId: d.supplierId || undefined,
@@ -90,6 +91,13 @@ export async function createQualityRecordAction(
       metalPct: d.metalPct,
       otherPct: d.otherPct,
       notes: d.notes,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "CREATE_QUALITY_RECORD",
+      entity: "QualityRecord",
+      entityId: record.id,
+      payload: { lotId: record.lotId, result: record.result },
     });
     revalidatePath("/calidad");
     return { ok: true, message: "Registro de calidad creado" };
@@ -112,7 +120,7 @@ export async function updateQualityResultAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = updateSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -121,10 +129,17 @@ export async function updateQualityResultAction(
       };
     }
     const d = parsed.data;
-    await updateQualityResult({
+    const record = await updateQualityResult({
       id: d.id,
       result: d.result,
       overrideReason: d.overrideReason?.trim() || undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "UPDATE_QUALITY_RESULT",
+      entity: "QualityRecord",
+      entityId: record.id,
+      payload: { result: record.result },
     });
     revalidatePath("/calidad");
     return { ok: true, message: "Resultado actualizado" };

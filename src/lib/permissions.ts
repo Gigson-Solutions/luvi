@@ -1,6 +1,6 @@
 import { UserRole } from "@prisma/client";
 
-type Module =
+export type Module =
   | "recepciones"
   | "almacen"
   | "produccion"

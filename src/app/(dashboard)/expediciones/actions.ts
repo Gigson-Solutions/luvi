@@ -2,21 +2,22 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import {
   createShipment,
   confirmShipment,
   expediteShipment,
   deliverShipment,
 } from "@/lib/services/shipment.service";
+import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
 const INITIAL_ERROR = "Error al procesar la solicitud";
 
-async function requireSession(): Promise<void> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
+function requireSession(): Promise<CurrentUser> {
+  return requireModule("expediciones");
 }
 
 const lotSchema = z.object({
@@ -98,10 +99,17 @@ export async function confirmShipmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = idSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) return { ok: false, error: "Envío inválido" };
     const shipment = await confirmShipment(parsed.data.shipmentId);
+    await logAudit({
+      userId: actor.id,
+      action: "CONFIRM_SHIPMENT",
+      entity: "Shipment",
+      entityId: shipment.id,
+      payload: { reference: shipment.reference },
+    });
     revalidatePath("/expediciones");
     return { ok: true, message: `Envío ${shipment.reference} confirmado` };
   } catch (e) {
@@ -114,12 +122,19 @@ export async function expediteShipmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = idSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) return { ok: false, error: "Envío inválido" };
     const { shipment, simulated } = await expediteShipment(
       parsed.data.shipmentId,
     );
+    await logAudit({
+      userId: actor.id,
+      action: "EXPEDITE_SHIPMENT",
+      entity: "Shipment",
+      entityId: shipment.id,
+      payload: { reference: shipment.reference, simulated },
+    });
     revalidatePath("/expediciones");
     revalidatePath("/almacen");
     const base = `Envío ${shipment.reference} expedido`;
@@ -139,10 +154,17 @@ export async function deliverShipmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = idSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) return { ok: false, error: "Envío inválido" };
     const shipment = await deliverShipment(parsed.data.shipmentId);
+    await logAudit({
+      userId: actor.id,
+      action: "DELIVER_SHIPMENT",
+      entity: "Shipment",
+      entityId: shipment.id,
+      payload: { reference: shipment.reference },
+    });
     revalidatePath("/expediciones");
     revalidatePath("/almacen");
     return { ok: true, message: `Envío ${shipment.reference} entregado` };
