@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import {
   createIncident,
   advanceIncidentStatus,
@@ -28,8 +29,7 @@ export async function createIncidentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return { ok: false, error: "No autenticado" };
+    const actor = await requireModule("incidencias");
 
     const parsed = createSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
@@ -41,13 +41,22 @@ export async function createIncidentAction(
     const { title, description, warehouseId, sackQrCode, photoUrl } =
       parsed.data;
 
-    await createIncident({
+    const incident = await createIncident({
       title,
       description: description || undefined,
       warehouseId: warehouseId || undefined,
       sackQrCode: sackQrCode || undefined,
       photoUrl: photoUrl || undefined,
-      reportedById: session.user.id,
+      reportedById: actor.id,
+    });
+
+    // Traza de auditoría: alta de incidencia.
+    await logAudit({
+      userId: actor.id,
+      action: "CREATE_INCIDENT",
+      entity: "Incident",
+      entityId: incident.id,
+      payload: { title: incident.title, status: incident.status },
     });
 
     revalidatePath("/incidencias");
@@ -70,8 +79,7 @@ export async function advanceIncidentStatusAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return { ok: false, error: "No autenticado" };
+    const actor = await requireModule("incidencias");
 
     const parsed = advanceSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
@@ -79,6 +87,16 @@ export async function advanceIncidentStatusAction(
     }
 
     const updated = await advanceIncidentStatus(parsed.data.id);
+
+    // Traza de auditoría: cambio de estado de la incidencia.
+    await logAudit({
+      userId: actor.id,
+      action: "ADVANCE_INCIDENT_STATUS",
+      entity: "Incident",
+      entityId: updated.id,
+      payload: { status: updated.status },
+    });
+
     revalidatePath("/incidencias");
     return { ok: true, message: `Estado actualizado a ${updated.status}` };
   } catch (e) {

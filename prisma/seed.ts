@@ -6,15 +6,15 @@ import {
   ConsumableType,
 } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { hash } from "crypto";
+import { hash as bcryptHash } from "bcryptjs";
 
 // Prisma 7 exige adapter explícito. Seed corre en local (Postgres/Docker) → node-postgres.
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
-async function hashPassword(password: string): Promise<string> {
-  // En producción usar bcrypt — aquí SHA256 solo para seed
-  return hash("sha256", password);
+function hashPassword(password: string): Promise<string> {
+  // bcrypt (coste 12), igual que user.service.ts / auth.ts.
+  return bcryptHash(password, 12);
 }
 
 async function main() {

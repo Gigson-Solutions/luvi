@@ -3,20 +3,21 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { LotType } from "@prisma/client";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import {
   enterHopper,
   createOutputSack,
   findWarehouseSackByQr,
   type SackWithMaterialZone,
 } from "@/lib/services/production.service";
+import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
-async function requireOperator(): Promise<string | undefined> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
-  return session.user?.id;
+/** Exige acceso al módulo de producción y devuelve el usuario actual (actor). */
+function requireOperator(): Promise<CurrentUser> {
+  return requireModule("produccion");
 }
 
 const enterHopperSchema = z.object({
@@ -29,7 +30,7 @@ export async function enterHopperAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const operatorId = await requireOperator();
+    const actor = await requireOperator();
     const parsed = enterHopperSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -37,7 +38,14 @@ export async function enterHopperAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { qrCode } = await enterHopper(parsed.data.sackId, operatorId);
+    const { qrCode } = await enterHopper(parsed.data.sackId, actor.id);
+    await logAudit({
+      userId: actor.id,
+      action: "ENTER_HOPPER",
+      entity: "Sack",
+      entityId: parsed.data.sackId,
+      payload: { qrCode },
+    });
     revalidatePath("/produccion");
     revalidatePath("/almacen");
     return { ok: true, message: `Saca ${qrCode} en tolva` };
@@ -85,7 +93,7 @@ export async function createOutputSackAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireOperator();
+    const actor = await requireOperator();
     const parsed = outputSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -100,6 +108,14 @@ export async function createOutputSackAction(
       weight: d.weight,
       zoneId: d.zoneId || undefined,
       notes: d.notes || undefined,
+    });
+    // El servicio solo devuelve { qrCode, lotNumber }: sin id de saca, se
+    // deja entityId sin poner y se guardan qrCode/lotNumber/tipo en el payload.
+    await logAudit({
+      userId: actor.id,
+      action: "CREATE_OUTPUT_SACK",
+      entity: "Sack",
+      payload: { lotNumber, qrCode, type: d.type },
     });
     revalidatePath("/produccion");
     revalidatePath("/almacen");

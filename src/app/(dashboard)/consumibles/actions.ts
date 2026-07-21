@@ -2,18 +2,19 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireModule } from "@/lib/rbac";
+import { logAudit } from "@/lib/services/audit.service";
 import {
   registerConsumableMovement,
   registerPalletMovement,
   registerPalletReturn,
 } from "@/lib/services/consumable.service";
+import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
-async function requireSession(): Promise<void> {
-  const session = await auth();
-  if (!session) throw new Error("No autenticado");
+function requireSession(): Promise<CurrentUser> {
+  return requireModule("consumibles");
 }
 
 // ─── Movimiento de consumible (entrada / salida) ───────────────────────────────
@@ -35,7 +36,7 @@ export async function registerConsumableMovementAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = movementSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -45,12 +46,24 @@ export async function registerConsumableMovementAction(
     }
     const d = parsed.data;
     const signedQuantity = d.direction === "salida" ? -d.quantity : d.quantity;
-    await registerConsumableMovement({
+    const consumable = await registerConsumableMovement({
       consumableId: d.consumableId,
       quantity: signedQuantity,
       reason: d.reason,
       vehiclePlate: d.vehiclePlate || undefined,
       notes: d.notes || undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "REGISTER_CONSUMABLE_MOVEMENT",
+      entity: "ConsumableMovement",
+      entityId: consumable.id,
+      payload: {
+        consumableId: d.consumableId,
+        direction: d.direction,
+        quantity: signedQuantity,
+        reason: d.reason,
+      },
     });
     revalidatePath("/consumibles");
     return {
@@ -89,7 +102,7 @@ export async function registerPalletMovementAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = palletSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -105,6 +118,18 @@ export async function registerPalletMovementAction(
       quantity: signedQuantity,
       condition: d.direction === "devolucion" ? d.condition : undefined,
       notes: d.notes || undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "REGISTER_PALLET_MOVEMENT",
+      entity: "PalletMovement",
+      entityId: d.buyerId,
+      payload: {
+        buyerId: d.buyerId,
+        direction: d.direction,
+        quantity: signedQuantity,
+        condition: d.direction === "devolucion" ? d.condition : undefined,
+      },
     });
     revalidatePath("/consumibles");
     return {
@@ -144,7 +169,7 @@ export async function registerPalletReturnAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const parsed = returnSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) {
       return {
@@ -162,6 +187,18 @@ export async function registerPalletReturnAction(
       palletConsumableId: d.palletConsumableId || undefined,
       notes: d.notes || undefined,
     });
+    await logAudit({
+      userId: actor.id,
+      action: "REGISTER_PALLET_RETURN",
+      entity: "PalletMovement",
+      entityId: d.buyerId,
+      payload: {
+        buyerId: d.buyerId,
+        received: res.received,
+        restocked: res.restocked,
+        broken: res.broken,
+      },
+    });
     revalidatePath("/consumibles");
     const restockNote =
       res.restocked > 0 ? `, ${res.restocked} de vuelta a stock` : "";
@@ -172,7 +209,8 @@ export async function registerPalletReturnAction(
   } catch (e) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Error al registrar la devolución",
+      error:
+        e instanceof Error ? e.message : "Error al registrar la devolución",
     };
   }
 }
