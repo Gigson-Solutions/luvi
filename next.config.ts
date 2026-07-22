@@ -47,6 +47,8 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: ["localhost:3000"],
+      // Fotos de incidencias subidas desde el móvil pueden pesar varios MB.
+      bodySizeLimit: "8mb",
     },
   },
   async headers() {

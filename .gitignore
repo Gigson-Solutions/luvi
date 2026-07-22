@@ -41,3 +41,6 @@ next-env.d.ts
 # prisma
 
 # pnpm
+
+# Subidas locales (fotos incidencias en dev)
+/uploads/

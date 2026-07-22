@@ -8,6 +8,7 @@ import {
   createIncident,
   advanceIncidentStatus,
 } from "@/lib/services/incident.service";
+import { saveImage } from "@/lib/storage";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
@@ -16,12 +17,6 @@ const createSchema = z.object({
   description: z.string().optional(),
   warehouseId: z.string().optional(),
   sackQrCode: z.string().optional(),
-  // TODO: subida a R2 pendiente — de momento se acepta una URL introducida a mano.
-  photoUrl: z
-    .string()
-    .url("La foto debe ser una URL válida")
-    .optional()
-    .or(z.literal("")),
 });
 
 export async function createIncidentAction(
@@ -38,15 +33,22 @@ export async function createIncidentAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { title, description, warehouseId, sackQrCode, photoUrl } =
-      parsed.data;
+    const { title, description, warehouseId, sackQrCode } = parsed.data;
+
+    // Foto opcional: se sube desde el móvil (cámara) o galería y se guarda en
+    // el disco del VPS; se persiste su ruta servida (/api/uploads/...).
+    let photoUrl: string | undefined;
+    const photo = formData.get("photo");
+    if (photo instanceof File && photo.size > 0) {
+      photoUrl = await saveImage(photo, "incidencias");
+    }
 
     const incident = await createIncident({
       title,
       description: description || undefined,
       warehouseId: warehouseId || undefined,
       sackQrCode: sackQrCode || undefined,
-      photoUrl: photoUrl || undefined,
+      photoUrl,
       reportedById: actor.id,
     });
 
