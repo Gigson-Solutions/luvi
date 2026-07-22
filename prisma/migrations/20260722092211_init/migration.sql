@@ -1,3 +1,6 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateEnum
 CREATE TYPE "UserRole" AS ENUM ('OPERARIO', 'ADMINISTRACION', 'MANAGER', 'ADMIN');
 
@@ -172,6 +175,7 @@ CREATE TABLE "containers" (
     "weighedAt" TIMESTAMP(3),
     "weightSource" TEXT DEFAULT 'gestruck',
     "scaleId" TEXT,
+    "warehouseId" TEXT,
     "supplierId2" TEXT,
     "providerShipmentId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -282,6 +286,7 @@ CREATE TABLE "purchase_orders" (
     "materialId" TEXT,
     "status" "PurchaseOrderStatus" NOT NULL DEFAULT 'ABIERTA',
     "orderedTons" DOUBLE PRECISION NOT NULL,
+    "pricePerTon" DOUBLE PRECISION,
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -315,6 +320,7 @@ CREATE TABLE "quality_records" (
     "materialId" TEXT NOT NULL,
     "supplierId" TEXT,
     "shift" TEXT,
+    "sampleType" TEXT,
     "result" "QualityResult" NOT NULL DEFAULT 'PENDIENTE',
     "overrideReason" TEXT,
     "density" DOUBLE PRECISION,
@@ -365,6 +371,7 @@ CREATE TABLE "pallet_movements" (
     "buyerId" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL,
     "condition" TEXT,
+    "vehiclePlate" TEXT,
     "shipmentId" TEXT,
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -420,6 +427,9 @@ CREATE UNIQUE INDEX "buyers_code_key" ON "buyers"("code");
 CREATE UNIQUE INDEX "warehouses_code_key" ON "warehouses"("code");
 
 -- CreateIndex
+CREATE INDEX "zones_warehouseId_idx" ON "zones"("warehouseId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "zones_code_warehouseId_key" ON "zones"("code", "warehouseId");
 
 -- CreateIndex
@@ -427,6 +437,15 @@ CREATE UNIQUE INDEX "materials_code_key" ON "materials"("code");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "containers_reference_key" ON "containers"("reference");
+
+-- CreateIndex
+CREATE INDEX "containers_supplierId_idx" ON "containers"("supplierId");
+
+-- CreateIndex
+CREATE INDEX "containers_warehouseId_idx" ON "containers"("warehouseId");
+
+-- CreateIndex
+CREATE INDEX "containers_providerShipmentId_idx" ON "containers"("providerShipmentId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "sacks_qrCode_key" ON "sacks"("qrCode");
@@ -441,10 +460,28 @@ CREATE INDEX "sacks_zoneId_idx" ON "sacks"("zoneId");
 CREATE INDEX "sacks_containerId_idx" ON "sacks"("containerId");
 
 -- CreateIndex
+CREATE INDEX "sacks_materialId_idx" ON "sacks"("materialId");
+
+-- CreateIndex
+CREATE INDEX "sacks_lotId_idx" ON "sacks"("lotId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "production_lots_lotNumber_key" ON "production_lots"("lotNumber");
 
 -- CreateIndex
 CREATE INDEX "production_lots_producedAt_idx" ON "production_lots"("producedAt");
+
+-- CreateIndex
+CREATE INDEX "production_lots_materialId_idx" ON "production_lots"("materialId");
+
+-- CreateIndex
+CREATE INDEX "transformations_lotId_idx" ON "transformations"("lotId");
+
+-- CreateIndex
+CREATE INDEX "transformation_inputs_transformationId_idx" ON "transformation_inputs"("transformationId");
+
+-- CreateIndex
+CREATE INDEX "transformation_inputs_sackId_idx" ON "transformation_inputs"("sackId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "shipments_reference_key" ON "shipments"("reference");
@@ -453,10 +490,58 @@ CREATE UNIQUE INDEX "shipments_reference_key" ON "shipments"("reference");
 CREATE INDEX "shipments_status_idx" ON "shipments"("status");
 
 -- CreateIndex
+CREATE INDEX "shipments_buyerId_idx" ON "shipments"("buyerId");
+
+-- CreateIndex
+CREATE INDEX "shipments_carrierId_idx" ON "shipments"("carrierId");
+
+-- CreateIndex
+CREATE INDEX "shipment_lots_shipmentId_idx" ON "shipment_lots"("shipmentId");
+
+-- CreateIndex
+CREATE INDEX "shipment_lots_lotId_idx" ON "shipment_lots"("lotId");
+
+-- CreateIndex
+CREATE INDEX "shipment_sacks_shipmentId_idx" ON "shipment_sacks"("shipmentId");
+
+-- CreateIndex
+CREATE INDEX "shipment_sacks_sackId_idx" ON "shipment_sacks"("sackId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "purchase_orders_poNumber_key" ON "purchase_orders"("poNumber");
 
 -- CreateIndex
+CREATE INDEX "purchase_orders_supplierId_idx" ON "purchase_orders"("supplierId");
+
+-- CreateIndex
+CREATE INDEX "purchase_orders_status_idx" ON "purchase_orders"("status");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "provider_shipments_billOfLading_key" ON "provider_shipments"("billOfLading");
+
+-- CreateIndex
+CREATE INDEX "provider_shipments_purchaseOrderId_idx" ON "provider_shipments"("purchaseOrderId");
+
+-- CreateIndex
+CREATE INDEX "quality_records_lotId_idx" ON "quality_records"("lotId");
+
+-- CreateIndex
+CREATE INDEX "quality_records_materialId_idx" ON "quality_records"("materialId");
+
+-- CreateIndex
+CREATE INDEX "quality_records_supplierId_idx" ON "quality_records"("supplierId");
+
+-- CreateIndex
+CREATE INDEX "quality_records_recordedAt_idx" ON "quality_records"("recordedAt");
+
+-- CreateIndex
+CREATE INDEX "consumable_movements_consumableId_idx" ON "consumable_movements"("consumableId");
+
+-- CreateIndex
+CREATE INDEX "pallet_movements_buyerId_idx" ON "pallet_movements"("buyerId");
+
+-- CreateIndex
+CREATE INDEX "pallet_movements_shipmentId_idx" ON "pallet_movements"("shipmentId");
 
 -- CreateIndex
 CREATE INDEX "incidents_status_idx" ON "incidents"("status");
@@ -467,6 +552,9 @@ CREATE INDEX "audit_logs_entity_entityId_idx" ON "audit_logs"("entity", "entityI
 -- CreateIndex
 CREATE INDEX "audit_logs_createdAt_idx" ON "audit_logs"("createdAt");
 
+-- CreateIndex
+CREATE INDEX "audit_logs_userId_idx" ON "audit_logs"("userId");
+
 -- AddForeignKey
 ALTER TABLE "accounts" ADD CONSTRAINT "accounts_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -475,6 +563,9 @@ ALTER TABLE "sessions" ADD CONSTRAINT "sessions_userId_fkey" FOREIGN KEY ("userI
 
 -- AddForeignKey
 ALTER TABLE "zones" ADD CONSTRAINT "zones_warehouseId_fkey" FOREIGN KEY ("warehouseId") REFERENCES "warehouses"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "containers" ADD CONSTRAINT "containers_warehouseId_fkey" FOREIGN KEY ("warehouseId") REFERENCES "warehouses"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "containers" ADD CONSTRAINT "containers_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "suppliers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -550,3 +641,4 @@ ALTER TABLE "incidents" ADD CONSTRAINT "incidents_reportedById_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
