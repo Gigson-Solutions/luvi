@@ -97,14 +97,18 @@ export function NewIncidentDialog({
             </div>
           </div>
           <div>
-            <Label htmlFor="photoUrl">Foto (URL)</Label>
-            {/* TODO: subida a R2 pendiente — de momento solo se acepta una URL. */}
-            <Input
-              id="photoUrl"
-              name="photoUrl"
-              type="url"
-              placeholder="https://…"
+            <Label htmlFor="photo">Foto (opcional)</Label>
+            <input
+              id="photo"
+              name="photo"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="block w-full text-sm text-[var(--color-foreground)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--color-primary)] file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:opacity-90"
             />
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              En el móvil puedes hacer la foto directamente con la cámara.
+            </p>
           </div>
           {state.error && <p className="text-sm text-red-600">{state.error}</p>}
           <div className="flex justify-end gap-2 pt-1">

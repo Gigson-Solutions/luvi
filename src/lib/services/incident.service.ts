@@ -178,7 +178,6 @@ export function createIncident(
       description: input.description ?? null,
       warehouseId: input.warehouseId ?? null,
       sackQrCode: input.sackQrCode ?? null,
-      // TODO: subida a R2 pendiente — de momento se guarda una URL introducida a mano.
       photoUrl: input.photoUrl ?? null,
       reportedById: input.reportedById,
       status: IncidentStatus.ABIERTA,

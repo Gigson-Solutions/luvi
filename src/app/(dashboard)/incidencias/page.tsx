@@ -162,6 +162,7 @@ export default async function IncidenciasPage({
             <TR>
               <TH>Estado</TH>
               <TH>Título</TH>
+              <TH>Foto</TH>
               <TH>Almacén</TH>
               <TH>Autor</TH>
               <TH>Fecha</TH>
@@ -180,6 +181,24 @@ export default async function IncidenciasPage({
                     <span className="ml-2 text-xs text-[var(--color-muted)]">
                       {inc.sackQrCode}
                     </span>
+                  )}
+                </TD>
+                <TD>
+                  {inc.photoUrl ? (
+                    <a
+                      href={inc.photoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={inc.photoUrl}
+                        alt={`Foto de ${inc.title}`}
+                        className="h-9 w-9 rounded object-cover border border-[var(--color-border)]"
+                      />
+                    </a>
+                  ) : (
+                    <span className="text-[var(--color-muted)]">—</span>
                   )}
                 </TD>
                 <TD>
