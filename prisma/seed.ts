@@ -55,7 +55,18 @@ async function main() {
     },
   });
 
-  console.log("✅ Usuarios creados");
+  await prisma.user.upsert({
+    where: { email: "manager@luvi2000.es" },
+    update: {},
+    create: {
+      name: "Jaume Torres",
+      email: "manager@luvi2000.es",
+      password: await hashPassword("manager123"),
+      role: UserRole.MANAGER,
+    },
+  });
+
+  console.log("✅ Usuarios creados (un usuario por rol)");
 
   // ─── Materiales ───────────────────────────────────────────────────────────
   const materials = [
@@ -181,7 +192,13 @@ async function main() {
 
   console.log("✅ Consumibles creados");
 
-  console.log("\n✅ Seed completado. Admin: admin@luvi2000.es / admin123");
+  console.log(
+    "\n✅ Seed completado. Usuarios de prueba (uno por rol):\n" +
+      "   ADMIN          → admin@luvi2000.es   / admin123\n" +
+      "   MANAGER        → manager@luvi2000.es / manager123\n" +
+      "   ADMINISTRACION → paula@luvi2000.es   / admin123\n" +
+      "   OPERARIO       → laura@luvi2000.es   / operario123",
+  );
 }
 
 main()
