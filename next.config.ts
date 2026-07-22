@@ -20,15 +20,20 @@ const securityHeaders = [
   },
   // CSP: 'unsafe-inline'/'unsafe-eval' requeridos por el runtime de Next;
   // frame-ancestors 'none' refuerza X-Frame-Options.
+  // Escáner QR (@yudiel/react-qr-scanner → zxing-wasm): necesita 'wasm-unsafe-eval'
+  // para instanciar el wasm, worker/blob para el decodificador, y connect-src al
+  // CDN de zxing (fastly.jsdelivr) para bajar el .wasm. TODO: autoservir el wasm
+  // desde /public y quitar jsdelivr de connect-src (evitar dependencia de CDN).
   {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
+      "worker-src 'self' blob:",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self'",
+      "connect-src 'self' https://fastly.jsdelivr.net",
       "media-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
