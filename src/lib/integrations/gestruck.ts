@@ -80,7 +80,10 @@ export async function readWeight(params: {
   }
 
   try {
-    const qs = new URLSearchParams({ Status: "Completed", Size: "1" });
+    // La API pagina de MÁS ANTIGUO a MÁS NUEVO y no admite orden descendente,
+    // así que pedimos una ventana amplia de esa matrícula y elegimos el pesaje
+    // más reciente en cliente (un vehículo repite visitas → no vale `Size=1`).
+    const qs = new URLSearchParams({ Status: "Completed", Size: "100" });
     if (params.vehicle) qs.set("Vehicle", params.vehicle);
 
     const res = await fetch(`${url}/api/v1/weighing/search?${qs.toString()}`, {
@@ -91,7 +94,17 @@ export async function readWeight(params: {
     if (!res.ok) throw new Error(`Gestruck ${res.status}`);
 
     const body = (await res.json()) as WeighingSearchResponse;
-    const item = body.Content?.[0];
+    const items = body.Content ?? [];
+    const dateOf = (w: WeighingViewDto): string =>
+      w.Lines?.[0]?.SecondWeighingDate ??
+      w.Lines?.[0]?.FirstWeighingDate ??
+      w.CreationWeighDate ??
+      "";
+    // Pesaje más reciente (fechas ISO-8601 UTC → comparación lexicográfica válida).
+    const item = items.reduce<WeighingViewDto | undefined>(
+      (latest, w) => (!latest || dateOf(w) > dateOf(latest) ? w : latest),
+      undefined,
+    );
     const line = item?.Lines?.[0];
     if (!item || !line) {
       return { manual: true, reason: "Sin pesajes recientes" };
