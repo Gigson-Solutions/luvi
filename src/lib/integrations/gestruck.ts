@@ -32,12 +32,36 @@ export interface WeightReading {
   reason?: string;
 }
 
+/**
+ * Esquema real de la API Gestruck (confirmado contra la báscula de planta, jul 2026):
+ * `search` devuelve una página `{ Content: WeighingViewDto[], ... }` (PascalCase).
+ * Cada pesaje lleva los pesos en `Lines[]`, no en el header:
+ *   FirstWeighing  = primera pesada (camión cargado → bruto en recepción)
+ *   SecondWeighing = segunda pesada (camión vacío → tara en recepción)
+ *   NetWeigh       = neto (= |First − Second|)
+ */
+interface WeighingLineDto {
+  FirstWeighing?: number;
+  SecondWeighing?: number;
+  NetWeigh?: number;
+  FirstWeighingDate?: string;
+  SecondWeighingDate?: string;
+  [key: string]: unknown;
+}
+
 interface WeighingViewDto {
-  netWeight?: number;
-  grossWeight?: number;
-  tare?: number;
-  weighingDate?: string;
-  scaleId?: string | number;
+  Code?: string;
+  Vehicle?: string;
+  Type?: string; // "Input" | "Output"
+  Status?: string;
+  CreationWeighDate?: string;
+  OriginWeight?: number;
+  Lines?: WeighingLineDto[];
+  [key: string]: unknown;
+}
+
+interface WeighingSearchResponse {
+  Content?: WeighingViewDto[];
   [key: string]: unknown;
 }
 
@@ -66,18 +90,32 @@ export async function readWeight(params: {
     });
     if (!res.ok) throw new Error(`Gestruck ${res.status}`);
 
-    const body = (await res.json()) as
-      { items?: WeighingViewDto[] } | WeighingViewDto[];
-    const item = Array.isArray(body) ? body[0] : body.items?.[0];
-    if (!item) return { manual: true, reason: "Sin pesajes recientes" };
+    const body = (await res.json()) as WeighingSearchResponse;
+    const item = body.Content?.[0];
+    const line = item?.Lines?.[0];
+    if (!item || !line) {
+      return { manual: true, reason: "Sin pesajes recientes" };
+    }
+
+    // Bruto = pesada mayor, tara = pesada menor (robusto para Input y Output).
+    const a = line.FirstWeighing;
+    const b = line.SecondWeighing;
+    const gross = a != null && b != null ? Math.max(a, b) : (a ?? b);
+    const tare = a != null && b != null ? Math.min(a, b) : undefined;
+    const net =
+      line.NetWeigh ??
+      (gross != null && tare != null ? gross - tare : undefined);
 
     return {
       manual: false,
-      weight: item.grossWeight ?? item.netWeight,
-      tare: item.tare,
-      net: item.netWeight,
-      weighedAt: item.weighingDate,
-      scaleId: item.scaleId != null ? String(item.scaleId) : params.scaleId,
+      weight: gross,
+      tare,
+      net,
+      weighedAt:
+        line.SecondWeighingDate ??
+        line.FirstWeighingDate ??
+        item.CreationWeighDate,
+      scaleId: params.scaleId,
     };
   } catch (err) {
     return {
