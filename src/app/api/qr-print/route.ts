@@ -18,15 +18,28 @@ interface PrintJob {
   warehouse: string;
   batchNumber?: string;
   printedAt?: string;
+  // Campos de la plantilla A5 (opcionales hasta cablear su origen en los flujos).
+  codigoProducto?: string;
+  tipoProducto?: string;
+  contenedor?: string;
+  bl?: string;
+  proyecto?: string;
+  fecha?: string;
 }
 
 /** Mapea un trabajo de impresión a los datos de etiqueta (LabelData). */
 function toLabel(job: PrintJob): LabelData {
   return {
     qrCode: job.qrCode,
-    title: job.sackId,
-    subtitle: `${job.material} · ${job.weight} kg · ${job.warehouse}`,
-    batchNumber: job.batchNumber,
+    codigoProducto: job.codigoProducto,
+    tipoProducto: job.tipoProducto,
+    nombreProducto: job.material,
+    loteOSaca: job.batchNumber ?? job.sackId,
+    contenedor: job.contenedor,
+    bl: job.bl,
+    proyecto: job.proyecto,
+    fecha: job.fecha,
+    pesoNetoKg: job.weight,
   };
 }
 
