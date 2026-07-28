@@ -47,17 +47,19 @@ describe("Impresora ZPL", () => {
   it("buildZpl genera etiqueta con QR", () => {
     const zpl = buildZpl({
       qrCode: "SACK-ABC123",
-      title: "MSKU-1",
-      subtitle: "Pellet PE",
+      nombreProducto: "Pellet PE",
+      loteOSaca: "270726-1",
+      pesoNetoKg: 5000,
     });
     expect(zpl).toContain("^XA");
     expect(zpl).toContain("^XZ");
     expect(zpl).toContain("SACK-ABC123");
+    expect(zpl).toContain("PESO NETO");
   });
   it("enqueueLabels sin impresora simula la cola", async () => {
     const prev = process.env.QR_PRINTER_URL;
     delete process.env.QR_PRINTER_URL;
-    const r = await enqueueLabels([{ qrCode: "SACK-1", title: "T" }]);
+    const r = await enqueueLabels([{ qrCode: "SACK-1" }]);
     expect(r.simulated).toBe(true);
     expect(r.queued).toBe(1);
     if (prev) process.env.QR_PRINTER_URL = prev;
