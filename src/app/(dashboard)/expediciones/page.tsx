@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Truck } from "lucide-react";
+import { Truck, Package } from "lucide-react";
 import { ShipmentStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -11,6 +11,7 @@ import {
   listShipments,
   getShipmentStats,
   getShipmentFormData,
+  getAvailableOutputLots,
 } from "@/lib/services/shipment.service";
 import {
   NewShipmentDialog,
@@ -18,6 +19,14 @@ import {
   ExpediteShipmentButton,
   DeliverShipmentButton,
 } from "./shipment-dialogs";
+import { OutputLotsPanel } from "./output-lots";
+
+type Tab = "lotes" | "envios";
+
+const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
+  { value: "lotes", label: "Lotes de Salida", icon: Package },
+  { value: "envios", label: "Envíos", icon: Truck },
+];
 
 const FILTERS: { value: ShipmentStatus | "TODOS"; label: string }[] = [
   { value: "TODOS", label: "Todos" },
@@ -39,15 +48,17 @@ function isShipmentStatus(v: string | undefined): v is ShipmentStatus {
 export default async function ExpedicionesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; tab?: string }>;
 }): Promise<React.JSX.Element> {
-  const { status } = await searchParams;
+  const { status, tab } = await searchParams;
   const filter = isShipmentStatus(status) ? status : undefined;
+  const activeTab: Tab = tab === "envios" ? "envios" : "lotes";
 
-  const [shipments, stats, formData] = await Promise.all([
+  const [shipments, stats, formData, outputLots] = await Promise.all([
     listShipments(filter),
     getShipmentStats(),
     getShipmentFormData(),
+    getAvailableOutputLots(),
   ]);
 
   return (
@@ -81,89 +92,122 @@ export default async function ExpedicionesPage({
         <StatCard label="Kg expedidos" value={formatKg(stats.kgExpedited)} />
       </div>
 
-      {/* Filtro por estado */}
-      <div className="flex items-center gap-1.5 mb-4">
-        {FILTERS.map((f) => {
-          const active = (f.value === "TODOS" && !filter) || f.value === filter;
-          const href =
-            f.value === "TODOS"
-              ? "/expediciones"
-              : `/expediciones?status=${f.value}`;
+      {/* Pestañas */}
+      <div className="flex items-center gap-1.5 mb-6 border-b border-[var(--color-border)]">
+        {TABS.map((t) => {
+          const active = t.value === activeTab;
+          const Icon = t.icon;
           return (
             <Link
-              key={f.value}
-              href={href}
+              key={t.value}
+              href={`/expediciones?tab=${t.value}`}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                "inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
                 active
-                  ? "bg-[var(--color-primary)] text-white"
-                  : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)]",
+                  ? "border-[var(--color-primary)] text-[var(--color-foreground)]"
+                  : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]",
               )}
             >
-              {f.label}
+              <Icon className="w-4 h-4" />
+              {t.label}
             </Link>
           );
         })}
       </div>
 
-      {shipments.length === 0 ? (
-        <EmptyState
-          icon={Truck}
-          title="No hay envíos"
-          description="Crea un envío para expedir lotes de Producto Terminado a un comprador."
-        />
+      {activeTab === "lotes" ? (
+        <OutputLotsPanel lots={outputLots} />
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>Referencia</TH>
-              <TH>Estado</TH>
-              <TH>Comprador</TH>
-              <TH>Transportista</TH>
-              <TH>Lotes</TH>
-              <TH>Peso</TH>
-              <TH>Fecha</TH>
-              <TH className="text-right">Acción</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {shipments.map((s) => {
-              const totalKg = s.lots.reduce((sum, l) => sum + l.weightKg, 0);
-              const date = s.deliveredAt ?? s.expeditedAt ?? s.createdAt;
+        <>
+          {/* Filtro por estado */}
+          <div className="flex items-center gap-1.5 mb-4">
+            {FILTERS.map((f) => {
+              const active =
+                (f.value === "TODOS" && !filter) || f.value === filter;
+              const href =
+                f.value === "TODOS"
+                  ? "/expediciones?tab=envios"
+                  : `/expediciones?tab=envios&status=${f.value}`;
               return (
-                <TR key={s.id}>
-                  <TD className="font-medium">{s.reference}</TD>
-                  <TD>
-                    <ShipmentStatusBadge status={s.status} />
-                  </TD>
-                  <TD>{s.buyer.name}</TD>
-                  <TD>{s.carrier?.name ?? "—"}</TD>
-                  <TD>{s.lots.length}</TD>
-                  <TD>{formatKg(totalKg)}</TD>
-                  <TD>{formatDate(date, true)}</TD>
-                  <TD className="text-right">
-                    {s.status === ShipmentStatus.BORRADOR && (
-                      <ConfirmShipmentButton shipmentId={s.id} />
-                    )}
-                    {s.status === ShipmentStatus.CONFIRMADO && (
-                      <ExpediteShipmentButton shipmentId={s.id} />
-                    )}
-                    {s.status === ShipmentStatus.EXPEDIDO && (
-                      <DeliverShipmentButton shipmentId={s.id} />
-                    )}
-                    {s.status === ShipmentStatus.ENTREGADO && (
-                      <span className="text-xs text-[var(--color-muted)]">
-                        {s.holdedAlbaranId
-                          ? `Albarán ${s.holdedAlbaranId}`
-                          : "—"}
-                      </span>
-                    )}
-                  </TD>
-                </TR>
+                <Link
+                  key={f.value}
+                  href={href}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                    active
+                      ? "bg-[var(--color-primary)] text-white"
+                      : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)]",
+                  )}
+                >
+                  {f.label}
+                </Link>
               );
             })}
-          </TBody>
-        </Table>
+          </div>
+
+          {shipments.length === 0 ? (
+            <EmptyState
+              icon={Truck}
+              title="No hay envíos"
+              description="Crea un envío para expedir lotes de Producto Terminado a un comprador."
+            />
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Referencia</TH>
+                  <TH>Estado</TH>
+                  <TH>Comprador</TH>
+                  <TH>Transportista</TH>
+                  <TH>Lotes</TH>
+                  <TH>Peso</TH>
+                  <TH>Fecha</TH>
+                  <TH className="text-right">Acción</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {shipments.map((s) => {
+                  const totalKg = s.lots.reduce(
+                    (sum, l) => sum + l.weightKg,
+                    0,
+                  );
+                  const date = s.deliveredAt ?? s.expeditedAt ?? s.createdAt;
+                  return (
+                    <TR key={s.id}>
+                      <TD className="font-medium">{s.reference}</TD>
+                      <TD>
+                        <ShipmentStatusBadge status={s.status} />
+                      </TD>
+                      <TD>{s.buyer.name}</TD>
+                      <TD>{s.carrier?.name ?? "—"}</TD>
+                      <TD>{s.lots.length}</TD>
+                      <TD>{formatKg(totalKg)}</TD>
+                      <TD>{formatDate(date, true)}</TD>
+                      <TD className="text-right">
+                        {s.status === ShipmentStatus.BORRADOR && (
+                          <ConfirmShipmentButton shipmentId={s.id} />
+                        )}
+                        {s.status === ShipmentStatus.CONFIRMADO && (
+                          <ExpediteShipmentButton shipmentId={s.id} />
+                        )}
+                        {s.status === ShipmentStatus.EXPEDIDO && (
+                          <DeliverShipmentButton shipmentId={s.id} />
+                        )}
+                        {s.status === ShipmentStatus.ENTREGADO && (
+                          <span className="text-xs text-[var(--color-muted)]">
+                            {s.holdedAlbaranId
+                              ? `Albarán ${s.holdedAlbaranId}`
+                              : "—"}
+                          </span>
+                        )}
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </TBody>
+            </Table>
+          )}
+        </>
       )}
     </div>
   );
