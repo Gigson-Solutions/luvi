@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { IncidentStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -16,6 +16,7 @@ import {
   getIncidentStats,
   getIncidentFormData,
   getMonthlyIncidentsByWarehouse,
+  type IncidentWithReporter,
 } from "@/lib/services/incident.service";
 import { NewIncidentDialog, AdvanceStatusButton } from "./incident-dialogs";
 
@@ -76,6 +77,19 @@ export default async function IncidenciasPage({
   const warehouseName = new Map(formData.warehouses.map((w) => [w.id, w.name]));
   const total = STATUS_VALUES.reduce((acc, s) => acc + stats[s], 0);
 
+  // Activas = pendientes de cerrar; Cerradas = resueltas o cerradas.
+  const ACTIVE_STATUSES = new Set<IncidentStatus>([
+    IncidentStatus.ABIERTA,
+    IncidentStatus.EN_REVISION,
+    IncidentStatus.EN_PROCESO,
+  ]);
+  const activeIncidents = incidents.filter((i) =>
+    ACTIVE_STATUSES.has(i.status),
+  );
+  const closedIncidents = incidents.filter(
+    (i) => !ACTIVE_STATUSES.has(i.status),
+  );
+
   const STAT_ACCENTS: Partial<Record<IncidentStatus, string>> = {
     ABIERTA: "var(--color-status-rechazo)",
     EN_REVISION: "var(--color-warning)",
@@ -91,8 +105,8 @@ export default async function IncidenciasPage({
         actions={<NewIncidentDialog warehouses={formData.warehouses} />}
       />
 
-      {/* StatCards — recuento por estado */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+      {/* StatCards — recuento por estado + total */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
         {STATUS_VALUES.map((s) => (
           <StatCard
             key={s}
@@ -106,6 +120,7 @@ export default async function IncidenciasPage({
             }
           />
         ))}
+        <StatCard label="Total" value={total} />
       </div>
 
       {/* Filtro por estado */}
@@ -157,64 +172,94 @@ export default async function IncidenciasPage({
           description="No se han registrado incidencias con los filtros seleccionados."
         />
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>Estado</TH>
-              <TH>Título</TH>
-              <TH>Foto</TH>
-              <TH>Almacén</TH>
-              <TH>Autor</TH>
-              <TH>Fecha</TH>
-              <TH className="text-right">Acción</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {incidents.map((inc) => (
-              <TR key={inc.id}>
-                <TD>
-                  <IncidentStatusBadge status={inc.status} />
-                </TD>
-                <TD className="font-medium">
-                  {inc.title}
-                  {inc.sackQrCode && (
-                    <span className="ml-2 text-xs text-[var(--color-muted)]">
-                      {inc.sackQrCode}
-                    </span>
-                  )}
-                </TD>
-                <TD>
-                  {inc.photoUrl ? (
-                    <a
-                      href={inc.photoUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={inc.photoUrl}
-                        alt={`Foto de ${inc.title}`}
-                        className="h-9 w-9 rounded object-cover border border-[var(--color-border)]"
-                      />
-                    </a>
-                  ) : (
-                    <span className="text-[var(--color-muted)]">—</span>
-                  )}
-                </TD>
-                <TD>
-                  {inc.warehouseId
-                    ? (warehouseName.get(inc.warehouseId) ?? "—")
-                    : "—"}
-                </TD>
-                <TD>{inc.reportedBy.name}</TD>
-                <TD>{formatDate(inc.createdAt, true)}</TD>
-                <TD className="text-right">
-                  <AdvanceStatusButton id={inc.id} status={inc.status} />
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <div className="space-y-8">
+          {/* Incidencias activas */}
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-[var(--color-status-rechazo)]" />
+              <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+                Incidencias activas
+                <span className="ml-2 font-normal text-[var(--color-muted)]">
+                  {activeIncidents.length}
+                </span>
+              </h2>
+            </div>
+            {activeIncidents.length === 0 ? (
+              <p className="text-sm text-[var(--color-muted)]">
+                No hay incidencias activas con los filtros seleccionados.
+              </p>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Estado</TH>
+                    <TH>Título</TH>
+                    <TH>Foto</TH>
+                    <TH>Almacén</TH>
+                    <TH>Autor</TH>
+                    <TH>Fecha</TH>
+                    <TH className="text-right">Acción</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {activeIncidents.map((inc) => (
+                    <IncidentRow
+                      key={inc.id}
+                      inc={inc}
+                      warehouseName={warehouseName}
+                      variant="activas"
+                    />
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </section>
+
+          {/* Incidencias cerradas (resueltas o cerradas). */}
+          {/* TODO: el modelo Incident no tiene campo de notas de resolución;
+              la columna "Notas" del prototipo se omite hasta que exista. */}
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-[var(--color-muted)]" />
+              <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+                Incidencias cerradas
+                <span className="ml-2 font-normal text-[var(--color-muted)]">
+                  {closedIncidents.length}
+                </span>
+              </h2>
+            </div>
+            {closedIncidents.length === 0 ? (
+              <p className="text-sm text-[var(--color-muted)]">
+                No hay incidencias resueltas o cerradas con los filtros
+                seleccionados.
+              </p>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Estado</TH>
+                    <TH>Título</TH>
+                    <TH>Foto</TH>
+                    <TH>Almacén</TH>
+                    <TH>Autor</TH>
+                    <TH>Fecha</TH>
+                    <TH>Resuelta</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {closedIncidents.map((inc) => (
+                    <IncidentRow
+                      key={inc.id}
+                      inc={inc}
+                      warehouseName={warehouseName}
+                      variant="cerradas"
+                    />
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </section>
+        </div>
       )}
 
       {/* Comparativa mensual por almacén */}
@@ -287,6 +332,60 @@ export default async function IncidenciasPage({
         )}
       </section>
     </div>
+  );
+}
+
+/** Fila de incidencia. En "activas" muestra la acción de avanzar estado;
+ *  en "cerradas" muestra la fecha de resolución en su lugar. */
+function IncidentRow({
+  inc,
+  warehouseName,
+  variant,
+}: {
+  inc: IncidentWithReporter;
+  warehouseName: Map<string, string>;
+  variant: "activas" | "cerradas";
+}): React.JSX.Element {
+  return (
+    <TR>
+      <TD>
+        <IncidentStatusBadge status={inc.status} />
+      </TD>
+      <TD className="font-medium">
+        {inc.title}
+        {inc.sackQrCode && (
+          <span className="ml-2 text-xs text-[var(--color-muted)]">
+            {inc.sackQrCode}
+          </span>
+        )}
+      </TD>
+      <TD>
+        {inc.photoUrl ? (
+          <a href={inc.photoUrl} target="_blank" rel="noopener noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={inc.photoUrl}
+              alt={`Foto de ${inc.title}`}
+              className="h-9 w-9 rounded object-cover border border-[var(--color-border)]"
+            />
+          </a>
+        ) : (
+          <span className="text-[var(--color-muted)]">—</span>
+        )}
+      </TD>
+      <TD>
+        {inc.warehouseId ? (warehouseName.get(inc.warehouseId) ?? "—") : "—"}
+      </TD>
+      <TD>{inc.reportedBy.name}</TD>
+      <TD>{formatDate(inc.createdAt, true)}</TD>
+      {variant === "cerradas" ? (
+        <TD>{inc.resolvedAt ? formatDate(inc.resolvedAt, true) : "—"}</TD>
+      ) : (
+        <TD className="text-right">
+          <AdvanceStatusButton id={inc.id} status={inc.status} />
+        </TD>
+      )}
+    </TR>
   );
 }
 

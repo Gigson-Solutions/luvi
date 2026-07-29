@@ -247,6 +247,8 @@ export interface SackFilters {
   status?: SackStatus;
   materialId?: string;
   zoneId?: string;
+  /** Texto libre: busca por ID de saca, código QR o nº de lote. */
+  search?: string;
 }
 
 /** Lista de sacas aplicando los filtros opcionales. */
@@ -258,6 +260,15 @@ export function listSacks(
   if (filters.status) where.status = filters.status;
   if (filters.materialId) where.materialId = filters.materialId;
   if (filters.zoneId) where.zoneId = filters.zoneId;
+
+  const q = filters.search?.trim();
+  if (q) {
+    where.OR = [
+      { qrCode: { contains: q, mode: "insensitive" } },
+      { id: { contains: q, mode: "insensitive" } },
+      { lot: { is: { lotNumber: { contains: q, mode: "insensitive" } } } },
+    ];
+  }
 
   return prisma.sack.findMany({
     where,
