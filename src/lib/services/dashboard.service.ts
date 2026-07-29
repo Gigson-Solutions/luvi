@@ -4,7 +4,9 @@ import {
   ShipmentStatus,
   LotType,
   QualityResult,
+  IncidentStatus,
 } from "@prisma/client";
+import { listLowStockConsumables } from "@/lib/services/consumable.service";
 
 // ─── Rango de fechas reutilizable ──────────────────────────────────────────────
 
@@ -231,5 +233,250 @@ export async function getProcurementDashboard(): Promise<ProcurementDash> {
     tonsInTransit:
       Math.round(((inTransit._sum.weightKg ?? 0) / 1000) * 100) / 100,
     shipmentsInTransit: inTransit._count,
+  };
+}
+
+// ─── Panel Principal ────────────────────────────────────────────────────────────
+
+export interface PanelStats {
+  /** Contenedores/camiones registrados hoy → /recepciones. */
+  trucksToday: number;
+  /** Sacas pendientes de recibir/pesar (PENDIENTE_RECIBIR) → /recepciones. */
+  pendingWeighing: number;
+  /** Sacas en almacén (EN_ALMACEN) → /almacen. */
+  sacksInStock: number;
+  /** Incidencias no resueltas ni cerradas → /incidencias. */
+  openIncidents: number;
+  /** Envíos en BORRADOR/CONFIRMADO (aún no expedidos) → /expediciones. */
+  pendingShipments: number;
+  /** Consumibles por debajo de su umbral mínimo → /consumibles. */
+  consumableAlerts: number;
+}
+
+/** KPIs de cabecera del Panel Principal (6 tarjetas clicables). */
+export async function getPanelStats(): Promise<PanelStats> {
+  const todayStart = startOfDay(new Date());
+
+  const [
+    trucksToday,
+    pendingWeighing,
+    sacksInStock,
+    openIncidents,
+    pendingShipments,
+    lowStock,
+  ] = await Promise.all([
+    prisma.container.count({ where: { createdAt: { gte: todayStart } } }),
+    prisma.sack.count({ where: { status: SackStatus.PENDIENTE_RECIBIR } }),
+    prisma.sack.count({ where: { status: SackStatus.EN_ALMACEN } }),
+    prisma.incident.count({
+      where: {
+        status: {
+          in: [
+            IncidentStatus.ABIERTA,
+            IncidentStatus.EN_REVISION,
+            IncidentStatus.EN_PROCESO,
+          ],
+        },
+      },
+    }),
+    prisma.shipment.count({
+      where: {
+        status: {
+          in: [ShipmentStatus.BORRADOR, ShipmentStatus.CONFIRMADO],
+        },
+      },
+    }),
+    // Reutiliza la lógica de alertas de consumable.service (compara stock<mín).
+    listLowStockConsumables(),
+  ]);
+
+  return {
+    trucksToday,
+    pendingWeighing,
+    sacksInStock,
+    openIncidents,
+    pendingShipments,
+    consumableAlerts: lowStock.length,
+  };
+}
+
+// ─── Rentabilidad ───────────────────────────────────────────────────────────────
+
+export interface ProviderProfitability {
+  name: string;
+  /** €/tonelada medio de compra de este proveedor en el periodo. */
+  avgCostPerTon: number;
+  /** Toneladas aprovisionadas en el periodo. */
+  totalQuantity: number;
+  /** Inversión total (€) en el periodo. */
+  totalInvested: number;
+  /** Nº de envíos de proveedor con precio en el periodo. */
+  shipments: number;
+}
+
+export interface Profitability {
+  /** Inversión total en compras con precio dentro del periodo (€). */
+  totalInvested: number;
+  /** Nº de envíos de proveedor con precio en el periodo. */
+  shipmentsCount: number;
+  /** Toneladas aprovisionadas con precio en el periodo. */
+  totalQuantityTons: number;
+  /** €/tonelada medio ponderado de compra. */
+  avgCostPerTon: number;
+  /** Coste total imputado a los lotes producidos en el periodo (€). */
+  totalLotCost: number;
+  /** Nº de lotes producidos en el periodo. */
+  lotsCount: number;
+  /** Coste medio por lote (€). */
+  avgLotCost: number;
+  /** Coste medio por kg de salida de los lotes del periodo (€/kg). */
+  avgCostPerKg: number;
+  /** Ranking de proveedores más rentables (menor €/t primero). */
+  byProvider: ProviderProfitability[];
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * KPIs de rentabilidad de los últimos `days` días.
+ *
+ * Inversión / €·t: se derivan de los envíos de proveedor (Aprovisionamiento)
+ * cuyo `PurchaseOrder.pricePerTon` es conocido, creados dentro del periodo.
+ *   inversión_envío = (weightKg / 1000) · pricePerTon
+ * Coste de lotes: coste de compra de la MP consumida por los lotes producidos
+ * en el periodo (misma cadena que cost.service: Sack entrada → Container →
+ * ProviderShipment → PurchaseOrder.pricePerTon).
+ *
+ * Si no hay datos calculables, devuelve ceros y `byProvider: []`.
+ */
+export async function getProfitability(days: number): Promise<Profitability> {
+  const now = new Date();
+  const from = startOfDay(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)),
+  );
+  const period = { gte: from, lte: endOfDay(now) };
+
+  const [providerShipments, lots] = await Promise.all([
+    // Compras (Aprovisionamiento) del periodo con precio de compra conocido.
+    // TODO: si se prefiere la fecha de llegada a planta, filtrar por arrivedPlanta.
+    prisma.providerShipment.findMany({
+      where: {
+        createdAt: period,
+        weightKg: { not: null },
+        purchaseOrder: { pricePerTon: { not: null } },
+      },
+      select: {
+        weightKg: true,
+        purchaseOrder: {
+          select: {
+            pricePerTon: true,
+            supplier: { select: { name: true } },
+          },
+        },
+      },
+    }),
+    // Lotes producidos en el periodo con la MP de entrada consumida y su precio.
+    prisma.productionLot.findMany({
+      where: { producedAt: period },
+      select: {
+        sacks: { select: { weight: true } },
+        transformations: {
+          select: {
+            inputs: {
+              select: {
+                sack: {
+                  select: {
+                    weight: true,
+                    container: {
+                      select: {
+                        providerShipment: {
+                          select: {
+                            purchaseOrder: { select: { pricePerTon: true } },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  // Agregados de compras (inversión, toneladas) globales y por proveedor.
+  let totalInvested = 0;
+  let totalTons = 0;
+  const byProviderMap = new Map<
+    string,
+    { invested: number; tons: number; shipments: number }
+  >();
+
+  for (const ps of providerShipments) {
+    const ppt = ps.purchaseOrder?.pricePerTon;
+    const kg = ps.weightKg;
+    if (ppt == null || kg == null) continue;
+    const tons = kg / 1000;
+    const invested = tons * ppt;
+    totalInvested += invested;
+    totalTons += tons;
+
+    const name = ps.purchaseOrder?.supplier?.name ?? "Sin proveedor";
+    const row = byProviderMap.get(name) ?? {
+      invested: 0,
+      tons: 0,
+      shipments: 0,
+    };
+    row.invested += invested;
+    row.tons += tons;
+    row.shipments += 1;
+    byProviderMap.set(name, row);
+  }
+
+  const byProvider: ProviderProfitability[] = Array.from(
+    byProviderMap.entries(),
+  )
+    .map(([name, v]) => ({
+      name,
+      avgCostPerTon: v.tons > 0 ? round2(v.invested / v.tons) : 0,
+      totalQuantity: round2(v.tons),
+      totalInvested: round2(v.invested),
+      shipments: v.shipments,
+    }))
+    // Más rentable = menor coste de compra por tonelada.
+    .sort((a, b) => a.avgCostPerTon - b.avgCostPerTon);
+
+  // Coste de lotes producidos en el periodo (MP consumida).
+  let totalLotCost = 0;
+  let totalOutputKg = 0;
+  for (const lot of lots) {
+    for (const t of lot.transformations) {
+      for (const inp of t.inputs) {
+        const ppt =
+          inp.sack.container?.providerShipment?.purchaseOrder?.pricePerTon ??
+          null;
+        if (ppt != null) totalLotCost += (inp.sack.weight / 1000) * ppt;
+      }
+    }
+    totalOutputKg += lot.sacks.reduce((acc, s) => acc + s.weight, 0);
+  }
+
+  const lotsCount = lots.length;
+
+  return {
+    totalInvested: round2(totalInvested),
+    shipmentsCount: providerShipments.length,
+    totalQuantityTons: round2(totalTons),
+    avgCostPerTon: totalTons > 0 ? round2(totalInvested / totalTons) : 0,
+    totalLotCost: round2(totalLotCost),
+    lotsCount,
+    avgLotCost: lotsCount > 0 ? round2(totalLotCost / lotsCount) : 0,
+    avgCostPerKg:
+      totalOutputKg > 0
+        ? Math.round((totalLotCost / totalOutputKg) * 1000) / 1000
+        : 0,
+    byProvider,
   };
 }
