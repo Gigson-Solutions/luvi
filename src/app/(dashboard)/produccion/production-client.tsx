@@ -13,6 +13,7 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SackStatusBadge } from "@/components/ui/status-badge";
 import { QrScanner } from "@/components/qr/qr-scanner";
+import { QrCode } from "@/components/qr/qr-code";
 import { formatKg } from "@/lib/utils";
 import {
   Dialog,
@@ -185,109 +186,165 @@ export function OutputSackDialog({
   zones: Option[];
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [created, setCreated] = useState<{
+    id: string;
+    qrCode: string;
+    lotNumber: string;
+  } | null>(null);
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await createOutputSackAction(prev, formData);
-      if (result.ok) setOpen(false);
+      // Al crear la saca no cerramos: mostramos su QR + lote ("Saca creada").
+      if (result.ok && result.created) setCreated(result.created);
       return result;
     },
     INITIAL,
   );
 
+  function handleOpenChange(next: boolean): void {
+    setOpen(next);
+    if (!next) setCreated(null);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button>
           <PackagePlus className="w-4 h-4" /> Saca de salida
         </Button>
       </DialogTrigger>
-      <DialogContent
-        title="Registrar saca de salida"
-        description="Producto Terminado / Subproducto / Rechazo. El nº de lote se autogenera."
-      >
-        <form action={action} className="space-y-4">
-          <div>
-            <Label htmlFor="type">Tipo de salida</Label>
-            <Select
-              id="type"
-              name="type"
-              required
-              defaultValue="PRODUCTO_TERMINADO"
-            >
-              {TYPE_LABELS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="materialId">Material</Label>
-              <Select
-                id="materialId"
-                name="materialId"
-                required
-                defaultValue=""
+      {created ? (
+        <DialogContent
+          title="Saca creada"
+          description="Imprime o anota el QR y el nº de lote de la saca de salida."
+        >
+          <div className="space-y-4">
+            <div className="flex flex-col items-center gap-3">
+              <QrCode value={created.qrCode} size={160} />
+              <div className="grid grid-cols-2 gap-3 w-full text-sm">
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-hover)] p-3">
+                  <p className="text-xs text-[var(--color-muted)]">
+                    ID de saca
+                  </p>
+                  <p className="font-mono font-medium text-[var(--color-foreground)] break-all">
+                    {created.id}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-hover)] p-3">
+                  <p className="text-xs text-[var(--color-muted)]">Lote</p>
+                  <p className="font-mono font-medium text-[var(--color-foreground)]">
+                    {created.lotNumber}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreated(null)}
               >
-                <option value="" disabled>
-                  Selecciona…
-                </option>
-                {materials.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
+                Crear otra
+              </Button>
+              <DialogClose asChild>
+                <Button type="button">Cerrar</Button>
+              </DialogClose>
+            </div>
+          </div>
+        </DialogContent>
+      ) : (
+        <DialogContent
+          title="Registrar saca de salida"
+          description="Producto Terminado / Subproducto / Rechazo. El nº de lote se autogenera."
+        >
+          <form action={action} className="space-y-4">
+            <div>
+              <Label htmlFor="type">Tipo de salida</Label>
+              <Select
+                id="type"
+                name="type"
+                required
+                defaultValue="PRODUCTO_TERMINADO"
+              >
+                {TYPE_LABELS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </Select>
             </div>
-            <div>
-              <Label htmlFor="weight">Peso (kg)</Label>
-              <Input
-                id="weight"
-                name="weight"
-                type="number"
-                step="0.01"
-                required
-                placeholder="0.00"
-              />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="materialId">Material</Label>
+                <Select
+                  id="materialId"
+                  name="materialId"
+                  required
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Selecciona…
+                  </option>
+                  {materials.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="weight">Peso (kg)</Label>
+                <Input
+                  id="weight"
+                  name="weight"
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="0.00"
+                />
+              </div>
             </div>
-          </div>
 
-          <div>
-            <Label htmlFor="zoneId">Zona destino (opcional)</Label>
-            <Select id="zoneId" name="zoneId" defaultValue="">
-              <option value="">Sin ubicar</option>
-              {zones.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.warehouseName} · {z.name}
-                </option>
-              ))}
-            </Select>
-          </div>
+            <div>
+              <Label htmlFor="zoneId">Zona destino (opcional)</Label>
+              <Select id="zoneId" name="zoneId" defaultValue="">
+                <option value="">Sin ubicar</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.warehouseName} · {z.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-          <div>
-            <Label htmlFor="notes">Notas</Label>
-            <Textarea id="notes" name="notes" />
-          </div>
+            <div>
+              <Label htmlFor="notes">Notas</Label>
+              <Textarea id="notes" name="notes" />
+            </div>
 
-          <p className="text-xs text-[var(--color-muted)]">
-            El nº de lote se genera automáticamente (formato DDMMYY-nº). Las
-            sacas de Producto Terminado del mismo material se acumulan en el
-            lote del día.
-          </p>
+            <p className="text-xs text-[var(--color-muted)]">
+              El nº de lote se genera automáticamente (formato DDMMYY-nº). Las
+              sacas de Producto Terminado del mismo material se acumulan en el
+              lote del día.
+            </p>
 
-          {state.error && <p className="text-sm text-red-600">{state.error}</p>}
-          <div className="flex justify-end gap-2 pt-1">
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancelar
-              </Button>
-            </DialogClose>
-            <SubmitButton pendingText="Creando saca…">Crear saca</SubmitButton>
-          </div>
-        </form>
-      </DialogContent>
+            {state.error && (
+              <p className="text-sm text-red-600">{state.error}</p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  Cancelar
+                </Button>
+              </DialogClose>
+              <SubmitButton pendingText="Creando saca…">
+                Crear saca
+              </SubmitButton>
+            </div>
+          </form>
+        </DialogContent>
+      )}
     </Dialog>
   );
 }

@@ -1,50 +1,96 @@
-import { Factory, Package, PackageCheck, PackageX } from "lucide-react";
+import Link from "next/link";
+import { ArrowDownToLine, Package, PackageCheck, PackageX } from "lucide-react";
 import { LotType } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatCard } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
-import { SackStatusBadge } from "@/components/ui/status-badge";
-import { formatKg, formatDate } from "@/lib/utils";
+import { formatKg, formatDate, cn } from "@/lib/utils";
 import {
   listWarehouseSacks,
-  listTodayOutput,
+  listOutputSacksByType,
+  getOutputCounts,
   getProductionStats,
   getProductionFormData,
   type OutputSack,
+  type SackWithMaterialZone,
 } from "@/lib/services/production.service";
 import { HopperEntry, OutputSackDialog } from "./production-client";
 
-const GROUP_META: Record<LotType, { title: string; icon: React.ElementType }> =
-  {
-    PRODUCTO_TERMINADO: { title: "Producto Terminado", icon: PackageCheck },
-    SUBPRODUCTO: { title: "Subproducto", icon: Package },
-    RECHAZO: { title: "Rechazo", icon: PackageX },
-  };
+type Tab = "entrada" | "pt" | "subproducto" | "rechazo";
 
-const GROUP_ORDER: LotType[] = [
-  LotType.PRODUCTO_TERMINADO,
-  LotType.SUBPRODUCTO,
-  LotType.RECHAZO,
-];
+/** Pestañas de salida → tipo de lote. */
+const TAB_TYPE: Record<Exclude<Tab, "entrada">, LotType> = {
+  pt: LotType.PRODUCTO_TERMINADO,
+  subproducto: LotType.SUBPRODUCTO,
+  rechazo: LotType.RECHAZO,
+};
 
-function lotTypeOf(sack: OutputSack): LotType {
-  return sack.lot?.type ?? LotType.PRODUCTO_TERMINADO;
+const OUTPUT_META: Record<
+  Exclude<Tab, "entrada">,
+  { title: string; description: string; icon: React.ElementType }
+> = {
+  pt: {
+    title: "Producto Terminado",
+    description: "Sacas de Producto Terminado registradas.",
+    icon: PackageCheck,
+  },
+  subproducto: {
+    title: "Subproducto",
+    description: "Sacas de subproducto registradas.",
+    icon: Package,
+  },
+  rechazo: {
+    title: "Rechazo",
+    description: "Sacas de rechazo registradas.",
+    icon: PackageX,
+  },
+};
+
+function isTab(v: string | undefined): v is Tab {
+  return (
+    v === "entrada" || v === "pt" || v === "subproducto" || v === "rechazo"
+  );
 }
 
-export default async function ProduccionPage(): Promise<React.JSX.Element> {
-  const [sacks, output, stats, formData] = await Promise.all([
-    listWarehouseSacks(),
-    listTodayOutput(),
+export default async function ProduccionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}): Promise<React.JSX.Element> {
+  const { tab } = await searchParams;
+  const activeTab: Tab = isTab(tab) ? tab : "entrada";
+
+  const [stats, formData, counts, sacks, outputSacks] = await Promise.all([
     getProductionStats(),
     getProductionFormData(),
+    getOutputCounts(),
+    activeTab === "entrada"
+      ? listWarehouseSacks()
+      : Promise.resolve<SackWithMaterialZone[]>([]),
+    activeTab === "entrada"
+      ? Promise.resolve<OutputSack[]>([])
+      : listOutputSacksByType(TAB_TYPE[activeTab]),
   ]);
 
-  const grouped = GROUP_ORDER.map((type) => {
-    const items = output.filter((s) => lotTypeOf(s) === type);
-    const totalKg = items.reduce((sum, s) => sum + s.weight, 0);
-    return { type, items, totalKg };
-  });
+  const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
+    { value: "entrada", label: "Entrada", icon: ArrowDownToLine },
+    {
+      value: "pt",
+      label: `Producto Terminado (${counts.PRODUCTO_TERMINADO})`,
+      icon: PackageCheck,
+    },
+    {
+      value: "subproducto",
+      label: `Subproducto (${counts.SUBPRODUCTO})`,
+      icon: Package,
+    },
+    {
+      value: "rechazo",
+      label: `Rechazo (${counts.RECHAZO})`,
+      icon: PackageX,
+    },
+  ];
 
   return (
     <div>
@@ -60,7 +106,7 @@ export default async function ProduccionPage(): Promise<React.JSX.Element> {
       />
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
         <StatCard
           label="Sacas en producción"
           value={stats.inProduction}
@@ -70,8 +116,19 @@ export default async function ProduccionPage(): Promise<React.JSX.Element> {
         <StatCard
           label="PT del día"
           value={stats.ptToday}
-          hint="Sacas de Producto Terminado hoy"
+          hint="Producto Terminado hoy"
           accent="#16a34a"
+        />
+        <StatCard
+          label="Subprod. del día"
+          value={stats.subToday}
+          hint="Subproductos hoy"
+        />
+        <StatCard
+          label="Rechazos del día"
+          value={stats.rechazoToday}
+          hint="Rechazos hoy"
+          accent="#dc2626"
         />
         <StatCard
           label="Kg procesados"
@@ -80,92 +137,113 @@ export default async function ProduccionPage(): Promise<React.JSX.Element> {
         />
       </div>
 
-      {/* Entrada a tolva */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Entrada a tolva
-          <span className="ml-2 text-[var(--color-muted)] font-normal">
-            {sacks.length} en almacén
-          </span>
-        </h2>
-        <HopperEntry
-          sacks={sacks.map((s) => ({
-            id: s.id,
-            qrCode: s.qrCode,
-            weight: s.weight,
-            status: s.status,
-            material: { name: s.material.name },
-            zone: s.zone ? { name: s.zone.name } : null,
-          }))}
-        />
-      </section>
+      {/* Pestañas */}
+      <div className="flex items-center gap-1.5 mb-6 border-b border-[var(--color-border)]">
+        {TABS.map((t) => {
+          const active = t.value === activeTab;
+          const Icon = t.icon;
+          return (
+            <Link
+              key={t.value}
+              href={`/produccion?tab=${t.value}`}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+                active
+                  ? "border-[var(--color-primary)] text-[var(--color-foreground)]"
+                  : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]",
+              )}
+            >
+              <Icon className="w-4 h-4" />
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
 
-      {/* Historial del día */}
-      <section>
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Producción de hoy
-        </h2>
-        {output.length === 0 ? (
-          <EmptyState
-            icon={Factory}
-            title="Todavía no hay sacas de salida hoy"
-            description="Registra una saca de salida (Producto Terminado, Subproducto o Rechazo)."
+      {activeTab === "entrada" ? (
+        <section>
+          <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
+            Entrada a tolva
+            <span className="ml-2 text-[var(--color-muted)] font-normal">
+              {sacks.length} en almacén
+            </span>
+          </h2>
+          <HopperEntry
+            sacks={sacks.map((s) => ({
+              id: s.id,
+              qrCode: s.qrCode,
+              weight: s.weight,
+              status: s.status,
+              material: { name: s.material.name },
+              zone: s.zone ? { name: s.zone.name } : null,
+            }))}
           />
-        ) : (
-          <div className="space-y-6">
-            {grouped
-              .filter((g) => g.items.length > 0)
-              .map((g) => {
-                const meta = GROUP_META[g.type];
-                const Icon = meta.icon;
-                return (
-                  <div key={g.type}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 text-[var(--color-muted)]" />
-                        <h3 className="text-sm font-medium text-[var(--color-foreground)]">
-                          {meta.title}
-                        </h3>
-                        <span className="text-xs text-[var(--color-muted)]">
-                          {g.items.length} sacas
-                        </span>
-                      </div>
-                      <span className="text-sm font-semibold text-[var(--color-foreground)]">
-                        {formatKg(g.totalKg)}
-                      </span>
-                    </div>
-                    <Table>
-                      <THead>
-                        <TR>
-                          <TH>QR</TH>
-                          <TH>Lote</TH>
-                          <TH>Material</TH>
-                          <TH>Peso</TH>
-                          <TH>Estado</TH>
-                          <TH>Hora</TH>
-                        </TR>
-                      </THead>
-                      <TBody>
-                        {g.items.map((s) => (
-                          <TR key={s.id}>
-                            <TD className="font-medium">{s.qrCode}</TD>
-                            <TD>{s.lot?.lotNumber ?? "—"}</TD>
-                            <TD>{s.material.name}</TD>
-                            <TD>{formatKg(s.weight)}</TD>
-                            <TD>
-                              <SackStatusBadge status={s.status} />
-                            </TD>
-                            <TD>{formatDate(s.createdAt, true)}</TD>
-                          </TR>
-                        ))}
-                      </TBody>
-                    </Table>
-                  </div>
-                );
-              })}
-          </div>
-        )}
-      </section>
+        </section>
+      ) : (
+        <OutputTab meta={OUTPUT_META[activeTab]} sacks={outputSacks} />
+      )}
     </div>
+  );
+}
+
+function OutputTab({
+  meta,
+  sacks,
+}: {
+  meta: { title: string; description: string; icon: React.ElementType };
+  sacks: OutputSack[];
+}): React.JSX.Element {
+  const Icon = meta.icon;
+  if (sacks.length === 0) {
+    return (
+      <EmptyState
+        icon={Icon}
+        title={`Todavía no hay sacas de ${meta.title.toLowerCase()}`}
+        description="Crea una saca de salida con el botón «Saca de salida»."
+      />
+    );
+  }
+
+  const totalKg = sacks.reduce((sum, s) => sum + s.weight, 0);
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Icon className="w-4 h-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+            {meta.title}
+          </h2>
+          <span className="text-xs text-[var(--color-muted)]">
+            {sacks.length} sacas
+          </span>
+        </div>
+        <span className="text-sm font-semibold text-[var(--color-foreground)]">
+          {formatKg(totalKg)}
+        </span>
+      </div>
+      <Table>
+        <THead>
+          <TR>
+            <TH>QR</TH>
+            <TH>Material</TH>
+            <TH>Peso</TH>
+            <TH>Lote</TH>
+            <TH>Fecha</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {sacks.map((s) => (
+            <TR key={s.id}>
+              <TD className="font-medium">{s.qrCode}</TD>
+              <TD>{s.material.name}</TD>
+              <TD>{formatKg(s.weight)}</TD>
+              <TD>{s.lot?.lotNumber ?? "—"}</TD>
+              <TD>{formatDate(s.createdAt, true)}</TD>
+            </TR>
+          ))}
+        </TBody>
+      </Table>
+    </section>
   );
 }
