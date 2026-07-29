@@ -80,34 +80,69 @@ export function listTodayOutput(): Promise<OutputSack[]> {
   });
 }
 
+/**
+ * Sacas de salida de un tipo concreto (Producto Terminado / Subproducto /
+ * Rechazo), todas las creadas (no solo las de hoy). Para las pestañas.
+ */
+export function listOutputSacksByType(
+  type: LotType,
+  limit = 100,
+): Promise<OutputSack[]> {
+  return prisma.sack.findMany({
+    where: { status: OUTPUT_STATUS[type] },
+    include: { material: true, lot: true },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+}
+
+/** Nº total de sacas de salida por tipo (para los contadores de las pestañas). */
+export async function getOutputCounts(): Promise<Record<LotType, number>> {
+  const grouped = await prisma.sack.groupBy({
+    by: ["status"],
+    where: { status: { in: OUTPUT_STATUSES } },
+    _count: { _all: true },
+  });
+  const byStatus = new Map(grouped.map((g) => [g.status, g._count._all]));
+  return {
+    [LotType.PRODUCTO_TERMINADO]:
+      byStatus.get(SackStatus.PRODUCTO_TERMINADO) ?? 0,
+    [LotType.SUBPRODUCTO]: byStatus.get(SackStatus.SUBPRODUCTO) ?? 0,
+    [LotType.RECHAZO]: byStatus.get(SackStatus.RECHAZO) ?? 0,
+  };
+}
+
 export interface ProductionStats {
   inProduction: number;
   ptToday: number;
+  subToday: number;
+  rechazoToday: number;
   kgProcessed: number;
 }
 
 /** KPIs para las StatCards. */
 export async function getProductionStats(): Promise<ProductionStats> {
   const start = startOfToday();
-  const [inProduction, ptToday, processedInputs] = await Promise.all([
-    prisma.sack.count({ where: { status: SackStatus.EN_PRODUCCION } }),
-    prisma.sack.count({
-      where: {
-        status: SackStatus.PRODUCTO_TERMINADO,
-        createdAt: { gte: start },
-      },
-    }),
-    prisma.transformationInput.findMany({
-      where: { enteredAt: { gte: start } },
-      select: { sack: { select: { weight: true } } },
-    }),
-  ]);
+  const countTodayByStatus = (status: SackStatus): Promise<number> =>
+    prisma.sack.count({ where: { status, createdAt: { gte: start } } });
+
+  const [inProduction, ptToday, subToday, rechazoToday, processedInputs] =
+    await Promise.all([
+      prisma.sack.count({ where: { status: SackStatus.EN_PRODUCCION } }),
+      countTodayByStatus(SackStatus.PRODUCTO_TERMINADO),
+      countTodayByStatus(SackStatus.SUBPRODUCTO),
+      countTodayByStatus(SackStatus.RECHAZO),
+      prisma.transformationInput.findMany({
+        where: { enteredAt: { gte: start } },
+        select: { sack: { select: { weight: true } } },
+      }),
+    ]);
 
   const kgProcessed = processedInputs.reduce(
     (sum, i) => sum + i.sack.weight,
     0,
   );
-  return { inProduction, ptToday, kgProcessed };
+  return { inProduction, ptToday, subToday, rechazoToday, kgProcessed };
 }
 
 /** Datos auxiliares para los formularios de producción. */
@@ -239,7 +274,7 @@ export interface CreateOutputSackInput {
  */
 export async function createOutputSack(
   input: CreateOutputSackInput,
-): Promise<{ qrCode: string; lotNumber: string }> {
+): Promise<{ id: string; qrCode: string; lotNumber: string }> {
   if (input.weight <= 0) {
     throw new Error("El peso debe ser mayor que 0.");
   }
@@ -257,6 +292,6 @@ export async function createOutputSack(
         notes: input.notes ?? null,
       },
     });
-    return { qrCode: sack.qrCode, lotNumber: lot.lotNumber };
+    return { id: sack.id, qrCode: sack.qrCode, lotNumber: lot.lotNumber };
   });
 }

@@ -13,7 +13,13 @@ import {
 } from "@/lib/services/production.service";
 import type { CurrentUser } from "@/lib/rbac";
 
-export type ActionState = { ok: boolean; error?: string; message?: string };
+export type ActionState = {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  /** Datos de la saca recién creada (para mostrar el QR tras crearla). */
+  created?: { id: string; qrCode: string; lotNumber: string };
+};
 
 /** Exige acceso al módulo de producción y devuelve el usuario actual (actor). */
 function requireOperator(): Promise<CurrentUser> {
@@ -102,24 +108,27 @@ export async function createOutputSackAction(
       };
     }
     const d = parsed.data;
-    const { qrCode, lotNumber } = await createOutputSack({
+    const { id, qrCode, lotNumber } = await createOutputSack({
       type: d.type,
       materialId: d.materialId,
       weight: d.weight,
       zoneId: d.zoneId || undefined,
       notes: d.notes || undefined,
     });
-    // El servicio solo devuelve { qrCode, lotNumber }: sin id de saca, se
-    // deja entityId sin poner y se guardan qrCode/lotNumber/tipo en el payload.
     await logAudit({
       userId: actor.id,
       action: "CREATE_OUTPUT_SACK",
       entity: "Sack",
+      entityId: id,
       payload: { lotNumber, qrCode, type: d.type },
     });
     revalidatePath("/produccion");
     revalidatePath("/almacen");
-    return { ok: true, message: `Saca ${qrCode} · lote ${lotNumber}` };
+    return {
+      ok: true,
+      message: `Saca ${qrCode} · lote ${lotNumber}`,
+      created: { id, qrCode, lotNumber },
+    };
   } catch (e) {
     return {
       ok: false,
