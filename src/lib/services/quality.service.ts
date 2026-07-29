@@ -1,236 +1,316 @@
 import { prisma } from "@/lib/prisma";
-import { type Prisma, type QualityResult } from "@prisma/client";
+import { QualityResult, type Prisma } from "@prisma/client";
 import {
-  MEASURE_KEYS,
-  type MeasureKey,
+  DEFAULT_DENSITY_RANGE,
+  SAMPLES_PER_RECORD,
+  densityStatus,
+  type DensityRange,
+  type SampleStatus,
 } from "@/app/(dashboard)/calidad/quality-thresholds";
 
 /**
- * Servicio de Calidad — lógica de negocio sobre QualityRecord.
+ * Servicio de Calidad — hoja de muestras por registro.
  *
- * Un registro de calidad evalúa un ProductionLot: material, proveedor (opc.),
- * turno y una rejilla de medidas (densidad + porcentajes de contaminantes).
- * El resultado es OK / NOK / PENDIENTE; forzar OK con parámetros fuera de rango
- * exige un `overrideReason`.
+ * Cada QualityRecord es un registro diario (fecha · turno · cliente) con hasta
+ * 20 muestras. El estado OK/NOK de cada muestra se deriva de su densidad y del
+ * rango configurable (`config.quality_ranges`, por defecto 330–370 g). El
+ * `result` del registro es el estado agregado de sus muestras.
  */
 
-export type QualityRecordWithRefs = Prisma.QualityRecordGetPayload<{
-  include: { lot: true; material: true; supplier: true };
+export type QualityRecordWithSamples = Prisma.QualityRecordGetPayload<{
+  include: { samples: true };
 }>;
 
-/** Listado de registros de calidad, más recientes primero. */
-export function listQualityRecords(
-  limit = 100,
-): Promise<QualityRecordWithRefs[]> {
+// ─── Configuración de rangos ────────────────────────────────────────────────────
+
+/** Rango de densidad OK; lee `config.quality_ranges` con fallback a defaults. */
+export async function getDensityRange(): Promise<DensityRange> {
+  const row = await prisma.config.findUnique({
+    where: { key: "quality_ranges" },
+  });
+  const v = row?.value as { densityMin?: number; densityMax?: number } | null;
+  if (
+    v &&
+    typeof v.densityMin === "number" &&
+    typeof v.densityMax === "number"
+  ) {
+    return { min: v.densityMin, max: v.densityMax };
+  }
+  return { ...DEFAULT_DENSITY_RANGE };
+}
+
+// ─── Utilidades de rango temporal ────────────────────────────────────────────────
+
+/** Rango [from, to) del mes indicado (month 1..12). */
+export function monthBounds(
+  year: number,
+  month: number,
+): { from: Date; to: Date } {
+  return { from: new Date(year, month - 1, 1), to: new Date(year, month, 1) };
+}
+
+// ─── Derivados de un registro ────────────────────────────────────────────────────
+
+type SampleLike = { density: number | null; status: string | null };
+
+/** Muestras con densidad medida. */
+function measuredSamples<T extends SampleLike>(samples: T[]): T[] {
+  return samples.filter((s) => s.density != null);
+}
+
+/** Estado agregado de un registro a partir de sus muestras. */
+export function recordStatus(samples: SampleLike[]): SampleStatus {
+  const measured = measuredSamples(samples);
+  if (measured.length === 0) return "PENDIENTE";
+  if (measured.some((s) => s.status === "NOK")) return "NOK";
+  if (measured.every((s) => s.status === "OK")) return "OK";
+  return "PENDIENTE";
+}
+
+/** Media de densidad de las muestras medidas, o null si no hay ninguna. */
+export function averageDensity(samples: SampleLike[]): number | null {
+  const values = measuredSamples(samples).map((s) => s.density as number);
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+export interface RecordSummary {
+  id: string;
+  date: Date | null;
+  shift: string | null;
+  client: string | null;
+  notes: string | null;
+  sampleCount: number;
+  avgDensity: number | null;
+  status: SampleStatus;
+}
+
+/** Resumen de fila para la tabla mensual. */
+export function toRecordSummary(
+  record: QualityRecordWithSamples,
+): RecordSummary {
+  return {
+    id: record.id,
+    date: record.date,
+    shift: record.shift,
+    client: record.client,
+    notes: record.notes,
+    sampleCount: measuredSamples(record.samples).length,
+    avgDensity: averageDensity(record.samples),
+    status: recordStatus(record.samples),
+  };
+}
+
+// ─── Listado y estadísticas mensuales ────────────────────────────────────────────
+
+/** Registros del mes (con muestras), más antiguos primero. */
+export function listMonthlyRecords(
+  year: number,
+  month: number,
+): Promise<QualityRecordWithSamples[]> {
+  const { from, to } = monthBounds(year, month);
   return prisma.qualityRecord.findMany({
-    include: { lot: true, material: true, supplier: true },
-    orderBy: { recordedAt: "desc" },
-    take: limit,
+    where: { date: { gte: from, lt: to } },
+    include: { samples: { orderBy: { index: "asc" } } },
+    orderBy: { date: "asc" },
   });
 }
 
-export interface CreateQualityRecordInput {
-  lotId: string;
-  materialId: string;
-  supplierId?: string;
+export interface MonthlyStats {
+  totalRecords: number;
+  totalSamples: number;
+  avgDensity: number | null;
+  nokDays: number;
+}
+
+/** KPIs del mes: registros, muestras, densidad promedio y días con NOK. */
+export async function getMonthlyStats(
+  year: number,
+  month: number,
+): Promise<MonthlyStats> {
+  const records = await listMonthlyRecords(year, month);
+  const allSamples = records.flatMap((r) => r.samples);
+  const nokDays = new Set(
+    records
+      .filter((r) => recordStatus(r.samples) === "NOK" && r.date)
+      .map((r) => (r.date as Date).toDateString()),
+  );
+  return {
+    totalRecords: records.length,
+    totalSamples: measuredSamples(allSamples).length,
+    avgDensity: averageDensity(allSamples),
+    nokDays: nokDays.size,
+  };
+}
+
+// ─── Registro individual + 20 muestras ───────────────────────────────────────────
+
+export interface EditorSample {
+  index: number;
+  density: number | null;
+  pvc: number | null;
+  cola: number | null;
+  multicapas: number | null;
+  metal: number | null;
+  otros: number | null;
+  status: SampleStatus;
+  comment: string | null;
+}
+
+export interface RecordDetail {
+  id: string;
+  date: Date | null;
+  shift: string | null;
+  client: string | null;
+  notes: string | null;
+  samples: EditorSample[];
+}
+
+function emptySample(index: number): EditorSample {
+  return {
+    index,
+    density: null,
+    pvc: null,
+    cola: null,
+    multicapas: null,
+    metal: null,
+    otros: null,
+    status: "PENDIENTE",
+    comment: null,
+  };
+}
+
+/** Registro con exactamente 20 muestras (huecos rellenados con muestras vacías). */
+export async function getRecordDetail(
+  id: string,
+): Promise<RecordDetail | null> {
+  const record = await prisma.qualityRecord.findUnique({
+    where: { id },
+    include: { samples: true },
+  });
+  if (!record) return null;
+
+  const byIndex = new Map(record.samples.map((s) => [s.index, s]));
+  const samples: EditorSample[] = [];
+  for (let i = 1; i <= SAMPLES_PER_RECORD; i++) {
+    const s = byIndex.get(i);
+    samples.push(
+      s
+        ? {
+            index: i,
+            density: s.density,
+            pvc: s.pvc,
+            cola: s.cola,
+            multicapas: s.multicapas,
+            metal: s.metal,
+            otros: s.otros,
+            status: (s.status as SampleStatus) ?? "PENDIENTE",
+            comment: s.comment,
+          }
+        : emptySample(i),
+    );
+  }
+  return {
+    id: record.id,
+    date: record.date,
+    shift: record.shift,
+    client: record.client,
+    notes: record.notes,
+    samples,
+  };
+}
+
+// ─── Mutaciones ──────────────────────────────────────────────────────────────────
+
+export interface CreateRecordInput {
+  date: Date;
   shift?: string;
-  sampleType?: string;
-  result: QualityResult;
-  overrideReason?: string;
-  density?: number;
-  pvcPct?: number;
-  gluePct?: number;
-  multilayerPct?: number;
-  metalPct?: number;
-  otherPct?: number;
+  client?: string;
   notes?: string;
 }
 
-/** Crea un registro de calidad para un lote existente. */
-export function createQualityRecord(
-  input: CreateQualityRecordInput,
-): Promise<QualityRecordWithRefs> {
+/** Crea un registro diario vacío (sin muestras todavía). */
+export function createRecord(
+  input: CreateRecordInput,
+): Promise<{ id: string }> {
   return prisma.qualityRecord.create({
     data: {
-      lotId: input.lotId,
-      materialId: input.materialId,
-      supplierId: input.supplierId ?? null,
+      date: input.date,
       shift: input.shift ?? null,
-      sampleType: input.sampleType ?? null,
-      result: input.result,
-      overrideReason: input.overrideReason ?? null,
-      density: input.density ?? null,
-      pvcPct: input.pvcPct ?? null,
-      gluePct: input.gluePct ?? null,
-      multilayerPct: input.multilayerPct ?? null,
-      metalPct: input.metalPct ?? null,
-      otherPct: input.otherPct ?? null,
+      client: input.client ?? null,
       notes: input.notes ?? null,
+      result: QualityResult.PENDIENTE,
     },
-    include: { lot: true, material: true, supplier: true },
+    select: { id: true },
   });
 }
 
-export interface UpdateQualityResultInput {
+export interface SampleInput {
+  index: number;
+  density: number | null;
+  pvc: number | null;
+  cola: number | null;
+  multicapas: number | null;
+  metal: number | null;
+  otros: number | null;
+  comment: string | null;
+}
+
+export interface SaveRecordInput {
   id: string;
-  result: QualityResult;
-  overrideReason?: string;
+  shift?: string;
+  client?: string;
+  notes?: string;
+  samples: SampleInput[];
 }
 
-/** Edita el resultado (OK/NOK/PENDIENTE) de un registro, con override opcional. */
-export function updateQualityResult(
-  input: UpdateQualityResultInput,
-): Promise<QualityRecordWithRefs> {
-  return prisma.qualityRecord.update({
-    where: { id: input.id },
-    data: {
-      result: input.result,
-      overrideReason: input.overrideReason ?? null,
-    },
-    include: { lot: true, material: true, supplier: true },
-  });
+function hasData(s: SampleInput): boolean {
+  return (
+    s.density != null ||
+    s.pvc != null ||
+    s.cola != null ||
+    s.multicapas != null ||
+    s.metal != null ||
+    s.otros != null ||
+    (s.comment != null && s.comment.trim() !== "")
+  );
 }
 
-/** Datos auxiliares para los formularios de calidad. */
-export function getQualityFormData(): Promise<{
-  lots: {
-    id: string;
-    lotNumber: string;
-    materialId: string;
-    materialName: string;
-  }[];
-  materials: { id: string; name: string; code: string }[];
-  suppliers: { id: string; name: string; code: string }[];
-}> {
-  return Promise.all([
-    prisma.productionLot.findMany({
-      select: {
-        id: true,
-        lotNumber: true,
-        materialId: true,
-        material: { select: { name: true } },
-      },
-      orderBy: { producedAt: "desc" },
-    }),
-    prisma.material.findMany({
-      where: { active: true },
-      select: { id: true, name: true, code: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.supplier.findMany({
-      where: { active: true },
-      select: { id: true, name: true, code: true },
-      orderBy: { name: "asc" },
-    }),
-  ]).then(([lots, materials, suppliers]) => ({
-    lots: lots.map((l) => ({
-      id: l.id,
-      lotNumber: l.lotNumber,
-      materialId: l.materialId,
-      materialName: l.material.name,
-    })),
-    materials,
-    suppliers,
+/** Reemplaza cabecera + muestras del registro y recalcula su estado. */
+export async function saveRecord(
+  input: SaveRecordInput,
+): Promise<{ id: string }> {
+  const range = await getDensityRange();
+  const rows = input.samples.filter(hasData).map((s) => ({
+    index: s.index,
+    density: s.density,
+    pvc: s.pvc,
+    cola: s.cola,
+    multicapas: s.multicapas,
+    metal: s.metal,
+    otros: s.otros,
+    status: densityStatus(s.density, range),
+    comment: s.comment?.trim() || null,
   }));
-}
+  const result = recordStatus(rows) as QualityResult;
 
-export interface QualityAverageGroup {
-  supplierId: string | null;
-  supplierName: string;
-  materialId: string;
-  materialName: string;
-  count: number;
-  averages: Record<MeasureKey, number | null>;
-}
-
-/** Filtros opcionales para acotar los promedios (proveedor, material, periodo). */
-export interface QualityAverageFilters {
-  supplierId?: string;
-  materialId?: string;
-  /** Inicio del periodo (inclusive). */
-  from?: Date;
-  /** Fin del periodo (exclusive). */
-  to?: Date;
-}
-
-/**
- * Promedios de cada parámetro agrupados por proveedor y material, usando
- * agregación (`groupBy` + `_avg`) en Prisma. Admite filtrar por proveedor,
- * material y periodo (p.ej. "promedio de metal de Argelia este mes").
- */
-export async function getQualityAverages(
-  filters: QualityAverageFilters = {},
-): Promise<QualityAverageGroup[]> {
-  const where: Prisma.QualityRecordWhereInput = {};
-  if (filters.supplierId) where.supplierId = filters.supplierId;
-  if (filters.materialId) where.materialId = filters.materialId;
-  if (filters.from || filters.to) {
-    where.recordedAt = {
-      ...(filters.from ? { gte: filters.from } : {}),
-      ...(filters.to ? { lt: filters.to } : {}),
-    };
-  }
-
-  const grouped = await prisma.qualityRecord.groupBy({
-    by: ["supplierId", "materialId"],
-    where,
-    _count: { _all: true },
-    _avg: {
-      density: true,
-      pvcPct: true,
-      gluePct: true,
-      multilayerPct: true,
-      metalPct: true,
-      otherPct: true,
-    },
-  });
-
-  if (grouped.length === 0) return [];
-
-  const materialIds = [...new Set(grouped.map((g) => g.materialId))];
-  const supplierIds = grouped
-    .map((g) => g.supplierId)
-    .filter((id): id is string => id != null);
-
-  const [materials, suppliers] = await Promise.all([
-    prisma.material.findMany({
-      where: { id: { in: materialIds } },
-      select: { id: true, name: true },
+  await prisma.$transaction([
+    prisma.qualitySample.deleteMany({ where: { recordId: input.id } }),
+    prisma.qualityRecord.update({
+      where: { id: input.id },
+      data: {
+        shift: input.shift ?? null,
+        client: input.client ?? null,
+        notes: input.notes ?? null,
+        result,
+        ...(rows.length > 0 ? { samples: { createMany: { data: rows } } } : {}),
+      },
     }),
-    supplierIds.length
-      ? prisma.supplier.findMany({
-          where: { id: { in: [...new Set(supplierIds)] } },
-          select: { id: true, name: true },
-        })
-      : Promise.resolve([] as { id: string; name: string }[]),
   ]);
+  return { id: input.id };
+}
 
-  const materialName = new Map(materials.map((m) => [m.id, m.name]));
-  const supplierName = new Map(suppliers.map((s) => [s.id, s.name]));
-
-  return grouped
-    .map((g): QualityAverageGroup => {
-      const averages = MEASURE_KEYS.reduce(
-        (acc, key) => {
-          acc[key] = g._avg[key] ?? null;
-          return acc;
-        },
-        {} as Record<MeasureKey, number | null>,
-      );
-      return {
-        supplierId: g.supplierId,
-        supplierName: g.supplierId
-          ? (supplierName.get(g.supplierId) ?? "Proveedor desconocido")
-          : "Sin proveedor",
-        materialId: g.materialId,
-        materialName: materialName.get(g.materialId) ?? "Material desconocido",
-        count: g._count._all,
-        averages,
-      };
-    })
-    .sort(
-      (a, b) =>
-        a.supplierName.localeCompare(b.supplierName) ||
-        a.materialName.localeCompare(b.materialName),
-    );
+/** Borra un registro y sus muestras (cascade). */
+export async function deleteRecord(id: string): Promise<void> {
+  await prisma.qualityRecord.delete({ where: { id } });
 }

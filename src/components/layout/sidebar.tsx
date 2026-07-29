@@ -20,6 +20,7 @@ import {
   Settings,
   Menu,
   X,
+  Sprout,
 } from "lucide-react";
 import { canAccess } from "@/lib/permissions";
 import { UserRole } from "@prisma/client";
@@ -32,6 +33,7 @@ interface NavItem {
   module: Parameters<typeof canAccess>[1];
 }
 
+// Orden del menú alineado con el prototipo de referencia (Emergent).
 const NAV_ITEMS: NavItem[] = [
   {
     label: "Panel Principal",
@@ -52,6 +54,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: Factory,
     module: "produccion",
   },
+  { label: "Calidad", href: "/calidad", icon: FlaskConical, module: "calidad" },
   {
     label: "Trazabilidad",
     href: "/trazabilidad",
@@ -65,19 +68,6 @@ const NAV_ITEMS: NavItem[] = [
     module: "inventario",
   },
   {
-    label: "Expediciones",
-    href: "/expediciones",
-    icon: PackageCheck,
-    module: "expediciones",
-  },
-  {
-    label: "Aprovisionamiento",
-    href: "/aprovisionamiento",
-    icon: Ship,
-    module: "aprovisionamiento",
-  },
-  { label: "Calidad", href: "/calidad", icon: FlaskConical, module: "calidad" },
-  {
     label: "Consumibles",
     href: "/consumibles",
     icon: Package,
@@ -88,6 +78,18 @@ const NAV_ITEMS: NavItem[] = [
     href: "/incidencias",
     icon: AlertTriangle,
     module: "incidencias",
+  },
+  {
+    label: "Expediciones",
+    href: "/expediciones",
+    icon: PackageCheck,
+    module: "expediciones",
+  },
+  {
+    label: "Aprovisionamiento",
+    href: "/aprovisionamiento",
+    icon: Ship,
+    module: "aprovisionamiento",
   },
   { label: "Gestión QR", href: "/qr", icon: QrCode, module: "qr" },
   { label: "Usuarios", href: "/usuarios", icon: Users, module: "usuarios" },
@@ -101,12 +103,10 @@ const NAV_ITEMS: NavItem[] = [
 
 function Logo(): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="w-7 h-7 rounded-lg bg-[var(--color-primary)] flex items-center justify-center shrink-0">
-        <span className="text-white font-bold text-sm">L</span>
-      </div>
-      <span className="text-white font-semibold text-sm tracking-wide">
-        Luvi
+    <div className="flex items-center gap-2">
+      <Sprout className="w-6 h-6 shrink-0 text-[var(--color-primary)]" />
+      <span className="text-white font-semibold text-base tracking-tight">
+        Luvi<span className="text-[var(--color-primary)]">2000</span>
       </span>
     </div>
   );

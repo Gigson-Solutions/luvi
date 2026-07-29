@@ -2,15 +2,15 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { QualityResult } from "@prisma/client";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import {
-  createQualityRecord,
-  updateQualityResult,
+  createRecord,
+  saveRecord,
+  deleteRecord,
 } from "@/lib/services/quality.service";
 import type { CurrentUser } from "@/lib/rbac";
-import { getOutOfRangeMeasures } from "./quality-thresholds";
+import { SHIFTS } from "./quality-thresholds";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
@@ -18,29 +18,18 @@ function requireSession(): Promise<CurrentUser> {
   return requireModule("calidad");
 }
 
-const optionalNumber = z.preprocess(
-  (v) => (v === "" || v == null ? undefined : v),
-  z.coerce.number().optional(),
-);
+const shiftSchema = z.enum(SHIFTS).optional().or(z.literal(""));
+
+// ─── Crear registro ──────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  lotId: z.string().min(1, "Selecciona un lote"),
-  materialId: z.string().min(1, "Selecciona un material"),
-  supplierId: z.string().optional(),
-  shift: z.enum(["M", "T", "N"]).optional().or(z.literal("")),
-  sampleType: z.enum(["MP", "PT"]).optional().or(z.literal("")),
-  result: z.nativeEnum(QualityResult),
-  overrideReason: z.string().optional(),
-  density: optionalNumber,
-  pvcPct: optionalNumber,
-  gluePct: optionalNumber,
-  multilayerPct: optionalNumber,
-  metalPct: optionalNumber,
-  otherPct: optionalNumber,
+  date: z.string().min(1, "Selecciona una fecha"),
+  shift: shiftSchema,
+  client: z.string().optional(),
   notes: z.string().optional(),
 });
 
-export async function createQualityRecordAction(
+export async function createRecordAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
@@ -54,53 +43,26 @@ export async function createQualityRecordAction(
       };
     }
     const d = parsed.data;
-
-    const outOfRange = getOutOfRangeMeasures({
-      density: d.density,
-      pvcPct: d.pvcPct,
-      gluePct: d.gluePct,
-      multilayerPct: d.multilayerPct,
-      metalPct: d.metalPct,
-      otherPct: d.otherPct,
-    });
-    const overrideReason = d.overrideReason?.trim();
-    if (
-      d.result === QualityResult.OK &&
-      outOfRange.length > 0 &&
-      !overrideReason
-    ) {
-      return {
-        ok: false,
-        error:
-          "Hay parámetros fuera de rango: indica un motivo para forzar el resultado OK.",
-      };
+    const date = new Date(`${d.date}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return { ok: false, error: "Fecha inválida" };
     }
 
-    const record = await createQualityRecord({
-      lotId: d.lotId,
-      materialId: d.materialId,
-      supplierId: d.supplierId || undefined,
-      shift: d.shift ? d.shift : undefined,
-      sampleType: d.sampleType ? d.sampleType : undefined,
-      result: d.result,
-      overrideReason: overrideReason || undefined,
-      density: d.density,
-      pvcPct: d.pvcPct,
-      gluePct: d.gluePct,
-      multilayerPct: d.multilayerPct,
-      metalPct: d.metalPct,
-      otherPct: d.otherPct,
-      notes: d.notes,
+    const record = await createRecord({
+      date,
+      shift: d.shift || undefined,
+      client: d.client?.trim() || undefined,
+      notes: d.notes?.trim() || undefined,
     });
     await logAudit({
       userId: actor.id,
       action: "CREATE_QUALITY_RECORD",
       entity: "QualityRecord",
       entityId: record.id,
-      payload: { lotId: record.lotId, result: record.result },
+      payload: { date: d.date },
     });
     revalidatePath("/calidad");
-    return { ok: true, message: "Registro de calidad creado" };
+    return { ok: true, message: "Registro creado" };
   } catch (e) {
     return {
       ok: false,
@@ -109,19 +71,43 @@ export async function createQualityRecordAction(
   }
 }
 
-const updateSchema = z.object({
-  id: z.string().min(1),
-  result: z.nativeEnum(QualityResult),
-  overrideReason: z.string().optional(),
+// ─── Guardar muestras ────────────────────────────────────────────────────────────
+
+const nullableNumber = z.union([z.number(), z.null()]);
+
+const sampleSchema = z.object({
+  index: z.number().int().min(1).max(20),
+  density: nullableNumber,
+  pvc: nullableNumber,
+  cola: nullableNumber,
+  multicapas: nullableNumber,
+  metal: nullableNumber,
+  otros: nullableNumber,
+  comment: z.string().nullable(),
 });
 
-export async function updateQualityResultAction(
+const saveSchema = z.object({
+  id: z.string().min(1),
+  shift: shiftSchema,
+  client: z.string().optional(),
+  notes: z.string().optional(),
+  samples: z.array(sampleSchema).max(20),
+});
+
+export async function saveRecordAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
   try {
     const actor = await requireSession();
-    const parsed = updateSchema.safeParse(Object.fromEntries(formData));
+    const raw = {
+      id: formData.get("id"),
+      shift: formData.get("shift") ?? "",
+      client: formData.get("client") ?? "",
+      notes: formData.get("notes") ?? "",
+      samples: JSON.parse(String(formData.get("samples") ?? "[]")),
+    };
+    const parsed = saveSchema.safeParse(raw);
     if (!parsed.success) {
       return {
         ok: false,
@@ -129,24 +115,57 @@ export async function updateQualityResultAction(
       };
     }
     const d = parsed.data;
-    const record = await updateQualityResult({
+    await saveRecord({
       id: d.id,
-      result: d.result,
-      overrideReason: d.overrideReason?.trim() || undefined,
+      shift: d.shift || undefined,
+      client: d.client?.trim() || undefined,
+      notes: d.notes?.trim() || undefined,
+      samples: d.samples,
     });
     await logAudit({
       userId: actor.id,
-      action: "UPDATE_QUALITY_RESULT",
+      action: "SAVE_QUALITY_SAMPLES",
       entity: "QualityRecord",
-      entityId: record.id,
-      payload: { result: record.result },
+      entityId: d.id,
+      payload: { samples: d.samples.length },
     });
     revalidatePath("/calidad");
-    return { ok: true, message: "Resultado actualizado" };
+    return { ok: true, message: "Muestras guardadas" };
   } catch (e) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Error al actualizar",
+      error: e instanceof Error ? e.message : "Error al guardar",
+    };
+  }
+}
+
+// ─── Eliminar registro ───────────────────────────────────────────────────────────
+
+const deleteSchema = z.object({ id: z.string().min(1) });
+
+export async function deleteRecordAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = deleteSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return { ok: false, error: "Registro inválido" };
+    }
+    await deleteRecord(parsed.data.id);
+    await logAudit({
+      userId: actor.id,
+      action: "DELETE_QUALITY_RECORD",
+      entity: "QualityRecord",
+      entityId: parsed.data.id,
+    });
+    revalidatePath("/calidad");
+    return { ok: true, message: "Registro eliminado" };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al eliminar",
     };
   }
 }

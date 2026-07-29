@@ -7,10 +7,12 @@ export { prisma };
 // Orden no importa con CASCADE. Todas las tablas del schema (nombres @@map).
 const TABLES = [
   "audit_logs",
+  "config",
   "incidents",
   "pallet_movements",
   "consumable_movements",
   "consumables",
+  "quality_samples",
   "quality_records",
   "provider_shipments",
   "purchase_orders",

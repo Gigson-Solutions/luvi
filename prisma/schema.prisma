@@ -491,15 +491,21 @@ model ProviderShipment {
 
 model QualityRecord {
   id         String        @id @default(cuid())
-  lotId      String
-  materialId String
+  // lot/material son opcionales: el editor tipo hoja de calidad crea registros
+  // diarios por fecha/turno/cliente que no cuelgan de un lote de producción.
+  lotId      String?
+  materialId String?
   supplierId String?
-  shift      String?       // turno: M/T/N
+  shift      String?       // turno: Mañana/Tarde/Noche
   sampleType String?       // tipo de muestra: MP/PT (provisional, pendiente confirmar con Paula)
   result     QualityResult @default(PENDIENTE)
   overrideReason String?   // motivo si se override NOK→OK
 
-  // Muestras (grid Excel-like)
+  // Datos de cabecera del registro diario (estilo prototipo)
+  date       DateTime?     // fecha del registro de calidad
+  client     String?       // cliente asociado (texto libre)
+
+  // Promedios agregados del registro (compat. anterior; el detalle vive en samples)
   density    Float?
   pvcPct     Float?
   gluePct    Float?
@@ -508,9 +514,10 @@ model QualityRecord {
   otherPct   Float?
   notes      String?
 
-  lot      ProductionLot @relation(fields: [lotId], references: [id])
-  material Material      @relation(fields: [materialId], references: [id])
-  supplier Supplier?     @relation(fields: [supplierId], references: [id])
+  lot      ProductionLot? @relation(fields: [lotId], references: [id])
+  material Material?      @relation(fields: [materialId], references: [id])
+  supplier Supplier?      @relation(fields: [supplierId], references: [id])
+  samples  QualitySample[]
 
   recordedAt DateTime @default(now())
   createdAt  DateTime @default(now())
@@ -520,7 +527,32 @@ model QualityRecord {
   @@index([materialId])
   @@index([supplierId])
   @@index([recordedAt])
+  @@index([date])
   @@map("quality_records")
+}
+
+// Muestra individual dentro de un registro de calidad (rejilla tipo Excel:
+// hasta 20 muestras por registro, cada una con densidad + porcentajes de
+// contaminantes, estado OK/NOK/PENDIENTE y comentario).
+model QualitySample {
+  id       String @id @default(cuid())
+  recordId String
+  index    Int    // 1..20, posición en la rejilla
+
+  density    Float?
+  pvc        Float?
+  cola       Float?
+  multicapas Float?
+  metal      Float?
+  otros      Float?
+
+  status  String? // OK / NOK / PENDIENTE (auto por rango de densidad)
+  comment String?
+
+  record QualityRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([recordId])
+  @@map("quality_samples")
 }
 
 // ─── Consumibles ──────────────────────────────────────────────────────────────
@@ -597,6 +629,18 @@ model Incident {
 
   @@index([status])
   @@map("incidents")
+}
+
+// ─── Configuración (clave/valor) ───────────────────────────────────────────────
+
+// Tabla clave/valor para configuración de negocio (rangos de calidad, costes…).
+// Regla del proyecto: no hardcodear valores de negocio, viven en `config`.
+model Config {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("config")
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
