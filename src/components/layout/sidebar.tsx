@@ -15,6 +15,7 @@ import {
   FlaskConical,
   Package,
   AlertTriangle,
+  QrCode,
   Users,
   Settings,
   Menu,
@@ -88,6 +89,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: AlertTriangle,
     module: "incidencias",
   },
+  { label: "Gestión QR", href: "/qr", icon: QrCode, module: "qr" },
   { label: "Usuarios", href: "/usuarios", icon: Users, module: "usuarios" },
   {
     label: "Configuración",
