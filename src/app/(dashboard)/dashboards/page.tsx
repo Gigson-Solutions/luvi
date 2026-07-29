@@ -41,15 +41,19 @@ function KpiCard({
   value,
   icon: Icon,
   href,
+  tone,
   alert,
 }: {
   title: string;
   value: number;
   icon: LucideIcon;
   href: string;
+  tone: string;
   alert?: boolean;
 }): React.JSX.Element {
   const danger = alert && value > 0;
+  // Cuando es alerta con valor>0 usamos el rojo; si no, el color propio del KPI.
+  const iconColor = danger ? "#b91c1c" : tone;
   return (
     <Link href={href} className="block">
       <Card className="p-4 transition-colors hover:bg-[var(--color-surface-hover)]">
@@ -61,9 +65,7 @@ function KpiCard({
             <p
               className="mt-1.5 text-2xl font-semibold"
               style={{
-                color: danger
-                  ? "var(--color-status-rechazo)"
-                  : "var(--color-foreground)",
+                color: danger ? "#b91c1c" : "var(--color-foreground)",
               }}
             >
               {value}
@@ -72,12 +74,8 @@ function KpiCard({
           <span
             className="rounded-lg p-2"
             style={{
-              backgroundColor: danger
-                ? "color-mix(in srgb, var(--color-status-rechazo) 12%, transparent)"
-                : "var(--color-surface-hover)",
-              color: danger
-                ? "var(--color-status-rechazo)"
-                : "var(--color-primary)",
+              backgroundColor: `color-mix(in srgb, ${iconColor} 14%, transparent)`,
+              color: iconColor,
             }}
           >
             <Icon className="h-5 w-5" />
@@ -108,6 +106,7 @@ export default async function PanelPrincipalPage({
     value: number;
     icon: LucideIcon;
     href: string;
+    tone: string;
     alert?: boolean;
   }[] = [
     {
@@ -115,24 +114,28 @@ export default async function PanelPrincipalPage({
       value: stats.trucksToday,
       icon: Truck,
       href: "/recepciones",
+      tone: "#15803d",
     },
     {
       title: "Pendientes Pesaje",
       value: stats.pendingWeighing,
       icon: Scale,
       href: "/recepciones",
+      tone: "#b45309",
     },
     {
       title: "Sacas en Stock",
       value: stats.sacksInStock,
       icon: Package,
       href: "/almacen",
+      tone: "#0369a1",
     },
     {
       title: "Incidencias Abiertas",
       value: stats.openIncidents,
       icon: AlertTriangle,
       href: "/incidencias",
+      tone: "#b91c1c",
       alert: true,
     },
     {
@@ -140,12 +143,14 @@ export default async function PanelPrincipalPage({
       value: stats.pendingShipments,
       icon: PackageCheck,
       href: "/expediciones",
+      tone: "#7c3aed",
     },
     {
       title: "Alertas Consumibles",
       value: stats.consumableAlerts,
       icon: Boxes,
       href: "/consumibles",
+      tone: "#c2410c",
       alert: true,
     },
   ];

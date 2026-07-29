@@ -32,7 +32,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   {
-    label: "Dashboards",
+    label: "Panel Principal",
     href: "/dashboards",
     icon: LayoutDashboard,
     module: "dashboards",
