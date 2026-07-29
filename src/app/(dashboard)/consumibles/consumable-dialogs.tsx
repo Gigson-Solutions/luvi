@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Plus, ArrowLeftRight, Undo2 } from "lucide-react";
+import { Plus, Minus, ArrowLeftRight, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,8 +45,17 @@ interface PalletConsumableOption {
 // ─── Diálogo: movimiento de consumible (entrada / salida) ──────────────────────
 export function ConsumableMovementDialog({
   consumables,
+  defaultConsumableId,
+  defaultDirection,
+  mode,
 }: {
   consumables: ConsumableOption[];
+  /** Preselecciona un consumible al abrir el diálogo. */
+  defaultConsumableId?: string;
+  /** Preselecciona entrada (compra) o salida (consumo). */
+  defaultDirection?: "entrada" | "salida";
+  /** Estiliza el disparador como "Comprar" (compra) o "Consumir" (consumo). */
+  mode?: "compra" | "consumo";
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(
@@ -58,13 +67,24 @@ export function ConsumableMovementDialog({
     INITIAL,
   );
 
+  const trigger =
+    mode === "consumo" ? (
+      <Button size="sm" variant="outline" className="flex-1">
+        <Minus className="w-3.5 h-3.5" /> Consumir
+      </Button>
+    ) : mode === "compra" ? (
+      <Button size="sm" className="flex-1">
+        <Plus className="w-3.5 h-3.5" /> Comprar
+      </Button>
+    ) : (
+      <Button>
+        <Plus className="w-4 h-4" /> Registrar movimiento
+      </Button>
+    );
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="w-4 h-4" /> Registrar movimiento
-        </Button>
-      </DialogTrigger>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent
         title="Movimiento de consumible"
         description="Entrada (compra) o salida (ajuste). Actualiza el stock automáticamente."
@@ -76,7 +96,7 @@ export function ConsumableMovementDialog({
               id="consumableId"
               name="consumableId"
               required
-              defaultValue=""
+              defaultValue={defaultConsumableId ?? ""}
             >
               <option value="" disabled>
                 Selecciona…
@@ -95,7 +115,7 @@ export function ConsumableMovementDialog({
                 id="direction"
                 name="direction"
                 required
-                defaultValue="entrada"
+                defaultValue={defaultDirection ?? "entrada"}
               >
                 <option value="entrada">Entrada (compra)</option>
                 <option value="salida">Salida (ajuste)</option>

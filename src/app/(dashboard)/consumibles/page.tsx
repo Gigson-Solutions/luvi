@@ -1,4 +1,5 @@
-import { Package, AlertTriangle, Boxes, History } from "lucide-react";
+import { Package, AlertTriangle, Boxes, History, Truck } from "lucide-react";
+import { ConsumableType } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,13 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
     listPalletMovements(),
   ]);
 
+  // Control de Palés: stock físico (consumible tipo PALLET) + fianza pendiente.
+  const palletInStock = consumables
+    .filter((c) => c.type === ConsumableType.PALLET)
+    .reduce((sum, c) => sum + c.currentStock, 0);
+  const palletsPendingReturn = palletStats.totalLoaned;
+  const palletsTotalOwned = palletInStock + palletsPendingReturn;
+
   return (
     <div>
       <PageHeader
@@ -73,6 +81,40 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
           value={palletStats.totalLoaned}
           hint={`${palletStats.buyersWithPallets} compradores`}
         />
+      </section>
+
+      {/* Control de Palés — stock, fianza pendiente y propiedad total */}
+      <section className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <Truck className="w-4 h-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+            Control de Palés
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <StatCard
+            label="En stock"
+            value={palletInStock}
+            accent="var(--color-status-terminado)"
+            hint="Palés disponibles en planta"
+          />
+          <StatCard
+            label="Pendientes devolución"
+            value={palletsPendingReturn}
+            accent={
+              palletsPendingReturn > 0 ? "var(--color-warning)" : undefined
+            }
+            hint={`${palletStats.buyersWithPallets} compradores en fianza`}
+          />
+          <StatCard
+            label="Total propiedad"
+            value={palletsTotalOwned}
+            hint="En stock + pendientes de devolver"
+          />
+        </div>
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          El detalle de palés pendientes por comprador se muestra más abajo.
+        </p>
       </section>
 
       {/* Alertas de mínimo */}
@@ -108,7 +150,7 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
         </section>
       )}
 
-      {/* Stock de consumibles */}
+      {/* Stock de consumibles — tarjetas (Palés / Sacas vacías / Capuchones) */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
           Stock de consumibles
@@ -120,45 +162,100 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
             description="Registra un movimiento de entrada para dar de alta stock."
           />
         ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Consumible</TH>
-                <TH>Tipo</TH>
-                <TH className="text-right">Stock actual</TH>
-                <TH className="text-right">Mínimo</TH>
-                <TH>Estado</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {consumables.map((c) => {
-                const low = c.currentStock < c.minStock;
-                return (
-                  <TR key={c.id}>
-                    <TD className="font-medium">{c.name}</TD>
-                    <TD>
-                      <Badge tone="neutral">
-                        {CONSUMABLE_TYPE_LABELS[c.type]}
-                      </Badge>
-                    </TD>
-                    <TD className="text-right tabular-nums">
-                      {c.currentStock} {c.unit}
-                    </TD>
-                    <TD className="text-right tabular-nums text-[var(--color-muted)]">
-                      {c.minStock} {c.unit}
-                    </TD>
-                    <TD>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {consumables.map((c) => {
+              const low = c.currentStock < c.minStock;
+              const warn =
+                !low && c.minStock > 0 && c.currentStock < c.minStock * 1.5;
+              const statusColor = low
+                ? "var(--color-status-rechazo)"
+                : warn
+                  ? "var(--color-warning)"
+                  : "var(--color-status-terminado)";
+              // Sin objetivo de stock en el modelo: la barra usa 2× el mínimo
+              // como referencia visual (mínimo = 50%).
+              const pct =
+                c.minStock > 0
+                  ? Math.min(
+                      100,
+                      Math.round((c.currentStock / (c.minStock * 2)) * 100),
+                    )
+                  : 100;
+              return (
+                <Card key={c.id} className="p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-[var(--color-foreground)]">
+                      {c.name}
+                    </p>
+                    <Badge tone="neutral">
+                      {CONSUMABLE_TYPE_LABELS[c.type]}
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-end justify-between">
+                    <span className="text-xs text-[var(--color-muted)]">
+                      Stock actual
+                    </span>
+                    <span
+                      className="text-3xl font-semibold tabular-nums"
+                      style={{ color: statusColor }}
+                    >
+                      {c.currentStock}
+                    </span>
+                  </div>
+
+                  {/* Barra de progreso */}
+                  <div className="h-2 w-full rounded-full bg-[var(--color-surface-hover)] overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${pct}%`, backgroundColor: statusColor }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-[var(--color-muted)]">
+                        Stock mínimo
+                      </p>
+                      <p className="text-sm font-medium tabular-nums">
+                        {c.minStock} {c.unit}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--color-muted)]">
+                        Estado
+                      </p>
                       {low ? (
                         <Badge tone="red">Bajo mínimo</Badge>
+                      ) : warn ? (
+                        <Badge tone="amber">Ajustado</Badge>
                       ) : (
                         <Badge tone="green">OK</Badge>
                       )}
-                    </TD>
-                  </TR>
-                );
-              })}
-            </TBody>
-          </Table>
+                    </div>
+                  </div>
+
+                  {/* TODO: consumo mensual y última compra no existen en el
+                      modelo Consumable; se omiten hasta que se añadan. */}
+
+                  <div className="flex gap-2 pt-1">
+                    <ConsumableMovementDialog
+                      consumables={consumableOptions}
+                      defaultConsumableId={c.id}
+                      defaultDirection="salida"
+                      mode="consumo"
+                    />
+                    <ConsumableMovementDialog
+                      consumables={consumableOptions}
+                      defaultConsumableId={c.id}
+                      defaultDirection="entrada"
+                      mode="compra"
+                    />
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
         )}
       </section>
 

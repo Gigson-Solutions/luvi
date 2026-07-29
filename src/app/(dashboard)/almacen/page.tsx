@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { Package, Warehouse as WarehouseIcon } from "lucide-react";
+import { Package, Warehouse as WarehouseIcon, Search } from "lucide-react";
 import { SackStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Card,
@@ -32,11 +34,13 @@ function buildQuery(params: {
   status?: string;
   material?: string;
   zone?: string;
+  q?: string;
 }): string {
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
   if (params.material) qs.set("material", params.material);
   if (params.zone) qs.set("zone", params.zone);
+  if (params.q) qs.set("q", params.q);
   const s = qs.toString();
   return s ? `?${s}` : "";
 }
@@ -44,12 +48,18 @@ function buildQuery(params: {
 export default async function AlmacenPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; material?: string; zone?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    material?: string;
+    zone?: string;
+    q?: string;
+  }>;
 }): Promise<React.JSX.Element> {
   const params = await searchParams;
   const statusFilter = isSackStatus(params.status) ? params.status : undefined;
   const materialFilter = params.material || undefined;
   const zoneFilter = params.zone || undefined;
+  const searchQuery = params.q?.trim() || undefined;
 
   const [overview, sacks, filterData] = await Promise.all([
     getWarehouseOverview(),
@@ -57,6 +67,7 @@ export default async function AlmacenPage({
       status: statusFilter,
       materialId: materialFilter,
       zoneId: zoneFilter,
+      search: searchQuery,
     }),
     getWarehouseFilterData(),
   ]);
@@ -80,7 +91,7 @@ export default async function AlmacenPage({
       />
 
       {/* StatCards — totales globales */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
         <StatCard
           label="Sacas en almacén"
           value={overview.stats.totalSacks}
@@ -94,6 +105,15 @@ export default async function AlmacenPage({
             overview.stats.zonesAtLimit > 0
               ? "var(--color-status-rechazo)"
               : "var(--color-muted)"
+          }
+        />
+        <StatCard
+          label="Filtradas"
+          value={sacks.length}
+          hint={
+            statusFilter || materialFilter || zoneFilter || searchQuery
+              ? "Con los filtros aplicados"
+              : "Sin filtros"
           }
         />
       </div>
@@ -248,13 +268,52 @@ export default async function AlmacenPage({
           )}
         </div>
 
+        {/* Buscador libre (ID / QR / lote) */}
+        <form action="/almacen" method="get" className="mb-3 flex gap-2">
+          {statusFilter && (
+            <input type="hidden" name="status" value={statusFilter} />
+          )}
+          {materialFilter && (
+            <input type="hidden" name="material" value={materialFilter} />
+          )}
+          {zoneFilter && <input type="hidden" name="zone" value={zoneFilter} />}
+          <div className="relative flex-1 max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
+            <Input
+              name="q"
+              defaultValue={searchQuery ?? ""}
+              placeholder="Buscar por ID, QR o lote…"
+              className="pl-9"
+            />
+          </div>
+          <Button type="submit" variant="outline">
+            Buscar
+          </Button>
+          {searchQuery && (
+            <Link
+              href={`/almacen${buildQuery({
+                status: statusFilter,
+                material: materialFilter,
+                zone: zoneFilter,
+              })}`}
+              className="inline-flex items-center rounded-lg px-3 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+            >
+              Limpiar
+            </Link>
+          )}
+        </form>
+
         {/* Filtro por estado */}
         <div className="flex flex-wrap items-center gap-1.5 mb-2">
           <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
             Estado:
           </span>
           <FilterChip
-            href={buildQuery({ material: materialFilter, zone: zoneFilter })}
+            href={buildQuery({
+              material: materialFilter,
+              zone: zoneFilter,
+              q: searchQuery,
+            })}
             active={!statusFilter}
             label="Todos"
           />
@@ -265,6 +324,7 @@ export default async function AlmacenPage({
                 status: s,
                 material: materialFilter,
                 zone: zoneFilter,
+                q: searchQuery,
               })}
               active={statusFilter === s}
               label={SACK_LABELS[s]}
@@ -279,7 +339,11 @@ export default async function AlmacenPage({
               Material:
             </span>
             <FilterChip
-              href={buildQuery({ status: statusFilter, zone: zoneFilter })}
+              href={buildQuery({
+                status: statusFilter,
+                zone: zoneFilter,
+                q: searchQuery,
+              })}
               active={!materialFilter}
               label="Todos"
             />
@@ -290,6 +354,7 @@ export default async function AlmacenPage({
                   status: statusFilter,
                   material: m.id,
                   zone: zoneFilter,
+                  q: searchQuery,
                 })}
                 active={materialFilter === m.id}
                 label={m.name}
@@ -308,6 +373,7 @@ export default async function AlmacenPage({
               href={buildQuery({
                 status: statusFilter,
                 material: materialFilter,
+                q: searchQuery,
               })}
               active={!zoneFilter}
               label="Todas"
@@ -319,6 +385,7 @@ export default async function AlmacenPage({
                   status: statusFilter,
                   material: materialFilter,
                   zone: z.id,
+                  q: searchQuery,
                 })}
                 active={zoneFilter === z.id}
                 label={`${z.warehouseName} · ${z.name}`}
