@@ -1,81 +1,67 @@
 /**
- * Umbrales de aceptación de los parámetros de calidad.
+ * Constantes y helpers de la rejilla de muestras de calidad.
  *
- * Fuente única de verdad compartida por el servicio, las Server Actions y el
- * diálogo cliente: así el aviso de "fuera de rango" (que pide `overrideReason`
- * al forzar OK) se calcula igual en cliente y servidor.
+ * Fuente única de verdad compartida por el servicio, las Server Actions y la
+ * isla cliente del editor: columnas de la hoja (Densidad + contaminantes),
+ * turnos y el cálculo de estado OK/NOK por rango de densidad.
  *
- * `density` en g/cm³; el resto son porcentajes (contaminantes → cuanto más
- * bajos, mejor).
+ * El rango de densidad es configurable (tabla `config`, clave `quality_ranges`);
+ * estos son los valores por defecto validados con el cliente (330–370 g).
  */
 
-export interface Threshold {
-  min?: number;
-  max?: number;
+export interface DensityRange {
+  min: number;
+  max: number;
 }
 
-/**
- * Tipos de muestra de un registro de calidad. Provisional MP/PT — pendiente de
- * confirmar con Paula; cambiar aquí (y no hace falta migración, se guarda como
- * texto en `sampleType`).
- */
-export const SAMPLE_TYPES = ["MP", "PT"] as const;
-export type SampleType = (typeof SAMPLE_TYPES)[number];
+/** Rango de densidad OK por defecto (g). Sobreescribible desde `config`. */
+export const DEFAULT_DENSITY_RANGE: DensityRange = { min: 330, max: 370 };
 
-export const SAMPLE_TYPE_LABELS: Record<SampleType, string> = {
-  MP: "MP (materia prima)",
-  PT: "PT (producto terminado)",
-};
+/** Número fijo de muestras por registro (hoja tipo Excel). */
+export const SAMPLES_PER_RECORD = 20;
 
-/** Claves de los parámetros medibles de un registro de calidad. */
-export const MEASURE_KEYS = [
+/** Columnas medibles de cada muestra. */
+export const SAMPLE_MEASURE_KEYS = [
   "density",
-  "pvcPct",
-  "gluePct",
-  "multilayerPct",
-  "metalPct",
-  "otherPct",
+  "pvc",
+  "cola",
+  "multicapas",
+  "metal",
+  "otros",
 ] as const;
 
-export type MeasureKey = (typeof MEASURE_KEYS)[number];
+export type SampleMeasureKey = (typeof SAMPLE_MEASURE_KEYS)[number];
 
-export const MEASURE_LABELS: Record<MeasureKey, string> = {
-  density: "Densidad (g/cm³)",
-  pvcPct: "PVC (%)",
-  gluePct: "Cola (%)",
-  multilayerPct: "Multicapa (%)",
-  metalPct: "Metal (%)",
-  otherPct: "Otros (%)",
+export const SAMPLE_MEASURE_LABELS: Record<SampleMeasureKey, string> = {
+  density: "Densidad",
+  pvc: "PVC",
+  cola: "Cola",
+  multicapas: "Multicapas",
+  metal: "Metal",
+  otros: "Otros",
 };
 
-export const QUALITY_THRESHOLDS: Record<MeasureKey, Threshold> = {
-  density: { min: 0.85, max: 1.05 },
-  pvcPct: { max: 2 },
-  gluePct: { max: 5 },
-  multilayerPct: { max: 10 },
-  metalPct: { max: 1 },
-  otherPct: { max: 5 },
+export const SAMPLE_MEASURE_UNITS: Record<SampleMeasureKey, string> = {
+  density: "g",
+  pvc: "%",
+  cola: "%",
+  multicapas: "%",
+  metal: "%",
+  otros: "%",
 };
 
-export type Measures = Partial<Record<MeasureKey, number | null | undefined>>;
+/** Turnos de trabajo (naming validado con cliente). */
+export const SHIFTS = ["Mañana", "Tarde", "Noche"] as const;
+export type Shift = (typeof SHIFTS)[number];
 
-/** Devuelve las claves de los parámetros cuyo valor está fuera de rango. */
-export function getOutOfRangeMeasures(measures: Measures): MeasureKey[] {
-  return MEASURE_KEYS.filter((key) => {
-    const value = measures[key];
-    if (value == null || Number.isNaN(value)) return false;
-    const { min, max } = QUALITY_THRESHOLDS[key];
-    if (min != null && value < min) return true;
-    if (max != null && value > max) return true;
-    return false;
-  });
-}
+/** Estado de una muestra o registro. Coincide con el enum `QualityResult`. */
+export type SampleStatus = "OK" | "NOK" | "PENDIENTE";
 
-/** Rango legible para mostrar en UI (p.ej. "≤ 2" o "0.85–1.05"). */
-export function formatThreshold(key: MeasureKey): string {
-  const { min, max } = QUALITY_THRESHOLDS[key];
-  if (min != null && max != null) return `${min}–${max}`;
-  if (max != null) return `≤ ${max}`;
-  if (min != null) return `≥ ${min}`;
-  return "—";
+/** Estado automático de una muestra según su densidad y el rango configurado. */
+export function densityStatus(
+  density: number | null | undefined,
+  range: DensityRange,
+): SampleStatus {
+  if (density == null || Number.isNaN(density)) return "PENDIENTE";
+  return density >= range.min && density <= range.max ? "OK" : "NOK";
 }
