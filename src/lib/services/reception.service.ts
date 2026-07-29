@@ -16,10 +16,34 @@ export type ContainerWithRefs = Prisma.ContainerGetPayload<{
   include: { supplier: true; sacks: true };
 }>;
 
+export interface PendingContainerFilters {
+  /** Texto libre por referencia/contenedor (case-insensitive). */
+  q?: string;
+  /** Fecha de llegada prevista en formato YYYY-MM-DD. */
+  fecha?: string;
+}
+
 /** Contenedores/camiones pendientes de recibir (sin pesar todavía). */
-export function listPendingContainers(): Promise<ContainerWithRefs[]> {
+export function listPendingContainers(
+  filters: PendingContainerFilters = {},
+): Promise<ContainerWithRefs[]> {
+  const where: Prisma.ContainerWhereInput = { actualWeight: null };
+
+  if (filters.q?.trim()) {
+    where.reference = { contains: filters.q.trim(), mode: "insensitive" };
+  }
+
+  if (filters.fecha) {
+    const start = new Date(`${filters.fecha}T00:00:00`);
+    if (!Number.isNaN(start.getTime())) {
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      where.estimatedArrival = { gte: start, lt: end };
+    }
+  }
+
   return prisma.container.findMany({
-    where: { actualWeight: null },
+    where,
     include: { supplier: true, sacks: true },
     orderBy: [{ estimatedArrival: "asc" }, { createdAt: "desc" }],
   });
