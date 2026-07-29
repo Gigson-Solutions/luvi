@@ -49,7 +49,11 @@ export interface PurchaseOrderPivot {
   orderedTons: number;
   sentTons: number;
   receivedTons: number;
+  /** Toneladas pedidas pendientes de recibir en planta (nunca negativo). */
+  pendingTons: number;
   shipmentCount: number;
+  /** ETA a planta más próxima entre los envíos aún no llegados (o null). */
+  nextEtaPlanta: Date | null;
 }
 
 /** Toneladas a partir de kg (2 decimales). */
@@ -66,9 +70,12 @@ async function getMaterialNameMap(): Promise<Map<string, string>> {
 }
 
 /** Vista pivot: por cada PO, toneladas pedidas vs enviadas vs recibidas en planta. */
-export async function listPurchaseOrdersPivot(): Promise<PurchaseOrderPivot[]> {
+export async function listPurchaseOrdersPivot(
+  status?: PurchaseOrderStatus,
+): Promise<PurchaseOrderPivot[]> {
   const [orders, materialNames] = await Promise.all([
     prisma.purchaseOrder.findMany({
+      where: status ? { status } : undefined,
       include: {
         supplier: true,
         providerShipments: { include: { containers: true } },
@@ -87,6 +94,12 @@ export async function listPurchaseOrdersPivot(): Promise<PurchaseOrderPivot[]> {
       (acc, s) => acc + (s.arrivedPlanta ? (s.weightKg ?? 0) : 0),
       0,
     );
+    const receivedTons = toTons(receivedKg);
+    const nextEtaPlanta =
+      order.providerShipments
+        .filter((s) => !s.arrivedPlanta && s.etaPlanta)
+        .map((s) => s.etaPlanta as Date)
+        .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
     return {
       order,
       materialName: order.materialId
@@ -94,8 +107,13 @@ export async function listPurchaseOrdersPivot(): Promise<PurchaseOrderPivot[]> {
         : null,
       orderedTons: order.orderedTons,
       sentTons: toTons(sentKg),
-      receivedTons: toTons(receivedKg),
+      receivedTons,
+      pendingTons: Math.max(
+        0,
+        Math.round((order.orderedTons - receivedTons) * 100) / 100,
+      ),
       shipmentCount: order.providerShipments.length,
+      nextEtaPlanta,
     };
   });
 }
@@ -116,30 +134,41 @@ export function listShipments(limit = 100): Promise<ShipmentWithOrder[]> {
   });
 }
 
-/** KPIs del módulo: toneladas en tránsito (aún no en planta) y pedidos abiertos. */
-export async function getProcurementStats(): Promise<{
+export interface ProcurementStats {
+  /** Nº de órdenes de compra por estado. */
+  byStatus: Record<PurchaseOrderStatus, number>;
   tonsInTransit: number;
   openOrders: number;
-}> {
-  const [inTransit, openOrders] = await Promise.all([
+}
+
+/**
+ * KPIs del módulo: desglose de órdenes de compra por estado, toneladas en
+ * tránsito (aún no en planta) y pedidos abiertos (abierta/en tránsito/parcial).
+ */
+export async function getProcurementStats(): Promise<ProcurementStats> {
+  const [grouped, inTransit] = await Promise.all([
+    prisma.purchaseOrder.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.providerShipment.findMany({
       where: { arrivedPlanta: null },
       select: { weightKg: true },
     }),
-    prisma.purchaseOrder.count({
-      where: {
-        status: {
-          in: [
-            PurchaseOrderStatus.ABIERTA,
-            PurchaseOrderStatus.EN_TRANSITO,
-            PurchaseOrderStatus.RECIBIDA_PARCIAL,
-          ],
-        },
-      },
-    }),
   ]);
+
+  const byStatus: Record<PurchaseOrderStatus, number> = {
+    ABIERTA: 0,
+    EN_TRANSITO: 0,
+    RECIBIDA_PARCIAL: 0,
+    COMPLETADA: 0,
+    CANCELADA: 0,
+  };
+  for (const g of grouped) {
+    byStatus[g.status] = g._count._all;
+  }
+
+  const openOrders =
+    byStatus.ABIERTA + byStatus.EN_TRANSITO + byStatus.RECIBIDA_PARCIAL;
   const transitKg = inTransit.reduce((acc, s) => acc + (s.weightKg ?? 0), 0);
-  return { tonsInTransit: toTons(transitKg), openOrders };
+  return { byStatus, tonsInTransit: toTons(transitKg), openOrders };
 }
 
 export interface CreatePurchaseOrderInput {
