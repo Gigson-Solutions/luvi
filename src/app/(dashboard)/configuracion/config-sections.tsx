@@ -1,21 +1,25 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import {
   Plus,
   Pencil,
   Power,
   Trash2,
+  Info,
+  ExternalLink,
   Warehouse as WarehouseIcon,
+  Users as UsersIcon,
 } from "lucide-react";
-import { MaterialType } from "@prisma/client";
+import { MaterialType, UserRole } from "@prisma/client";
 import type { Material, Supplier, Buyer, Carrier } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type Tone } from "@/components/ui/badge";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -25,7 +29,9 @@ import {
   DialogContent,
   DialogClose,
 } from "@/components/ui/dialog";
+import { formatDate } from "@/lib/utils";
 import type { WarehouseWithZones } from "@/lib/services/config.service";
+import type { UserListItem } from "@/lib/services/user.service";
 import {
   saveMaterialAction,
   saveSupplierAction,
@@ -49,63 +55,6 @@ const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
   RIGIDO_MIXTO: "Rígido mixto",
   OTRO: "Otro",
 };
-
-type TabKey =
-  "materiales" | "proveedores" | "compradores" | "transportistas" | "almacenes";
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "materiales", label: "Materiales" },
-  { key: "proveedores", label: "Proveedores" },
-  { key: "compradores", label: "Compradores" },
-  { key: "transportistas", label: "Transportistas" },
-  { key: "almacenes", label: "Almacenes y Zonas" },
-];
-
-interface ConfigSectionsProps {
-  materials: Material[];
-  suppliers: Supplier[];
-  buyers: Buyer[];
-  carriers: Carrier[];
-  warehouses: WarehouseWithZones[];
-}
-
-export function ConfigSections(props: ConfigSectionsProps): React.JSX.Element {
-  const [tab, setTab] = useState<TabKey>("materiales");
-
-  return (
-    <div>
-      <nav className="flex flex-wrap gap-1 border-b border-[var(--color-border)] mb-6">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={
-              "px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors " +
-              (tab === t.key
-                ? "border-[var(--color-primary)] text-[var(--color-foreground)]"
-                : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]")
-            }
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-
-      {tab === "materiales" && <MaterialsSection materials={props.materials} />}
-      {tab === "proveedores" && (
-        <SuppliersSection suppliers={props.suppliers} />
-      )}
-      {tab === "compradores" && <BuyersSection buyers={props.buyers} />}
-      {tab === "transportistas" && (
-        <CarriersSection carriers={props.carriers} />
-      )}
-      {tab === "almacenes" && (
-        <WarehousesSection warehouses={props.warehouses} />
-      )}
-    </div>
-  );
-}
 
 // ─── Piezas reutilizables ───────────────────────────────────────────────────────
 
@@ -270,7 +219,7 @@ function MaterialFields({
   );
 }
 
-function MaterialsSection({
+export function MaterialsSection({
   materials,
 }: {
   materials: Material[];
@@ -400,7 +349,7 @@ function SupplierFields({
   );
 }
 
-function SuppliersSection({
+export function SuppliersSection({
   suppliers,
 }: {
   suppliers: Supplier[];
@@ -536,7 +485,11 @@ function BuyerFields({ buyer }: { buyer?: Buyer }): React.JSX.Element {
   );
 }
 
-function BuyersSection({ buyers }: { buyers: Buyer[] }): React.JSX.Element {
+export function BuyersSection({
+  buyers,
+}: {
+  buyers: Buyer[];
+}): React.JSX.Element {
   return (
     <section>
       <SectionHeader
@@ -632,7 +585,7 @@ function CarrierFields({ carrier }: { carrier?: Carrier }): React.JSX.Element {
   );
 }
 
-function CarriersSection({
+export function CarriersSection({
   carriers,
 }: {
   carriers: Carrier[];
@@ -826,7 +779,7 @@ function DeleteZoneButton({
   );
 }
 
-function WarehousesSection({
+export function WarehousesSection({
   warehouses,
 }: {
   warehouses: WarehouseWithZones[];
@@ -960,6 +913,224 @@ function WarehousesSection({
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+// ─── Usuarios ──────────────────────────────────────────────────────────────────
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  OPERARIO: "Operario",
+  ADMINISTRACION: "Administración",
+  MANAGER: "Manager",
+  ADMIN: "Admin",
+};
+
+const ROLE_TONES: Record<UserRole, Tone> = {
+  OPERARIO: "sky",
+  ADMINISTRACION: "amber",
+  MANAGER: "purple",
+  ADMIN: "red",
+};
+
+/**
+ * Listado de usuarios (solo lectura). El alta, cambio de rol, reseteo de
+ * contraseña y activación viven en la página /usuarios para no duplicar lógica.
+ */
+export function UsersSection({
+  users,
+  currentUserId,
+}: {
+  users: UserListItem[];
+  currentUserId: string;
+}): React.JSX.Element {
+  return (
+    <section>
+      <SectionHeader
+        title={`Usuarios (${users.length})`}
+        action={
+          <Link href="/usuarios">
+            <Button size="sm" variant="outline">
+              <ExternalLink className="w-3.5 h-3.5" /> Gestionar usuarios
+            </Button>
+          </Link>
+        }
+      />
+      {users.length === 0 ? (
+        <EmptyState
+          icon={UsersIcon}
+          title="No hay usuarios"
+          description="Crea el primer usuario desde la página de Usuarios."
+        />
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>Usuario</TH>
+              <TH>Email</TH>
+              <TH>Rol</TH>
+              <TH>Estado</TH>
+              <TH>Alta</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {users.map((u) => (
+              <TR key={u.id}>
+                <TD className="font-medium">
+                  {u.name}
+                  {u.id === currentUserId && (
+                    <span className="ml-2 text-xs text-[var(--color-muted)]">
+                      (tú)
+                    </span>
+                  )}
+                </TD>
+                <TD>{u.email}</TD>
+                <TD>
+                  <Badge tone={ROLE_TONES[u.role]}>{ROLE_LABELS[u.role]}</Badge>
+                </TD>
+                <TD>
+                  <ActiveBadge active={u.active} />
+                </TD>
+                <TD>{formatDate(u.createdAt)}</TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
+    </section>
+  );
+}
+
+// ─── Nota "pendiente de persistencia" ───────────────────────────────────────────
+
+/**
+ * Banner para las secciones cuyos valores aún no se persisten porque no existe
+ * el modelo `Config` (clave/valor) en el esquema y no se permiten migraciones.
+ */
+function PendingPersistenceNote(): React.JSX.Element {
+  return (
+    <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      <Info className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>
+        Valores de referencia. La edición y guardado requieren el modelo{" "}
+        <code className="font-mono">Config</code> (clave/valor), pendiente de
+        migración.
+      </span>
+    </div>
+  );
+}
+
+// ─── Calidad (rangos) ────────────────────────────────────────────────────────────
+
+// TODO(Config): persistir en tabla `Config` (clave "quality_ranges", JSON) vía
+// config.service cuando exista el modelo. Sin modelo → solo referencia.
+const QUALITY_PARAMS: { key: string; label: string; unit: string }[] = [
+  { key: "densidad", label: "Densidad", unit: "g" },
+  { key: "pvc", label: "PVC", unit: "%" },
+  { key: "cola", label: "Cola", unit: "%" },
+  { key: "multicapas", label: "Multicapas", unit: "%" },
+  { key: "metal", label: "Metal", unit: "%" },
+  { key: "otros", label: "Otros", unit: "%" },
+];
+
+export function QualitySection(): React.JSX.Element {
+  return (
+    <section>
+      <SectionHeader title="Rangos de Calidad" action={null} />
+      <p className="mb-4 text-sm text-[var(--color-muted)]">
+        Rangos mínimo y máximo aceptables por parámetro. Los valores fuera de
+        rango se marcan como NOK en el control de calidad.
+      </p>
+      <PendingPersistenceNote />
+      <Table>
+        <THead>
+          <TR>
+            <TH>Parámetro</TH>
+            <TH>Unidad</TH>
+            <TH>Mínimo</TH>
+            <TH>Máximo</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {QUALITY_PARAMS.map((p) => (
+            <TR key={p.key}>
+              <TD className="font-medium">{p.label}</TD>
+              <TD>{p.unit}</TD>
+              <TD className="text-[var(--color-muted)]">—</TD>
+              <TD className="text-[var(--color-muted)]">—</TD>
+            </TR>
+          ))}
+        </TBody>
+      </Table>
+    </section>
+  );
+}
+
+// ─── Costes ──────────────────────────────────────────────────────────────────────
+
+// TODO(Config): persistir en tabla `Config` (claves de coste) cuando exista el
+// modelo. El coste por tonelada del lote final ya se deriva de
+// PurchaseOrder.pricePerTon en cost.service; estos importes fijos aún no.
+const COST_DEFAULTS: {
+  key: string;
+  label: string;
+  hint: string;
+  value: number;
+}[] = [
+  {
+    key: "processing_cost_per_sack",
+    label: "Coste de procesado por saca (€)",
+    hint: "Coste fijo aplicado a cada saca de producto terminado.",
+    value: 31,
+  },
+  {
+    key: "pallet_cost",
+    label: "Coste de palé (€)",
+    hint: "Se auto-calcula con la última compra de palés en Consumibles.",
+    value: 0,
+  },
+  {
+    key: "empty_sack_cost",
+    label: "Coste de saca vacía (€)",
+    hint: "Se auto-calcula con la última compra de sacas vacías en Consumibles.",
+    value: 0,
+  },
+];
+
+export function CostsSection(): React.JSX.Element {
+  return (
+    <section>
+      <SectionHeader title="Sistema de Costes" action={null} />
+      <p className="mb-4 text-sm text-[var(--color-muted)]">
+        Costes de procesado y consumibles usados para calcular el coste total de
+        cada saca y de cada lote de salida.
+      </p>
+      <PendingPersistenceNote />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {COST_DEFAULTS.map((c) => (
+          <div
+            key={c.key}
+            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+          >
+            <h3 className="text-sm font-medium text-[var(--color-foreground)]">
+              {c.label}
+            </h3>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">{c.hint}</p>
+            <p className="mt-3 text-2xl font-semibold tabular-nums text-[var(--color-foreground)]">
+              {c.value.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+        <h3 className="mb-2 text-sm font-medium text-[var(--color-foreground)]">
+          Fórmula del coste de lote
+        </h3>
+        <p className="font-mono text-sm text-[var(--color-muted)]">
+          Total lote = Σ (coste materia prima) + Σ (procesado × nº sacas) + (1 ×
+          palé) + (nº sacas × saca vacía)
+        </p>
+      </div>
     </section>
   );
 }
