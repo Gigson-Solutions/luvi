@@ -129,6 +129,93 @@ export async function getShipmentFormData(): Promise<{
   };
 }
 
+// ─── Lotes de salida disponibles (panel "Lotes de Salida") ─────────────────────
+
+/** Estado de saca "disponible" (aún sin expedir) para cada tipo de lote. */
+const LOT_TYPE_TO_SACK_STATUS: Record<LotType, SackStatus> = {
+  [LotType.PRODUCTO_TERMINADO]: SackStatus.PRODUCTO_TERMINADO,
+  [LotType.SUBPRODUCTO]: SackStatus.SUBPRODUCTO,
+  [LotType.RECHAZO]: SackStatus.RECHAZO,
+};
+
+export interface AvailableLotSack {
+  id: string;
+  qrCode: string;
+  materialName: string;
+  weight: number;
+}
+
+export interface AvailableOutputLot {
+  id: string;
+  lotNumber: string;
+  type: LotType;
+  materialName: string;
+  producedAt: Date;
+  availableKg: number;
+  availableSacks: number;
+  sacks: AvailableLotSack[];
+}
+
+export interface AvailableOutputLots {
+  productoTerminado: AvailableOutputLot[];
+  subproducto: AvailableOutputLot[];
+  rechazo: AvailableOutputLot[];
+}
+
+/** Lotes de un tipo con sus sacas todavía disponibles (no expedidas). */
+async function availableLotsByType(
+  type: LotType,
+): Promise<AvailableOutputLot[]> {
+  const sackStatus = LOT_TYPE_TO_SACK_STATUS[type];
+  const lots = await prisma.productionLot.findMany({
+    where: { type, sacks: { some: { status: sackStatus } } },
+    include: {
+      material: { select: { name: true } },
+      sacks: {
+        where: { status: sackStatus },
+        select: {
+          id: true,
+          qrCode: true,
+          weight: true,
+          material: { select: { name: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+    orderBy: { producedAt: "desc" },
+  });
+
+  return lots.map((l) => ({
+    id: l.id,
+    lotNumber: l.lotNumber,
+    type: l.type,
+    materialName: l.material.name,
+    producedAt: l.producedAt,
+    availableKg:
+      Math.round(l.sacks.reduce((sum, s) => sum + s.weight, 0) * 100) / 100,
+    availableSacks: l.sacks.length,
+    sacks: l.sacks.map((s) => ({
+      id: s.id,
+      qrCode: s.qrCode,
+      materialName: s.material.name,
+      weight: s.weight,
+    })),
+  }));
+}
+
+/**
+ * Lotes de salida disponibles agrupados por tipo (Producto Terminado,
+ * Subproducto, Rechazo). Alimenta la pestaña "Lotes de Salida".
+ */
+export async function getAvailableOutputLots(): Promise<AvailableOutputLots> {
+  const [productoTerminado, subproducto, rechazo] = await Promise.all([
+    availableLotsByType(LotType.PRODUCTO_TERMINADO),
+    availableLotsByType(LotType.SUBPRODUCTO),
+    availableLotsByType(LotType.RECHAZO),
+  ]);
+  return { productoTerminado, subproducto, rechazo };
+}
+
 export interface CreateShipmentInput {
   buyerId: string;
   carrierId?: string;
