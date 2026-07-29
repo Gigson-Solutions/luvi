@@ -27,14 +27,14 @@ export default async function LoginPage({
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--color-sidebar-bg)]">
       <div className="w-full max-w-sm">
-        {/* Logo / marca */}
+        {/* Logo / marca (logo real del cliente, versión clara para fondo oscuro) */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--color-primary)] mb-4">
-            <span className="text-white font-bold text-2xl font-[var(--font-public-sans)]">
-              L
-            </span>
-          </div>
-          <h1 className="text-white text-2xl font-semibold">Luvi</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/luvi2000-logo-light.png"
+            alt="Luvi2000"
+            className="h-10 w-auto mx-auto mb-3 select-none"
+          />
           <p className="text-[var(--color-sidebar-text)] text-sm mt-1">
             Sistema de gestión logística
           </p>

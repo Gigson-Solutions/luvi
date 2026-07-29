@@ -11,6 +11,7 @@ import {
   listReceivedContainers,
   getReceptionFormData,
 } from "@/lib/services/reception.service";
+import { sackTypeLabel } from "@/lib/reception-sack-types";
 import { NewReceptionDialog, ReceiveDialog } from "./reception-dialogs";
 
 type Tab = "pendientes" | "pesados";
@@ -156,7 +157,7 @@ export default async function RecepcionesPage({
                 <TH>Llegada prevista</TH>
                 <TH>Est. (kg)</TH>
                 <TH>Sacas est.</TH>
-                {/* TODO: Tipo Saca requiere campo en el modelo (Container) */}
+                <TH>Tipo Saca</TH>
                 <TH className="text-right">Acción</TH>
               </TR>
             </THead>
@@ -170,6 +171,7 @@ export default async function RecepcionesPage({
                   </TD>
                   <TD>{c.expectedWeight ? formatKg(c.expectedWeight) : "—"}</TD>
                   <TD>{c.numSacks ?? "—"}</TD>
+                  <TD>{sackTypeLabel(c.sackType)}</TD>
                   <TD className="text-right">
                     <ReceiveDialog
                       containerId={c.id}
@@ -199,8 +201,8 @@ export default async function RecepcionesPage({
               <TH>Contenedor</TH>
               <TH>Proveedor</TH>
               <TH>Pesado</TH>
-              {/* TODO: Bruto y Tara requieren campos en el modelo (Container solo
-                  guarda actualWeight → peso neto). Se muestra solo Neto. */}
+              <TH>Bruto</TH>
+              <TH>Tara</TH>
               <TH>Neto</TH>
               <TH>Sacas</TH>
               <TH>Origen peso</TH>
@@ -212,7 +214,11 @@ export default async function RecepcionesPage({
                 <TD className="font-medium">{c.reference}</TD>
                 <TD>{c.supplier.name}</TD>
                 <TD>{c.weighedAt ? formatDate(c.weighedAt, true) : "—"}</TD>
-                <TD>{c.actualWeight ? formatKg(c.actualWeight) : "—"}</TD>
+                <TD>{c.grossWeight != null ? formatKg(c.grossWeight) : "—"}</TD>
+                <TD>{c.tareWeight != null ? formatKg(c.tareWeight) : "—"}</TD>
+                <TD>
+                  {c.actualWeight != null ? formatKg(c.actualWeight) : "—"}
+                </TD>
                 <TD>{c.sacks.length}</TD>
                 <TD>
                   <Badge

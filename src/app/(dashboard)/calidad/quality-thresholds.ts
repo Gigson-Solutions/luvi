@@ -17,6 +17,18 @@ export interface DensityRange {
 /** Rango de densidad OK por defecto (g). Sobreescribible desde `config`. */
 export const DEFAULT_DENSITY_RANGE: DensityRange = { min: 330, max: 370 };
 
+/** Rango min/max de un parámetro de calidad (null = sin límite configurado). */
+export type ParamRange = {
+  min: number | null;
+  max: number | null;
+};
+
+/**
+ * Rangos configurables por parámetro, persistidos en `config.quality_ranges`.
+ * Solo la Densidad tiene umbral validado; el resto queda abierto por defecto.
+ */
+export type QualityRanges = Record<SampleMeasureKey, ParamRange>;
+
 /** Número fijo de muestras por registro (hoja tipo Excel). */
 export const SAMPLES_PER_RECORD = 20;
 
@@ -48,6 +60,16 @@ export const SAMPLE_MEASURE_UNITS: Record<SampleMeasureKey, string> = {
   multicapas: "%",
   metal: "%",
   otros: "%",
+};
+
+/** Rangos por defecto: solo Densidad tiene umbral validado (330–370 g). */
+export const DEFAULT_QUALITY_RANGES: QualityRanges = {
+  density: { ...DEFAULT_DENSITY_RANGE },
+  pvc: { min: null, max: null },
+  cola: { min: null, max: null },
+  multicapas: { min: null, max: null },
+  metal: { min: null, max: null },
+  otros: { min: null, max: null },
 };
 
 /** Turnos de trabajo (naming validado con cliente). */

@@ -20,6 +20,7 @@ import {
   fetchGestruckWeightAction,
   type ActionState,
 } from "./actions";
+import { SACK_TYPE_OPTIONS } from "@/lib/reception-sack-types";
 
 const INITIAL: ActionState = { ok: false };
 
@@ -133,6 +134,17 @@ export function NewReceptionDialog({
               <Input id="numSacks" name="numSacks" type="number" />
             </div>
           </div>
+          <div>
+            <Label htmlFor="sackType">Tipo de saca</Label>
+            <Select id="sackType" name="sackType" defaultValue="">
+              <option value="">Sin definir</option>
+              {SACK_TYPE_OPTIONS.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="billOfLading">Bill of Lading</Label>
@@ -191,23 +203,57 @@ export function ReceiveDialog({
     },
     INITIAL,
   );
-  const [weight, setWeight] = useState("");
+  // Bruto / Tara / Neto. El Neto es el que se guarda en actualWeight (requerido);
+  // Bruto → grossWeight, Tara → tareWeight (ambos opcionales).
+  const [gross, setGross] = useState("");
+  const [tare, setTare] = useState("");
+  const [net, setNet] = useState("");
   const [source, setSource] = useState<"gestruck" | "manual">("manual");
   const [reading, setReading] = useState(false);
   const [readMsg, setReadMsg] = useState<string | null>(null);
+
+  /** Neto = Bruto − Tara cuando ambos son números válidos. */
+  function computeNet(grossStr: string, tareStr: string): string {
+    const g = parseFloat(grossStr);
+    const t = parseFloat(tareStr);
+    if (Number.isFinite(g) && Number.isFinite(t)) {
+      return String(Math.round((g - t) * 100) / 100);
+    }
+    return "";
+  }
+
+  function onGrossChange(value: string): void {
+    setGross(value);
+    setSource("manual");
+    const auto = computeNet(value, tare);
+    if (auto !== "") setNet(auto);
+  }
+
+  function onTareChange(value: string): void {
+    setTare(value);
+    setSource("manual");
+    const auto = computeNet(gross, value);
+    if (auto !== "") setNet(auto);
+  }
 
   async function readFromScale(): Promise<void> {
     setReading(true);
     setReadMsg(null);
     try {
       const r = await fetchGestruckWeightAction(reference);
-      if (!r.manual && r.weight != null) {
-        setWeight(String(r.weight));
+      // La lectura de Gestruck devuelve { weight (bruto), tare, net }.
+      if (!r.manual && (r.net != null || r.weight != null)) {
+        if (r.weight != null) setGross(String(r.weight));
+        if (r.tare != null) setTare(String(r.tare));
+        const netValue =
+          r.net ??
+          (r.weight != null && r.tare != null ? r.weight - r.tare : undefined);
+        if (netValue != null) setNet(String(netValue));
         setSource("gestruck");
-        setReadMsg("Peso leído de la báscula.");
+        setReadMsg("Pesos leídos de la báscula.");
       } else {
         setSource("manual");
-        setReadMsg(r.reason ?? "Introduce el peso manualmente.");
+        setReadMsg(r.reason ?? "Introduce los pesos manualmente.");
       }
     } finally {
       setReading(false);
@@ -230,24 +276,14 @@ export function ReceiveDialog({
           <input type="hidden" name="weightSource" value={source} />
 
           <div>
-            <Label htmlFor="actualWeight">Peso real (kg)</Label>
-            <div className="flex gap-2">
-              <Input
-                id="actualWeight"
-                name="actualWeight"
-                type="number"
-                step="0.01"
-                required
-                value={weight}
-                onChange={(e) => {
-                  setWeight(e.target.value);
-                  setSource("manual");
-                }}
-                placeholder="0.00"
-              />
+            <div className="flex items-center justify-between mb-1">
+              <Label htmlFor="actualWeight" className="mb-0">
+                Pesaje (kg) — Bruto · Tara · Neto
+              </Label>
               <Button
                 type="button"
                 variant="outline"
+                size="sm"
                 onClick={readFromScale}
                 disabled={reading}
               >
@@ -258,6 +294,54 @@ export function ReceiveDialog({
                 )}
                 Báscula
               </Button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="grossWeight" className="text-xs">
+                  Bruto
+                </Label>
+                <Input
+                  id="grossWeight"
+                  name="grossWeight"
+                  type="number"
+                  step="0.01"
+                  value={gross}
+                  onChange={(e) => onGrossChange(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <Label htmlFor="tareWeight" className="text-xs">
+                  Tara
+                </Label>
+                <Input
+                  id="tareWeight"
+                  name="tareWeight"
+                  type="number"
+                  step="0.01"
+                  value={tare}
+                  onChange={(e) => onTareChange(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <Label htmlFor="actualWeight" className="text-xs">
+                  Neto *
+                </Label>
+                <Input
+                  id="actualWeight"
+                  name="actualWeight"
+                  type="number"
+                  step="0.01"
+                  required
+                  value={net}
+                  onChange={(e) => {
+                    setNet(e.target.value);
+                    setSource("manual");
+                  }}
+                  placeholder="0.00"
+                />
+              </div>
             </div>
             {readMsg && (
               <p className="text-xs text-[var(--color-muted)] mt-1">

@@ -6,6 +6,11 @@ import { MaterialType } from "@prisma/client";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import type { CurrentUser } from "@/lib/rbac";
+import { SAMPLE_MEASURE_KEYS } from "@/app/(dashboard)/calidad/quality-thresholds";
+import type {
+  ParamRange,
+  SampleMeasureKey,
+} from "@/app/(dashboard)/calidad/quality-thresholds";
 import {
   createMaterial,
   updateMaterial,
@@ -25,6 +30,7 @@ import {
   createZone,
   updateZone,
   deleteZone,
+  setConfig,
 } from "@/lib/services/config.service";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
@@ -387,5 +393,97 @@ export async function toggleActiveAction(
     return { ok: true, message: active ? "Activado" : "Desactivado" };
   } catch (e) {
     return fail(e, "Error al cambiar el estado");
+  }
+}
+
+// ─── Calidad (rangos) ────────────────────────────────────────────────────────────
+
+/** Lee un campo numérico opcional del form: vacío → null, no numérico → "invalid". */
+function parseOptionalNumber(
+  raw: FormDataEntryValue | null,
+): number | null | "invalid" {
+  if (raw == null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : "invalid";
+}
+
+/**
+ * Guarda los rangos de calidad (min/max por parámetro) en `config.quality_ranges`.
+ * La forma persistida coincide con la que lee `quality.service.getQualityRanges`.
+ */
+export async function saveQualityRangesAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const ranges: Record<SampleMeasureKey, ParamRange> = {} as Record<
+      SampleMeasureKey,
+      ParamRange
+    >;
+    for (const key of SAMPLE_MEASURE_KEYS) {
+      const min = parseOptionalNumber(formData.get(`${key}_min`));
+      const max = parseOptionalNumber(formData.get(`${key}_max`));
+      if (min === "invalid" || max === "invalid") {
+        return { ok: false, error: "Los rangos deben ser numéricos" };
+      }
+      if (min != null && max != null && min > max) {
+        return {
+          ok: false,
+          error: "El mínimo no puede ser mayor que el máximo",
+        };
+      }
+      ranges[key] = { min, max };
+    }
+    await setConfig("quality_ranges", ranges);
+    await logAudit({
+      userId: actor.id,
+      action: "UPDATE_QUALITY_RANGES",
+      entity: "Config",
+      entityId: "quality_ranges",
+      payload: ranges,
+    });
+    revalidatePath(REVALIDATE);
+    revalidatePath("/calidad");
+    return { ok: true, message: "Rangos de calidad guardados" };
+  } catch (e) {
+    return fail(e, "Error al guardar los rangos de calidad");
+  }
+}
+
+// ─── Costes ────────────────────────────────────────────────────────────────────
+
+const costsSchema = z.object({
+  processingPerSack: z.coerce.number().min(0, "El coste no puede ser negativo"),
+  palletCost: z.coerce.number().min(0, "El coste no puede ser negativo"),
+  emptySackCost: z.coerce.number().min(0, "El coste no puede ser negativo"),
+});
+
+/** Guarda los costes fijos (procesado, palé, saca vacía) en `config.costs`. */
+export async function saveCostsAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = costsSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    await setConfig("costs", parsed.data);
+    await logAudit({
+      userId: actor.id,
+      action: "UPDATE_COSTS",
+      entity: "Config",
+      entityId: "costs",
+      payload: parsed.data,
+    });
+    revalidatePath(REVALIDATE);
+    return { ok: true, message: "Costes guardados" };
+  } catch (e) {
+    return fail(e, "Error al guardar los costes");
   }
 }

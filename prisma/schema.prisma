@@ -257,7 +257,10 @@ model Container {
   supplierId      String
   materialId      String?
   expectedWeight  Float?  // kg estimados
-  actualWeight    Float?  // kg pesados en Gestruck
+  actualWeight    Float?  // kg pesados en Gestruck (peso NETO)
+  grossWeight     Float?  // kg peso bruto real (camión cargado)
+  tareWeight      Float?  // kg tara real (camión vacío)
+  sackType        String? // tipo de saca: sacas_altas | sacas_bajas | saquitos | balas
   numSacks        Int?    // nº sacas declaradas
   numPallets      Int?    @default(0)
   notes           String?

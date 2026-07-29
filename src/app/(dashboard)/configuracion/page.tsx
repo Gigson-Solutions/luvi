@@ -19,6 +19,8 @@ import {
   listCarriers,
   listWarehouses,
 } from "@/lib/services/config.service";
+import { getQualityRanges } from "@/lib/services/quality.service";
+import { getCostsConfig } from "@/lib/services/cost.service";
 import { listUsers } from "@/lib/services/user.service";
 import {
   MaterialsSection,
@@ -64,16 +66,27 @@ export default async function ConfiguracionPage({
   const { tab } = await searchParams;
   const activeTab: TabKey = isTabKey(tab) ? tab : "proveedores";
 
-  const [materials, suppliers, buyers, carriers, warehouses, users, session] =
-    await Promise.all([
-      listMaterials(),
-      listSuppliers(),
-      listBuyers(),
-      listCarriers(),
-      listWarehouses(),
-      listUsers(),
-      auth(),
-    ]);
+  const [
+    materials,
+    suppliers,
+    buyers,
+    carriers,
+    warehouses,
+    users,
+    qualityRanges,
+    costs,
+    session,
+  ] = await Promise.all([
+    listMaterials(),
+    listSuppliers(),
+    listBuyers(),
+    listCarriers(),
+    listWarehouses(),
+    listUsers(),
+    getQualityRanges(),
+    getCostsConfig(),
+    auth(),
+  ]);
   const currentUserId = session?.user?.id ?? "";
 
   return (
@@ -120,8 +133,8 @@ export default async function ConfiguracionPage({
       {activeTab === "usuarios" && (
         <UsersSection users={users} currentUserId={currentUserId} />
       )}
-      {activeTab === "calidad" && <QualitySection />}
-      {activeTab === "costes" && <CostsSection />}
+      {activeTab === "calidad" && <QualitySection ranges={qualityRanges} />}
+      {activeTab === "costes" && <CostsSection costs={costs} />}
     </div>
   );
 }

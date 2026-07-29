@@ -7,7 +7,6 @@ import {
   Pencil,
   Power,
   Trash2,
-  Info,
   ExternalLink,
   Warehouse as WarehouseIcon,
   Users as UsersIcon,
@@ -32,6 +31,13 @@ import {
 import { formatDate } from "@/lib/utils";
 import type { WarehouseWithZones } from "@/lib/services/config.service";
 import type { UserListItem } from "@/lib/services/user.service";
+import type { CostsConfig } from "@/lib/services/cost.service";
+import {
+  SAMPLE_MEASURE_KEYS,
+  SAMPLE_MEASURE_LABELS,
+  SAMPLE_MEASURE_UNITS,
+} from "@/app/(dashboard)/calidad/quality-thresholds";
+import type { QualityRanges } from "@/app/(dashboard)/calidad/quality-thresholds";
 import {
   saveMaterialAction,
   saveSupplierAction,
@@ -41,6 +47,8 @@ import {
   saveZoneAction,
   deleteZoneAction,
   toggleActiveAction,
+  saveQualityRangesAction,
+  saveCostsAction,
   type ActionState,
 } from "./actions";
 
@@ -1001,103 +1009,121 @@ export function UsersSection({
   );
 }
 
-// ─── Nota "pendiente de persistencia" ───────────────────────────────────────────
+// ─── Feedback de guardado (formularios de una sola isla) ─────────────────────────
 
-/**
- * Banner para las secciones cuyos valores aún no se persisten porque no existe
- * el modelo `Config` (clave/valor) en el esquema y no se permiten migraciones.
- */
-function PendingPersistenceNote(): React.JSX.Element {
+/** Mensaje de éxito/error bajo un formulario de configuración persistente. */
+function FormFeedback({ state }: { state: ActionState }): React.JSX.Element {
   return (
-    <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-      <Info className="mt-0.5 h-4 w-4 shrink-0" />
-      <span>
-        Valores de referencia. La edición y guardado requieren el modelo{" "}
-        <code className="font-mono">Config</code> (clave/valor), pendiente de
-        migración.
-      </span>
+    <div aria-live="polite" className="min-h-5">
+      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+      {state.ok && state.message && (
+        <p className="text-sm text-green-600">{state.message}</p>
+      )}
     </div>
   );
 }
 
 // ─── Calidad (rangos) ────────────────────────────────────────────────────────────
 
-// TODO(Config): persistir en tabla `Config` (clave "quality_ranges", JSON) vía
-// config.service cuando exista el modelo. Sin modelo → solo referencia.
-const QUALITY_PARAMS: { key: string; label: string; unit: string }[] = [
-  { key: "densidad", label: "Densidad", unit: "g" },
-  { key: "pvc", label: "PVC", unit: "%" },
-  { key: "cola", label: "Cola", unit: "%" },
-  { key: "multicapas", label: "Multicapas", unit: "%" },
-  { key: "metal", label: "Metal", unit: "%" },
-  { key: "otros", label: "Otros", unit: "%" },
-];
-
-export function QualitySection(): React.JSX.Element {
+/**
+ * Rangos mínimo/máximo por parámetro de calidad. Editable y persistente en
+ * `config.quality_ranges` (misma forma que lee `quality.service`). Campo vacío =
+ * sin límite configurado (cae al valor por defecto en el control de calidad).
+ */
+export function QualitySection({
+  ranges,
+}: {
+  ranges: QualityRanges;
+}): React.JSX.Element {
+  const [state, action] = useActionState(saveQualityRangesAction, INITIAL);
   return (
     <section>
       <SectionHeader title="Rangos de Calidad" action={null} />
       <p className="mb-4 text-sm text-[var(--color-muted)]">
         Rangos mínimo y máximo aceptables por parámetro. Los valores fuera de
-        rango se marcan como NOK en el control de calidad.
+        rango se marcan como NOK en el control de calidad. Deja un campo vacío
+        para no aplicar límite en ese extremo.
       </p>
-      <PendingPersistenceNote />
-      <Table>
-        <THead>
-          <TR>
-            <TH>Parámetro</TH>
-            <TH>Unidad</TH>
-            <TH>Mínimo</TH>
-            <TH>Máximo</TH>
-          </TR>
-        </THead>
-        <TBody>
-          {QUALITY_PARAMS.map((p) => (
-            <TR key={p.key}>
-              <TD className="font-medium">{p.label}</TD>
-              <TD>{p.unit}</TD>
-              <TD className="text-[var(--color-muted)]">—</TD>
-              <TD className="text-[var(--color-muted)]">—</TD>
+      <form action={action}>
+        <Table>
+          <THead>
+            <TR>
+              <TH>Parámetro</TH>
+              <TH>Unidad</TH>
+              <TH>Mínimo</TH>
+              <TH>Máximo</TH>
             </TR>
-          ))}
-        </TBody>
-      </Table>
+          </THead>
+          <TBody>
+            {SAMPLE_MEASURE_KEYS.map((key) => (
+              <TR key={key}>
+                <TD className="font-medium">{SAMPLE_MEASURE_LABELS[key]}</TD>
+                <TD>{SAMPLE_MEASURE_UNITS[key]}</TD>
+                <TD>
+                  <Input
+                    name={`${key}_min`}
+                    type="number"
+                    step="any"
+                    aria-label={`${SAMPLE_MEASURE_LABELS[key]} mínimo`}
+                    defaultValue={ranges[key].min ?? ""}
+                  />
+                </TD>
+                <TD>
+                  <Input
+                    name={`${key}_max`}
+                    type="number"
+                    step="any"
+                    aria-label={`${SAMPLE_MEASURE_LABELS[key]} máximo`}
+                    defaultValue={ranges[key].max ?? ""}
+                  />
+                </TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <FormFeedback state={state} />
+          <SubmitButton>Guardar rangos</SubmitButton>
+        </div>
+      </form>
     </section>
   );
 }
 
 // ─── Costes ──────────────────────────────────────────────────────────────────────
 
-// TODO(Config): persistir en tabla `Config` (claves de coste) cuando exista el
-// modelo. El coste por tonelada del lote final ya se deriva de
-// PurchaseOrder.pricePerTon en cost.service; estos importes fijos aún no.
-const COST_DEFAULTS: {
-  key: string;
+const COST_FIELDS: {
+  name: keyof CostsConfig;
   label: string;
   hint: string;
-  value: number;
 }[] = [
   {
-    key: "processing_cost_per_sack",
-    label: "Coste de procesado por saca (€)",
+    name: "processingPerSack",
+    label: "Coste procesado por saca (€)",
     hint: "Coste fijo aplicado a cada saca de producto terminado.",
-    value: 31,
   },
   {
-    key: "pallet_cost",
+    name: "palletCost",
     label: "Coste de palé (€)",
-    hint: "Se auto-calcula con la última compra de palés en Consumibles.",
-    value: 0,
+    hint: "Coste imputado por palé en el cálculo de coste de lote.",
   },
   {
-    key: "empty_sack_cost",
+    name: "emptySackCost",
     label: "Coste de saca vacía (€)",
-    hint: "Se auto-calcula con la última compra de sacas vacías en Consumibles.",
-    value: 0,
+    hint: "Coste imputado por saca vacía en el cálculo de coste de lote.",
   },
 ];
 
-export function CostsSection(): React.JSX.Element {
+/**
+ * Costes fijos de procesado y consumibles. Editable y persistente en
+ * `config.costs`. Se usan para calcular el coste total de cada saca y lote.
+ */
+export function CostsSection({
+  costs,
+}: {
+  costs: CostsConfig;
+}): React.JSX.Element {
+  const [state, action] = useActionState(saveCostsAction, INITIAL);
   return (
     <section>
       <SectionHeader title="Sistema de Costes" action={null} />
@@ -1105,32 +1131,42 @@ export function CostsSection(): React.JSX.Element {
         Costes de procesado y consumibles usados para calcular el coste total de
         cada saca y de cada lote de salida.
       </p>
-      <PendingPersistenceNote />
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        {COST_DEFAULTS.map((c) => (
-          <div
-            key={c.key}
-            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
-          >
-            <h3 className="text-sm font-medium text-[var(--color-foreground)]">
-              {c.label}
-            </h3>
-            <p className="mt-1 text-xs text-[var(--color-muted)]">{c.hint}</p>
-            <p className="mt-3 text-2xl font-semibold tabular-nums text-[var(--color-foreground)]">
-              {c.value.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €
-            </p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-        <h3 className="mb-2 text-sm font-medium text-[var(--color-foreground)]">
-          Fórmula del coste de lote
-        </h3>
-        <p className="font-mono text-sm text-[var(--color-muted)]">
-          Total lote = Σ (coste materia prima) + Σ (procesado × nº sacas) + (1 ×
-          palé) + (nº sacas × saca vacía)
-        </p>
-      </div>
+      <form action={action}>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {COST_FIELDS.map((c) => (
+            <div
+              key={c.name}
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+            >
+              <Label htmlFor={`cost-${c.name}`}>{c.label}</Label>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">{c.hint}</p>
+              <Input
+                id={`cost-${c.name}`}
+                name={c.name}
+                type="number"
+                step="0.01"
+                min={0}
+                required
+                className="mt-3"
+                defaultValue={costs[c.name]}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <FormFeedback state={state} />
+          <SubmitButton>Guardar costes</SubmitButton>
+        </div>
+        <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <h3 className="mb-2 text-sm font-medium text-[var(--color-foreground)]">
+            Fórmula del coste de lote
+          </h3>
+          <p className="font-mono text-sm text-[var(--color-muted)]">
+            Total lote = Σ (coste materia prima) + Σ (procesado × nº sacas) + (1
+            × palé) + (nº sacas × saca vacía)
+          </p>
+        </div>
+      </form>
     </section>
   );
 }

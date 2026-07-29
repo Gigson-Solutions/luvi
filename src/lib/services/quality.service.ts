@@ -1,10 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { QualityResult, type Prisma } from "@prisma/client";
+import { getConfig } from "@/lib/services/config.service";
 import {
   DEFAULT_DENSITY_RANGE,
+  DEFAULT_QUALITY_RANGES,
+  SAMPLE_MEASURE_KEYS,
   SAMPLES_PER_RECORD,
   densityStatus,
   type DensityRange,
+  type ParamRange,
+  type QualityRanges,
   type SampleStatus,
 } from "@/app/(dashboard)/calidad/quality-thresholds";
 
@@ -23,20 +28,37 @@ export type QualityRecordWithSamples = Prisma.QualityRecordGetPayload<{
 
 // ─── Configuración de rangos ────────────────────────────────────────────────────
 
-/** Rango de densidad OK; lee `config.quality_ranges` con fallback a defaults. */
-export async function getDensityRange(): Promise<DensityRange> {
-  const row = await prisma.config.findUnique({
-    where: { key: "quality_ranges" },
-  });
-  const v = row?.value as { densityMin?: number; densityMax?: number } | null;
-  if (
-    v &&
-    typeof v.densityMin === "number" &&
-    typeof v.densityMax === "number"
-  ) {
-    return { min: v.densityMin, max: v.densityMax };
+/**
+ * Rangos min/max de todos los parámetros de calidad; lee `config.quality_ranges`
+ * y fusiona con los defaults (cada parámetro ausente cae a su valor por defecto).
+ */
+export async function getQualityRanges(): Promise<QualityRanges> {
+  const stored = await getConfig<Partial<Record<string, Partial<ParamRange>>>>(
+    "quality_ranges",
+    {},
+  );
+  const result = {} as QualityRanges;
+  for (const key of SAMPLE_MEASURE_KEYS) {
+    const fallback = DEFAULT_QUALITY_RANGES[key];
+    const s = stored[key];
+    result[key] = {
+      min: typeof s?.min === "number" ? s.min : fallback.min,
+      max: typeof s?.max === "number" ? s.max : fallback.max,
+    };
   }
-  return { ...DEFAULT_DENSITY_RANGE };
+  return result;
+}
+
+/**
+ * Rango de densidad OK; deriva de `config.quality_ranges` con fallback a los
+ * defaults validados (330–370 g). API estable para el control de calidad.
+ */
+export async function getDensityRange(): Promise<DensityRange> {
+  const { density } = await getQualityRanges();
+  return {
+    min: density.min ?? DEFAULT_DENSITY_RANGE.min,
+    max: density.max ?? DEFAULT_DENSITY_RANGE.max,
+  };
 }
 
 // ─── Utilidades de rango temporal ────────────────────────────────────────────────

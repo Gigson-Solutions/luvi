@@ -9,6 +9,29 @@ import { MaterialType, type Prisma } from "@prisma/client";
  * salvo Zone —que no tiene `active`— donde se permite borrar solo si no tiene sacas.
  */
 
+// ─── Config clave/valor (tabla `Config`) ────────────────────────────────────────
+
+/**
+ * Lee un valor JSON de la tabla `Config` por clave. Devuelve `fallback` si la
+ * clave no existe todavía. El llamador es responsable de validar la forma de `T`.
+ */
+export async function getConfig<T>(key: string, fallback: T): Promise<T> {
+  const row = await prisma.config.findUnique({ where: { key } });
+  return row ? (row.value as T) : fallback;
+}
+
+/** Upsert de un valor JSON en la tabla `Config` por clave. */
+export async function setConfig(
+  key: string,
+  value: Prisma.InputJsonValue,
+): Promise<void> {
+  await prisma.config.upsert({
+    where: { key },
+    create: { key, value },
+    update: { value },
+  });
+}
+
 // ─── Materiales ────────────────────────────────────────────────────────────────
 
 export function listMaterials(): Promise<
