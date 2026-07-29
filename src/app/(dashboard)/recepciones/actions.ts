@@ -7,6 +7,7 @@ import {
   registerContainer,
   weighContainer,
   confirmReception,
+  SACK_TYPES,
 } from "@/lib/services/reception.service";
 import { logAudit } from "@/lib/services/audit.service";
 import { readWeight } from "@/lib/integrations/gestruck";
@@ -27,6 +28,10 @@ const registerSchema = z.object({
   expectedWeight: z.coerce.number().positive().optional(),
   numSacks: z.coerce.number().int().positive().optional(),
   numPallets: z.coerce.number().int().min(0).optional(),
+  sackType: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.enum(SACK_TYPES).optional(),
+  ),
   estimatedArrival: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -74,17 +79,34 @@ export async function registerContainerAction(
 }
 
 /** Lee el peso de Gestruck (o indica manual). Se llama desde el cliente. */
-export async function fetchGestruckWeightAction(
-  vehicle: string,
-): Promise<{ manual: boolean; weight?: number; reason?: string }> {
+export async function fetchGestruckWeightAction(vehicle: string): Promise<{
+  manual: boolean;
+  weight?: number; // bruto
+  tare?: number;
+  net?: number;
+  reason?: string;
+}> {
   await requireSession();
   const r = await readWeight({ vehicle });
-  return { manual: r.manual, weight: r.weight, reason: r.reason };
+  return {
+    manual: r.manual,
+    weight: r.weight,
+    tare: r.tare,
+    net: r.net,
+    reason: r.reason,
+  };
 }
+
+const optionalWeight = z.preprocess(
+  (v) => (v === "" || v == null ? undefined : v),
+  z.coerce.number().positive().optional(),
+);
 
 const confirmSchema = z.object({
   containerId: z.string().min(1),
   actualWeight: z.coerce.number().positive("El peso debe ser mayor que 0"),
+  grossWeight: optionalWeight,
+  tareWeight: optionalWeight,
   weightSource: z.enum(["gestruck", "manual"]).default("manual"),
   scaleId: z.string().optional(),
   materialId: z.string().min(1, "Selecciona un material"),
@@ -111,6 +133,8 @@ export async function weighAndConfirmAction(
     await weighContainer({
       containerId: d.containerId,
       actualWeight: d.actualWeight,
+      grossWeight: d.grossWeight,
+      tareWeight: d.tareWeight,
       weightSource: d.weightSource,
       scaleId: d.scaleId,
     });

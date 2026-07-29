@@ -1,4 +1,44 @@
 import { prisma } from "@/lib/prisma";
+import { getConfig } from "@/lib/services/config.service";
+
+/**
+ * Configuración de costes fijos (persistida en `config.costs`).
+ *
+ * - `processingPerSack`: coste de procesado imputado a cada saca de PT (€).
+ * - `palletCost`: coste de un palé (€).
+ * - `emptySackCost`: coste de una saca vacía (€).
+ */
+export interface CostsConfig {
+  processingPerSack: number;
+  palletCost: number;
+  emptySackCost: number;
+}
+
+/** Valores por defecto validados con el cliente. */
+export const DEFAULT_COSTS: CostsConfig = {
+  processingPerSack: 31,
+  palletCost: 0,
+  emptySackCost: 0,
+};
+
+/** Lee `config.costs` fusionado con los defaults (campos ausentes → default). */
+export async function getCostsConfig(): Promise<CostsConfig> {
+  const stored = await getConfig<Partial<CostsConfig>>("costs", {});
+  return {
+    processingPerSack:
+      typeof stored.processingPerSack === "number"
+        ? stored.processingPerSack
+        : DEFAULT_COSTS.processingPerSack,
+    palletCost:
+      typeof stored.palletCost === "number"
+        ? stored.palletCost
+        : DEFAULT_COSTS.palletCost,
+    emptySackCost:
+      typeof stored.emptySackCost === "number"
+        ? stored.emptySackCost
+        : DEFAULT_COSTS.emptySackCost,
+  };
+}
 
 /**
  * Servicio de Coste — precio por tonelada de una saca de salida (lote final),

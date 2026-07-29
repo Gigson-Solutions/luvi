@@ -20,7 +20,6 @@ import {
   Settings,
   Menu,
   X,
-  Sprout,
 } from "lucide-react";
 import { canAccess } from "@/lib/permissions";
 import { UserRole } from "@prisma/client";
@@ -103,12 +102,13 @@ const NAV_ITEMS: NavItem[] = [
 
 function Logo(): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2">
-      <Sprout className="w-6 h-6 shrink-0 text-[var(--color-primary)]" />
-      <span className="text-white font-semibold text-base tracking-tight">
-        Luvi<span className="text-[var(--color-primary)]">2000</span>
-      </span>
-    </div>
+    // Logo real del cliente (versión clara para el sidebar oscuro).
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/luvi2000-logo-light.png"
+      alt="Luvi2000"
+      className="h-6 w-auto select-none"
+    />
   );
 }
 

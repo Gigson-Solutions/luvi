@@ -16,6 +16,16 @@ export type ContainerWithRefs = Prisma.ContainerGetPayload<{
   include: { supplier: true; sacks: true };
 }>;
 
+// Re-export de los tipos de saca (módulo puro) para consumo desde el servicio.
+export {
+  SACK_TYPES,
+  SACK_TYPE_LABELS,
+  SACK_TYPE_OPTIONS,
+  sackTypeLabel,
+  type SackType,
+} from "@/lib/reception-sack-types";
+import type { SackType } from "@/lib/reception-sack-types";
+
 export interface PendingContainerFilters {
   /** Texto libre por referencia/contenedor (case-insensitive). */
   q?: string;
@@ -71,6 +81,8 @@ export interface RegisterContainerInput {
   expectedWeight?: number;
   numSacks?: number;
   numPallets?: number;
+  /** Tipo de saca declarado al registrar. */
+  sackType?: SackType;
   estimatedArrival?: Date;
   notes?: string;
 }
@@ -89,6 +101,7 @@ export function registerContainer(
       expectedWeight: input.expectedWeight ?? null,
       numSacks: input.numSacks ?? null,
       numPallets: input.numPallets ?? 0,
+      sackType: input.sackType ?? null,
       estimatedArrival: input.estimatedArrival ?? null,
       notes: input.notes ?? null,
       registeredAt: new Date(),
@@ -99,7 +112,12 @@ export function registerContainer(
 
 export interface WeighInput {
   containerId: string;
+  /** Peso neto (kg) — se guarda en actualWeight. */
   actualWeight: number;
+  /** Peso bruto real (kg), opcional. */
+  grossWeight?: number;
+  /** Tara real (kg), opcional. */
+  tareWeight?: number;
   weightSource?: "gestruck" | "manual";
   scaleId?: string;
 }
@@ -111,6 +129,8 @@ export function weighContainer(input: WeighInput): Promise<ContainerWithRefs> {
     where: { id: input.containerId },
     data: {
       actualWeight: input.actualWeight,
+      grossWeight: input.grossWeight ?? null,
+      tareWeight: input.tareWeight ?? null,
       weightSource: input.weightSource ?? "manual",
       scaleId: input.scaleId ?? null,
       weighedAt: now,
