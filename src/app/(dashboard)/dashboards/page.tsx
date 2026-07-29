@@ -1,219 +1,351 @@
+import Link from "next/link";
+import {
+  Truck,
+  Scale,
+  Package,
+  AlertTriangle,
+  PackageCheck,
+  Boxes,
+  type LucideIcon,
+} from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  StatCard,
-} from "@/components/ui/card";
-import { formatKg } from "@/lib/utils";
-import { SACK_LABELS, SHIPMENT_LABELS } from "@/components/ui/status-badge";
-import {
-  getWarehouseDashboard,
-  getProductionDashboard,
-  getLogisticsDashboard,
-  getQualityDashboard,
-  getProcurementDashboard,
-  resolveRange,
-  toDateInput,
+  getPanelStats,
+  getProfitability,
 } from "@/lib/services/dashboard.service";
-import { DateRangeFilter } from "@/components/ui/date-range-filter";
-import { MiniBarChart } from "./dashboard-charts";
 
-const LOT_LABELS: Record<string, string> = {
-  PRODUCTO_TERMINADO: "Producto terminado",
-  SUBPRODUCTO: "Subproducto",
-  RECHAZO: "Rechazo",
-};
+// ─── Helpers ────────────────────────────────────────────────────────────────────
 
-export default async function DashboardsPage({
+function fmtEuro(n: number): string {
+  return `${n.toLocaleString("es-ES", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} €`;
+}
+
+const PERIODS = [7, 30, 90] as const;
+type Period = (typeof PERIODS)[number];
+
+function resolveDays(raw?: string): Period {
+  const n = Number(raw);
+  return n === 7 || n === 90 ? n : 30;
+}
+
+// ─── Tarjeta KPI clicable ──────────────────────────────────────────────────────
+
+function KpiCard({
+  title,
+  value,
+  icon: Icon,
+  href,
+  alert,
+}: {
+  title: string;
+  value: number;
+  icon: LucideIcon;
+  href: string;
+  alert?: boolean;
+}): React.JSX.Element {
+  const danger = alert && value > 0;
+  return (
+    <Link href={href} className="block">
+      <Card className="p-4 transition-colors hover:bg-[var(--color-surface-hover)]">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+              {title}
+            </p>
+            <p
+              className="mt-1.5 text-2xl font-semibold"
+              style={{
+                color: danger
+                  ? "var(--color-status-rechazo)"
+                  : "var(--color-foreground)",
+              }}
+            >
+              {value}
+            </p>
+          </div>
+          <span
+            className="rounded-lg p-2"
+            style={{
+              backgroundColor: danger
+                ? "color-mix(in srgb, var(--color-status-rechazo) 12%, transparent)"
+                : "var(--color-surface-hover)",
+              color: danger
+                ? "var(--color-status-rechazo)"
+                : "var(--color-primary)",
+            }}
+          >
+            <Icon className="h-5 w-5" />
+          </span>
+        </div>
+      </Card>
+    </Link>
+  );
+}
+
+// ─── Página ─────────────────────────────────────────────────────────────────────
+
+export default async function PanelPrincipalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ days?: string }>;
 }): Promise<React.JSX.Element> {
-  const params = await searchParams;
-  const range = resolveRange(params.from, params.to);
+  const { days: daysParam } = await searchParams;
+  const days = resolveDays(daysParam);
 
-  const [wh, prod, log, qua, proc] = await Promise.all([
-    getWarehouseDashboard(),
-    getProductionDashboard(range),
-    getLogisticsDashboard(range),
-    getQualityDashboard(range),
-    getProcurementDashboard(),
+  const [stats, profit] = await Promise.all([
+    getPanelStats(),
+    getProfitability(days),
   ]);
+
+  const kpis: {
+    title: string;
+    value: number;
+    icon: LucideIcon;
+    href: string;
+    alert?: boolean;
+  }[] = [
+    {
+      title: "Camiones Hoy",
+      value: stats.trucksToday,
+      icon: Truck,
+      href: "/recepciones",
+    },
+    {
+      title: "Pendientes Pesaje",
+      value: stats.pendingWeighing,
+      icon: Scale,
+      href: "/recepciones",
+    },
+    {
+      title: "Sacas en Stock",
+      value: stats.sacksInStock,
+      icon: Package,
+      href: "/almacen",
+    },
+    {
+      title: "Incidencias Abiertas",
+      value: stats.openIncidents,
+      icon: AlertTriangle,
+      href: "/incidencias",
+      alert: true,
+    },
+    {
+      title: "Envíos Pendientes",
+      value: stats.pendingShipments,
+      icon: PackageCheck,
+      href: "/expediciones",
+    },
+    {
+      title: "Alertas Consumibles",
+      value: stats.consumableAlerts,
+      icon: Boxes,
+      href: "/consumibles",
+      alert: true,
+    },
+  ];
+
+  const quickActions: { label: string; href: string; icon: LucideIcon }[] = [
+    { label: "Registrar contenedor", href: "/recepciones", icon: Truck },
+    { label: "Ver almacén", href: "/almacen", icon: Package },
+    {
+      label: "Nueva Incidencia",
+      href: "/incidencias",
+      icon: AlertTriangle,
+    },
+    { label: "Crear Envío", href: "/expediciones", icon: PackageCheck },
+  ];
 
   return (
     <div>
       <PageHeader
-        title="Dashboards"
-        description="Indicadores por rango de fecha: almacén, producción, logística, calidad y aprovisionamiento."
+        title="Panel Principal"
+        description="Resumen del estado actual de la planta."
       />
 
-      <DateRangeFilter
-        from={toDateInput(range.from)}
-        to={toDateInput(range.to)}
-      />
-
-      {/* ─── Almacén (estado actual) ─────────────────────────────── */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Almacén
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <StatCard label="Sacas en almacén" value={wh.totalSacks} />
-          <StatCard
-            label="Peso almacenado"
-            value={formatKg(wh.totalKg)}
-            accent="var(--color-primary)"
-          />
-          <StatCard
-            label="Zonas al límite"
-            value={wh.zonesAtLimit}
-            accent={
-              wh.zonesAtLimit > 0 ? "var(--color-status-rechazo)" : undefined
-            }
-          />
-          <StatCard label="Zonas totales" value={wh.zones.length} />
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Sacas por estado</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MiniBarChart
-                data={wh.byStatus.map((s) => ({
-                  label: SACK_LABELS[s.status],
-                  value: s.count,
-                }))}
-              />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Ocupación por zona</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MiniBarChart
-                data={wh.zones.map((z) => ({ label: z.name, value: z.used }))}
-              />
-            </CardContent>
-          </Card>
-        </div>
+      {/* ─── KPIs clicables ─────────────────────────────────────────── */}
+      <section className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-3">
+        {kpis.map((k) => (
+          <KpiCard key={k.title} {...k} />
+        ))}
       </section>
 
-      {/* ─── Producción ──────────────────────────────────────────── */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Producción
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <StatCard label="Lotes" value={prod.lots} />
-          <StatCard
-            label="Kg producidos"
-            value={formatKg(prod.kgProduced)}
-            accent="var(--color-primary)"
-          />
-          <StatCard
-            label="Sacas en producción"
-            value={prod.sacksInProduction}
-            accent="var(--color-status-produccion)"
-          />
-          <StatCard label="Tipos de salida" value={prod.byType.length} />
-        </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Kg por tipo de salida</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MiniBarChart
-              data={prod.byType.map((t) => ({
-                label: LOT_LABELS[t.type],
-                value: Math.round(t.kg),
-              }))}
-              colors={["#15803d", "#0ea5e9", "#ef4444"]}
-            />
-          </CardContent>
-        </Card>
-      </section>
+      {/* ─── Acciones rápidas ───────────────────────────────────────── */}
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Acciones Rápidas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {quickActions.map((a) => {
+              const Icon = a.icon;
+              return (
+                <Link
+                  key={a.label}
+                  href={a.href}
+                  className="flex flex-col items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-4 text-center transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]"
+                >
+                  <Icon className="h-5 w-5 text-[var(--color-primary)]" />
+                  <span className="text-sm font-medium text-[var(--color-foreground)]">
+                    {a.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* ─── Logística / Expediciones ────────────────────────────── */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Logística y Expediciones
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <StatCard
-            label="Kg expedidos"
-            value={formatKg(log.kgExpedited)}
-            accent="var(--color-status-expedido)"
-          />
-          <StatCard label="Envíos" value={log.shipments} />
-          <StatCard
-            label="Envíos activos"
-            value={log.byStatus.reduce((a, s) => a + s.count, 0)}
-          />
-        </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Envíos por estado</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MiniBarChart
-              data={log.byStatus.map((s) => ({
-                label: SHIPMENT_LABELS[s.status],
-                value: s.count,
-              }))}
-              colors={["#9ca3af", "#f59e0b", "#0ea5e9", "#15803d"]}
-            />
-          </CardContent>
-        </Card>
-      </section>
+      {/* ─── Rentabilidad ───────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>Rentabilidad</CardTitle>
+            <div className="flex items-center gap-1.5">
+              {PERIODS.map((d) => {
+                const active = d === days;
+                return (
+                  <Link
+                    key={d}
+                    href={`/dashboards?days=${d}`}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                      active
+                        ? "bg-[var(--color-primary)] text-white"
+                        : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)]",
+                    )}
+                  >
+                    {d}d
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* KPIs de rentabilidad */}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Card className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                Inversión
+              </p>
+              <p
+                className="mt-1.5 text-2xl font-semibold"
+                style={{ color: "var(--color-primary)" }}
+              >
+                {fmtEuro(profit.totalInvested)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                {profit.shipmentsCount} envíos · {profit.totalQuantityTons}t
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                € / Tonelada
+              </p>
+              <p className="mt-1.5 text-2xl font-semibold">
+                {fmtEuro(profit.avgCostPerTon)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Promedio compras
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                Coste Lotes
+              </p>
+              <p className="mt-1.5 text-2xl font-semibold">
+                {fmtEuro(profit.totalLotCost)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                {profit.lotsCount} lotes
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                Coste Medio Lote
+              </p>
+              <p className="mt-1.5 text-2xl font-semibold">
+                {fmtEuro(profit.avgLotCost)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                {profit.avgCostPerKg > 0
+                  ? `${profit.avgCostPerKg.toFixed(3)} €/kg`
+                  : "—"}
+              </p>
+            </Card>
+          </div>
 
-      {/* ─── Calidad + Aprovisionamiento ─────────────────────────── */}
-      <section>
-        <div className="grid md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Calidad</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-3">
-                <StatCard
-                  label="OK"
-                  value={qua.ok}
-                  accent="var(--color-status-terminado)"
-                />
-                <StatCard
-                  label="NOK"
-                  value={qua.nok}
-                  accent="var(--color-status-rechazo)"
-                />
-                <StatCard label="% Rechazo" value={`${qua.rejectRate}%`} />
+          {/* Ranking de proveedores */}
+          <div>
+            <h4 className="mb-2 text-sm font-semibold text-[var(--color-foreground)]">
+              Proveedores más rentables (€/t)
+            </h4>
+            {profit.byProvider.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--color-border)] p-4 text-center text-sm text-[var(--color-muted)]">
+                Sin compras con precio en este periodo. Añade el precio de
+                compra al registrar aprovisionamientos para ver el ranking.
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Aprovisionamiento</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-3">
-                <StatCard label="Pedidos abiertos" value={proc.openOrders} />
-                <StatCard
-                  label="TN en tránsito"
-                  value={proc.tonsInTransit}
-                  accent="var(--color-primary)"
-                />
-                <StatCard
-                  label="Envíos en camino"
-                  value={proc.shipmentsInTransit}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>#</TH>
+                    <TH>Proveedor</TH>
+                    <TH className="text-right">€/t</TH>
+                    <TH className="hidden text-right sm:table-cell">
+                      Toneladas
+                    </TH>
+                    <TH className="hidden text-right md:table-cell">
+                      Inversión
+                    </TH>
+                    <TH className="hidden text-right md:table-cell">Envíos</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {profit.byProvider.map((p, idx) => (
+                    <TR key={p.name} className={idx === 0 ? "font-medium" : ""}>
+                      <TD>
+                        <span
+                          className={cn(
+                            "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
+                            idx === 0
+                              ? "bg-[var(--color-primary)] text-white"
+                              : "bg-[var(--color-surface-hover)] text-[var(--color-muted)]",
+                          )}
+                        >
+                          {idx + 1}
+                        </span>
+                      </TD>
+                      <TD className="font-medium">{p.name}</TD>
+                      <TD
+                        className="text-right font-semibold"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        {fmtEuro(p.avgCostPerTon)}
+                      </TD>
+                      <TD className="hidden text-right sm:table-cell">
+                        {p.totalQuantity}t
+                      </TD>
+                      <TD className="hidden text-right md:table-cell">
+                        {fmtEuro(p.totalInvested)}
+                      </TD>
+                      <TD className="hidden text-right md:table-cell">
+                        {p.shipments}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
