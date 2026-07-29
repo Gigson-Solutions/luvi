@@ -5,6 +5,7 @@ export type Module =
   | "almacen"
   | "produccion"
   | "trazabilidad"
+  | "inventario"
   | "expediciones"
   | "aprovisionamiento"
   | "calidad"
@@ -34,6 +35,7 @@ const PERMISSIONS: Record<Module, UserRole[]> = {
     UserRole.MANAGER,
     UserRole.ADMIN,
   ],
+  inventario: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
   expediciones: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
   aprovisionamiento: [
     UserRole.ADMINISTRACION,

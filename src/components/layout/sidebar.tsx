@@ -9,6 +9,7 @@ import {
   Warehouse,
   Factory,
   Route,
+  Boxes,
   PackageCheck,
   Ship,
   FlaskConical,
@@ -55,6 +56,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/trazabilidad",
     icon: Route,
     module: "trazabilidad",
+  },
+  {
+    label: "Inventario",
+    href: "/inventario",
+    icon: Boxes,
+    module: "inventario",
   },
   {
     label: "Expediciones",
