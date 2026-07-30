@@ -581,6 +581,7 @@ model ConsumableMovement {
   consumableId String
   quantity     Int    // positivo = entrada, negativo = salida
   reason       String // "compra", "expedición", "devolución", "ajuste"
+  unitPrice    Float? // precio por unidad de esa compra (€/ud); solo en entradas
   vehiclePlate String?
   condition    String? // "OK" | "NOK" para devoluciones
   notes        String?

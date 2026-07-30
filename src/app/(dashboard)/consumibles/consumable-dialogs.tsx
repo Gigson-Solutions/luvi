@@ -58,6 +58,9 @@ export function ConsumableMovementDialog({
   mode?: "compra" | "consumo";
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [direction, setDirection] = useState<"entrada" | "salida">(
+    defaultDirection ?? "entrada",
+  );
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await registerConsumableMovementAction(prev, formData);
@@ -115,7 +118,10 @@ export function ConsumableMovementDialog({
                 id="direction"
                 name="direction"
                 required
-                defaultValue={defaultDirection ?? "entrada"}
+                value={direction}
+                onChange={(e) =>
+                  setDirection(e.target.value as "entrada" | "salida")
+                }
               >
                 <option value="entrada">Entrada (compra)</option>
                 <option value="salida">Salida (ajuste)</option>
@@ -141,14 +147,19 @@ export function ConsumableMovementDialog({
               placeholder="compra, ajuste, expedición…"
             />
           </div>
-          <div>
-            <Label htmlFor="vehiclePlate">Matrícula (opcional)</Label>
-            <Input
-              id="vehiclePlate"
-              name="vehiclePlate"
-              placeholder="1234 ABC"
-            />
-          </div>
+          {direction === "entrada" && (
+            <div>
+              <Label htmlFor="unitPrice">Precio de compra (€/ud)</Label>
+              <Input
+                id="unitPrice"
+                name="unitPrice"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="0,00"
+              />
+            </div>
+          )}
           <div>
             <Label htmlFor="notes">Notas</Label>
             <Textarea id="notes" name="notes" />

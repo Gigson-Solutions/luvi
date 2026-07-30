@@ -71,6 +71,8 @@ export interface RegisterMovementInput {
   quantity: number; // positivo = entrada, negativo = salida
   reason: string;
   vehiclePlate?: string;
+  /** Precio por unidad (€/ud); solo en entradas/compras. */
+  unitPrice?: number;
   notes?: string;
 }
 
@@ -103,6 +105,8 @@ export async function registerConsumableMovement(
         quantity: input.quantity,
         reason: input.reason,
         vehiclePlate: input.vehiclePlate ?? null,
+        // Solo guardamos precio en entradas (cantidad positiva).
+        unitPrice: input.quantity > 0 ? (input.unitPrice ?? null) : null,
         notes: input.notes ?? null,
       },
     });
