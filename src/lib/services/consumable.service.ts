@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ConsumableType, type Consumable, type Prisma } from "@prisma/client";
+import { getCostsConfig } from "@/lib/services/cost.service";
+import { setConfig } from "@/lib/services/config.service";
 
 /**
  * Servicio de Consumibles — lógica de negocio sobre Consumable, ConsumableMovement
@@ -87,15 +89,15 @@ export async function registerConsumableMovement(
     throw new Error("La cantidad no puede ser cero.");
   }
 
-  return prisma.$transaction(async (tx) => {
-    const consumable = await tx.consumable.findUniqueOrThrow({
+  const consumable = await prisma.$transaction(async (tx) => {
+    const c = await tx.consumable.findUniqueOrThrow({
       where: { id: input.consumableId },
     });
 
-    const nextStock = consumable.currentStock + input.quantity;
+    const nextStock = c.currentStock + input.quantity;
     if (nextStock < 0) {
       throw new Error(
-        `Stock insuficiente: quedan ${consumable.currentStock} ${consumable.unit}.`,
+        `Stock insuficiente: quedan ${c.currentStock} ${c.unit}.`,
       );
     }
 
@@ -116,6 +118,20 @@ export async function registerConsumableMovement(
       data: { currentStock: nextStock },
     });
   });
+
+  // Al comprar palés o sacas vacías con precio, ese precio pasa a ser el coste
+  // vigente en Configuración → Costes (alimenta el cálculo de coste de lote).
+  if (input.quantity > 0 && input.unitPrice != null) {
+    if (consumable.type === ConsumableType.PALLET) {
+      const costs = await getCostsConfig();
+      await setConfig("costs", { ...costs, palletCost: input.unitPrice });
+    } else if (consumable.type === ConsumableType.SACA_VACIA) {
+      const costs = await getCostsConfig();
+      await setConfig("costs", { ...costs, emptySackCost: input.unitPrice });
+    }
+  }
+
+  return consumable;
 }
 
 // ─── Palés retornables por comprador ───────────────────────────────────────────
