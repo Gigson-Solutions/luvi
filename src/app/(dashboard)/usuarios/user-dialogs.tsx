@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogTrigger,
@@ -22,29 +22,12 @@ import {
   resetPasswordAction,
   type ActionState,
 } from "./actions";
+import { ROLES, ROLE_LABELS, ROLE_TONES } from "./roles";
 
 const INITIAL: ActionState = { ok: false };
 
-export const ROLES: UserRole[] = [
-  UserRole.OPERARIO,
-  UserRole.ADMINISTRACION,
-  UserRole.MANAGER,
-  UserRole.ADMIN,
-];
-
-export const ROLE_LABELS: Record<UserRole, string> = {
-  OPERARIO: "Operario",
-  ADMINISTRACION: "Administración",
-  MANAGER: "Manager",
-  ADMIN: "Admin",
-};
-
-export const ROLE_TONES: Record<UserRole, Tone> = {
-  OPERARIO: "sky",
-  ADMINISTRACION: "amber",
-  MANAGER: "purple",
-  ADMIN: "red",
-};
+// Re-export para no romper otros importadores cliente.
+export { ROLES, ROLE_LABELS, ROLE_TONES };
 
 export function RoleBadge({ role }: { role: UserRole }): React.JSX.Element {
   return <Badge tone={ROLE_TONES[role]}>{ROLE_LABELS[role]}</Badge>;

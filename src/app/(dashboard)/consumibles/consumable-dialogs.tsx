@@ -46,21 +46,17 @@ interface PalletConsumableOption {
 export function ConsumableMovementDialog({
   consumables,
   defaultConsumableId,
-  defaultDirection,
   mode,
 }: {
   consumables: ConsumableOption[];
   /** Preselecciona un consumible al abrir el diálogo. */
   defaultConsumableId?: string;
-  /** Preselecciona entrada (compra) o salida (consumo). */
-  defaultDirection?: "entrada" | "salida";
-  /** Estiliza el disparador como "Comprar" (compra) o "Consumir" (consumo). */
-  mode?: "compra" | "consumo";
+  /** "compra" (entrada, con precio) o "consumo" (salida). El botón marca el tipo. */
+  mode: "compra" | "consumo";
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [direction, setDirection] = useState<"entrada" | "salida">(
-    defaultDirection ?? "entrada",
-  );
+  const isCompra = mode === "compra";
+  const direction = isCompra ? "entrada" : "salida";
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await registerConsumableMovementAction(prev, formData);
@@ -70,29 +66,29 @@ export function ConsumableMovementDialog({
     INITIAL,
   );
 
-  const trigger =
-    mode === "consumo" ? (
-      <Button size="sm" variant="outline" className="flex-1">
-        <Minus className="w-3.5 h-3.5" /> Consumir
-      </Button>
-    ) : mode === "compra" ? (
-      <Button size="sm" className="flex-1">
-        <Plus className="w-3.5 h-3.5" /> Comprar
-      </Button>
-    ) : (
-      <Button>
-        <Plus className="w-4 h-4" /> Registrar movimiento
-      </Button>
-    );
+  const trigger = isCompra ? (
+    <Button size="sm" className="flex-1">
+      <Plus className="w-3.5 h-3.5" /> Comprar
+    </Button>
+  ) : (
+    <Button size="sm" variant="outline" className="flex-1">
+      <Minus className="w-3.5 h-3.5" /> Consumir
+    </Button>
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent
-        title="Movimiento de consumible"
-        description="Entrada (compra) o salida (ajuste). Actualiza el stock automáticamente."
+        title={isCompra ? "Comprar consumible" : "Consumir consumible"}
+        description={
+          isCompra
+            ? "Registra una compra y suma al stock."
+            : "Registra un consumo y descuenta del stock."
+        }
       >
         <form action={action} className="space-y-4">
+          <input type="hidden" name="direction" value={direction} />
           <div>
             <Label htmlFor="consumableId">Consumible</Label>
             <Select
@@ -111,32 +107,15 @@ export function ConsumableMovementDialog({
               ))}
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="direction">Tipo</Label>
-              <Select
-                id="direction"
-                name="direction"
-                required
-                value={direction}
-                onChange={(e) =>
-                  setDirection(e.target.value as "entrada" | "salida")
-                }
-              >
-                <option value="entrada">Entrada (compra)</option>
-                <option value="salida">Salida (ajuste)</option>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="quantity">Cantidad</Label>
-              <Input
-                id="quantity"
-                name="quantity"
-                type="number"
-                min={1}
-                required
-              />
-            </div>
+          <div>
+            <Label htmlFor="quantity">Cantidad</Label>
+            <Input
+              id="quantity"
+              name="quantity"
+              type="number"
+              min={1}
+              required
+            />
           </div>
           <div>
             <Label htmlFor="reason">Motivo</Label>
@@ -144,7 +123,7 @@ export function ConsumableMovementDialog({
               id="reason"
               name="reason"
               required
-              placeholder="compra, ajuste, expedición…"
+              placeholder={isCompra ? "compra" : "ajuste, expedición…"}
             />
           </div>
           {direction === "entrada" && (
@@ -171,7 +150,7 @@ export function ConsumableMovementDialog({
                 Cancelar
               </Button>
             </DialogClose>
-            <SubmitButton>Registrar</SubmitButton>
+            <SubmitButton>{isCompra ? "Comprar" : "Consumir"}</SubmitButton>
           </div>
         </form>
       </DialogContent>
