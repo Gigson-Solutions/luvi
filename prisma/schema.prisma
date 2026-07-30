@@ -484,7 +484,9 @@ model PurchaseOrder {
   materialId String?
   status     PurchaseOrderStatus @default(ABIERTA)
   orderedTons Float
-  pricePerTon Float? // €/tonelada de compra — base del coste por tonelada del lote final
+  originPort  String? // puerto o país de origen del pedido
+  totalPrice  Float?  // precio total del pedido (€)
+  pricePerTon Float?  // €/tonelada de compra — base del coste por tonelada del lote final (= totalPrice / orderedTons)
   notes      String?
 
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
@@ -504,6 +506,9 @@ model ProviderShipment {
   billOfLading    String?  @unique
   origin          String?  // puerto origen
   vessel          String?  // nombre del barco
+  departureDate   DateTime? // fecha de salida de origen
+  maritimeDays    Int?     @default(30) // días de tránsito marítimo
+  terrestrialDays Int?     @default(7)  // días de tránsito terrestre (Valencia → planta)
   etaValencia     DateTime?
   etaPlanta       DateTime?
   arrivedValencia DateTime?
