@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { Package, Ship, Anchor, Factory } from "lucide-react";
+import { Package, Ship, Anchor, Factory, ChevronDown } from "lucide-react";
 import { PurchaseOrderStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,10 +9,10 @@ import { PurchaseOrderStatusBadge } from "@/components/ui/status-badge";
 import { formatKg, formatDate, cn } from "@/lib/utils";
 import {
   listPurchaseOrdersPivot,
-  listShipments,
   getProcurementStats,
   getProcurementFormData,
   shipmentStage,
+  type PurchaseOrderPivot,
   type TransitStage,
 } from "@/lib/services/procurement.service";
 import {
@@ -32,6 +31,12 @@ const STAGE_TONES: Record<TransitStage, "sky" | "blue" | "green"> = {
   MARITIMO: "sky",
   VALENCIA: "blue",
   PLANTA: "green",
+};
+
+const STAGE_BORDERS: Record<TransitStage, string> = {
+  MARITIMO: "border-l-sky-400",
+  VALENCIA: "border-l-blue-500",
+  PLANTA: "border-l-green-500",
 };
 
 const FILTERS: { value: PurchaseOrderStatus | "TODOS"; label: string }[] = [
@@ -59,6 +64,208 @@ function tons(n: number): string {
   return `${n.toFixed(2)} TM`;
 }
 
+/** Chip compacto pedido / enviado / recibido / pendiente. */
+function TonChip({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: string;
+}): React.JSX.Element {
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5">
+      <p className="text-[11px] text-[var(--color-muted)]">{label}</p>
+      <p
+        className="text-sm font-semibold"
+        style={accent ? { color: accent } : undefined}
+      >
+        {tons(value)}
+      </p>
+    </div>
+  );
+}
+
+/** Tarjeta de un envío dentro del desplegable de la orden. */
+function ShipmentCard({
+  shipment,
+}: {
+  shipment: PurchaseOrderPivot["order"]["providerShipments"][number];
+}): React.JSX.Element {
+  const stage = shipmentStage(shipment);
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-l-4 border-[var(--color-border)] bg-[var(--color-surface)] p-3",
+        STAGE_BORDERS[stage],
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-[var(--color-foreground)]">
+              {shipment.billOfLading ?? "Envío"}
+            </p>
+            <Badge tone={STAGE_TONES[stage]}>{STAGE_LABELS[stage]}</Badge>
+          </div>
+          <p className="text-xs text-[var(--color-muted)] mt-0.5">
+            {shipment.containers.length}{" "}
+            {shipment.containers.length === 1 ? "contenedor" : "contenedores"}
+            {shipment.weightKg ? ` · ${formatKg(shipment.weightKg)}` : ""}
+          </p>
+          {shipment.containers.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {shipment.containers.map((c) => (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center rounded bg-[var(--color-surface-hover)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-muted)]"
+                  title={c.billOfLading ? `BL ${c.billOfLading}` : undefined}
+                >
+                  {c.reference}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="text-right text-xs space-y-0.5">
+          {shipment.departureDate && (
+            <p>
+              <span className="text-[var(--color-muted)]">Salida: </span>
+              {formatDate(shipment.departureDate)}
+            </p>
+          )}
+          <p>
+            <span className="text-[var(--color-muted)]">ETA Valencia: </span>
+            {shipment.arrivedValencia ? (
+              <span className="inline-flex items-center gap-1">
+                <Anchor className="w-3 h-3 text-green-600" />
+                {formatDate(shipment.arrivedValencia)}
+              </span>
+            ) : shipment.etaValencia ? (
+              formatDate(shipment.etaValencia)
+            ) : (
+              "—"
+            )}
+          </p>
+          <p className="font-medium">
+            <span className="font-normal text-[var(--color-muted)]">
+              ETA Planta:{" "}
+            </span>
+            {shipment.arrivedPlanta ? (
+              <span className="inline-flex items-center gap-1">
+                <Factory className="w-3 h-3 text-green-600" />
+                {formatDate(shipment.arrivedPlanta)}
+              </span>
+            ) : shipment.etaPlanta ? (
+              formatDate(shipment.etaPlanta)
+            ) : (
+              "—"
+            )}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2 flex justify-end">
+        {stage === "MARITIMO" && (
+          <TransitMilestoneButton
+            shipmentId={shipment.id}
+            milestone="valencia"
+          />
+        )}
+        {stage === "VALENCIA" && (
+          <TransitMilestoneButton shipmentId={shipment.id} milestone="planta" />
+        )}
+        {stage === "PLANTA" && (
+          <span className="text-xs text-[var(--color-muted)]">Completado</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Orden de compra como fila desplegable con sus envíos (native <details>). */
+function OrderRow({ p }: { p: PurchaseOrderPivot }): React.JSX.Element {
+  const { order } = p;
+  return (
+    <details className="group rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 list-none">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-[var(--color-foreground)] truncate">
+              {order.poNumber}
+            </p>
+            <PurchaseOrderStatusBadge status={order.status} />
+          </div>
+          <p className="text-xs text-[var(--color-muted)] mt-0.5">
+            {order.supplier.name} · {p.materialName ?? "Sin material"}
+            {order.originPort ? ` · ${order.originPort}` : ""} ·{" "}
+            {p.shipmentCount === 1 ? "1 envío" : `${p.shipmentCount} envíos`}
+            {p.nextEtaPlanta ? ` · ETA ${formatDate(p.nextEtaPlanta)}` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="hidden sm:flex items-center gap-2 text-xs">
+            <span className="text-[var(--color-muted)]">
+              Pedido{" "}
+              <span className="font-medium text-[var(--color-foreground)]">
+                {tons(p.orderedTons)}
+              </span>
+            </span>
+            <span className="text-[var(--color-muted)]">
+              Recibido{" "}
+              <span className="font-medium text-green-700">
+                {tons(p.receivedTons)}
+              </span>
+            </span>
+          </div>
+          <ChevronDown className="w-4 h-4 text-[var(--color-muted)] transition-transform group-open:rotate-180" />
+        </div>
+      </summary>
+
+      <div className="border-t border-[var(--color-border)] p-3 space-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <TonChip label="Pedido" value={p.orderedTons} />
+          <TonChip
+            label="Enviado"
+            value={p.sentTons}
+            accent="var(--color-primary)"
+          />
+          <TonChip label="Recibido" value={p.receivedTons} accent="#15803d" />
+          <TonChip
+            label="Pendiente"
+            value={p.pendingTons}
+            accent="var(--color-warning)"
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
+            <Ship className="w-4 h-4 text-[var(--color-muted)]" />
+            Envíos del pedido
+          </h4>
+          <NewShipmentDialog
+            purchaseOrderId={order.id}
+            poNumber={order.poNumber}
+          />
+        </div>
+
+        {order.providerShipments.length === 0 ? (
+          <p className="text-sm text-[var(--color-muted)]">
+            Sin envíos registrados. Crea el primer envío para generar sus
+            contenedores en Recepciones.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {order.providerShipments.map((s) => (
+              <ShipmentCard key={s.id} shipment={s} />
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export default async function AprovisionamientoPage({
   searchParams,
 }: {
@@ -67,9 +274,8 @@ export default async function AprovisionamientoPage({
   const { status } = await searchParams;
   const filter = isPurchaseOrderStatus(status) ? status : undefined;
 
-  const [pivot, shipments, stats, formData] = await Promise.all([
+  const [pivot, stats, formData] = await Promise.all([
     listPurchaseOrdersPivot(filter),
-    listShipments(),
     getProcurementStats(),
     getProcurementFormData(),
   ]);
@@ -80,13 +286,10 @@ export default async function AprovisionamientoPage({
         title="Aprovisionamiento"
         description="Órdenes de compra, tránsito marítimo y tracking de llegadas de materia prima."
         actions={
-          <div className="flex gap-2">
-            <NewShipmentDialog openOrders={formData.openOrders} />
-            <NewPurchaseOrderDialog
-              suppliers={formData.suppliers}
-              materials={formData.materials}
-            />
-          </div>
+          <NewPurchaseOrderDialog
+            suppliers={formData.suppliers}
+            materials={formData.materials}
+          />
         }
       />
 
@@ -137,7 +340,7 @@ export default async function AprovisionamientoPage({
         })}
       </div>
 
-      {/* Tabla maestra de órdenes de compra */}
+      {/* Lista de órdenes de compra con sus envíos desplegables */}
       {pivot.length === 0 ? (
         <EmptyState
           icon={Package}
@@ -145,162 +348,12 @@ export default async function AprovisionamientoPage({
           description="Crea una orden de compra para empezar a planificar el aprovisionamiento de materia prima."
         />
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>Pedido</TH>
-              <TH>Proveedor</TH>
-              <TH>Origen material</TH>
-              <TH className="text-right">Pedido (t)</TH>
-              <TH className="text-right">Enviado (t)</TH>
-              <TH className="text-right">Recibido (t)</TH>
-              <TH className="text-right">Pendiente (t)</TH>
-              <TH>Estado</TH>
-              <TH>ETA</TH>
-              <TH className="text-right">Acción</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {pivot.map((p) => (
-              <TR key={p.order.id}>
-                <TD className="font-medium">{p.order.poNumber}</TD>
-                <TD>{p.order.supplier.name}</TD>
-                <TD>{p.materialName ?? "—"}</TD>
-                <TD className="text-right">{tons(p.orderedTons)}</TD>
-                <TD className="text-right">{tons(p.sentTons)}</TD>
-                <TD className="text-right">{tons(p.receivedTons)}</TD>
-                <TD className="text-right">{tons(p.pendingTons)}</TD>
-                <TD>
-                  <PurchaseOrderStatusBadge status={p.order.status} />
-                </TD>
-                <TD>
-                  {p.nextEtaPlanta ? (
-                    formatDate(p.nextEtaPlanta)
-                  ) : (
-                    <span className="text-[var(--color-muted)]">—</span>
-                  )}
-                </TD>
-                <TD className="text-right">
-                  <span className="text-xs text-[var(--color-muted)]">
-                    {p.shipmentCount === 1
-                      ? "1 envío"
-                      : `${p.shipmentCount} envíos`}
-                  </span>
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <div className="space-y-2">
+          {pivot.map((p) => (
+            <OrderRow key={p.order.id} p={p} />
+          ))}
+        </div>
       )}
-
-      {/* Tracking de envíos (detalle por envío) */}
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
-          Tracking de envíos
-          <span className="ml-2 text-[var(--color-muted)] font-normal">
-            {shipments.length}
-          </span>
-        </h2>
-        {shipments.length === 0 ? (
-          <EmptyState
-            icon={Ship}
-            title="No hay envíos registrados"
-            description="Registra un envío asociado a una orden de compra para hacer seguimiento del tránsito."
-          />
-        ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Pedido / BL</TH>
-                <TH>Proveedor</TH>
-                <TH>Origen / Barco</TH>
-                <TH>Etapa</TH>
-                <TH className="text-right">Peso</TH>
-                <TH>ETA Valencia</TH>
-                <TH>ETA Planta</TH>
-                <TH className="text-right">Acción</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {shipments.map((s) => {
-                const stage = shipmentStage(s);
-                return (
-                  <TR key={s.id}>
-                    <TD className="font-medium">
-                      {s.purchaseOrder?.poNumber ?? "—"}
-                      {s.billOfLading && (
-                        <span className="block text-xs font-normal text-[var(--color-muted)]">
-                          {s.billOfLading}
-                        </span>
-                      )}
-                    </TD>
-                    <TD>{s.purchaseOrder?.supplier.name ?? "—"}</TD>
-                    <TD>
-                      {s.origin ?? "—"}
-                      {s.vessel && (
-                        <span className="block text-xs text-[var(--color-muted)]">
-                          {s.vessel}
-                        </span>
-                      )}
-                    </TD>
-                    <TD>
-                      <Badge tone={STAGE_TONES[stage]}>
-                        {STAGE_LABELS[stage]}
-                      </Badge>
-                    </TD>
-                    <TD className="text-right">
-                      {s.weightKg ? formatKg(s.weightKg) : "—"}
-                    </TD>
-                    <TD>
-                      {s.arrivedValencia ? (
-                        <span className="inline-flex items-center gap-1 text-[var(--color-foreground)]">
-                          <Anchor className="w-3.5 h-3.5 text-green-600" />
-                          {formatDate(s.arrivedValencia)}
-                        </span>
-                      ) : (
-                        <span className="text-[var(--color-muted)]">
-                          {s.etaValencia ? formatDate(s.etaValencia) : "—"}
-                        </span>
-                      )}
-                    </TD>
-                    <TD>
-                      {s.arrivedPlanta ? (
-                        <span className="inline-flex items-center gap-1 text-[var(--color-foreground)]">
-                          <Factory className="w-3.5 h-3.5 text-green-600" />
-                          {formatDate(s.arrivedPlanta)}
-                        </span>
-                      ) : (
-                        <span className="text-[var(--color-muted)]">
-                          {s.etaPlanta ? formatDate(s.etaPlanta) : "—"}
-                        </span>
-                      )}
-                    </TD>
-                    <TD className="text-right">
-                      {stage === "MARITIMO" && (
-                        <TransitMilestoneButton
-                          shipmentId={s.id}
-                          milestone="valencia"
-                        />
-                      )}
-                      {stage === "VALENCIA" && (
-                        <TransitMilestoneButton
-                          shipmentId={s.id}
-                          milestone="planta"
-                        />
-                      )}
-                      {stage === "PLANTA" && (
-                        <span className="text-xs text-[var(--color-muted)]">
-                          Completado
-                        </span>
-                      )}
-                    </TD>
-                  </TR>
-                );
-              })}
-            </TBody>
-          </Table>
-        )}
-      </section>
     </div>
   );
 }

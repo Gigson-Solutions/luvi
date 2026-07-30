@@ -25,9 +25,13 @@ const createOrderSchema = z.object({
   orderedTons: z.coerce
     .number()
     .positive("Las toneladas deben ser mayores que 0"),
-  pricePerTon: z.preprocess(
+  originPort: z.string().optional(),
+  totalPrice: z.preprocess(
     (v) => (v === "" || v == null ? undefined : v),
-    z.coerce.number().nonnegative("El precio no puede ser negativo").optional(),
+    z.coerce
+      .number()
+      .nonnegative("El precio total no puede ser negativo")
+      .optional(),
   ),
   notes: z.string().optional(),
 });
@@ -45,10 +49,11 @@ export async function createPurchaseOrderAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { materialId, ...rest } = parsed.data;
+    const { materialId, originPort, ...rest } = parsed.data;
     const order = await createPurchaseOrder({
       ...rest,
       materialId: materialId || undefined,
+      originPort: originPort || undefined,
     });
     await logAudit({
       userId: actor.id,
@@ -68,15 +73,44 @@ export async function createPurchaseOrderAction(
 }
 
 // ─── Crear envío de proveedor ─────────────────────────────────────────────────────
+const shipmentContainerSchema = z.object({
+  billOfLading: z.string().trim().min(1, "El BL es obligatorio"),
+  reference: z.string().trim().min(1, "El nº de contenedor es obligatorio"),
+});
+
 const createShipmentSchema = z.object({
   purchaseOrderId: z.string().min(1, "Selecciona una orden de compra"),
-  billOfLading: z.string().optional(),
-  origin: z.string().optional(),
-  vessel: z.string().optional(),
-  etaValencia: z.string().optional(),
-  etaPlanta: z.string().optional(),
+  departureDate: z.string().min(1, "La fecha de salida es obligatoria"),
+  maritimeDays: z.coerce.number().int().min(0).optional(),
+  terrestrialDays: z.coerce.number().int().min(0).optional(),
+  // Pares BL ↔ Contenedor serializados como JSON desde el formulario dinámico.
+  containers: z
+    .string()
+    .min(1, "Añade al menos un contenedor")
+    .transform((raw, ctx) => {
+      let value: unknown;
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Contenedores inválidos",
+        });
+        return z.NEVER;
+      }
+      const result = z.array(shipmentContainerSchema).min(1).safeParse(value);
+      if (!result.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            result.error.issues[0]?.message ??
+            "Añade al menos un contenedor con BL y nº",
+        });
+        return z.NEVER;
+      }
+      return result.data;
+    }),
   weightKg: z.coerce.number().positive().optional(),
-  numContainers: z.coerce.number().int().min(0).optional(),
   notes: z.string().optional(),
 });
 
@@ -93,15 +127,10 @@ export async function createShipmentAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { etaValencia, etaPlanta, billOfLading, origin, vessel, ...rest } =
-      parsed.data;
+    const { departureDate, ...rest } = parsed.data;
     const shipment = await createProviderShipment({
       ...rest,
-      billOfLading: billOfLading || undefined,
-      origin: origin || undefined,
-      vessel: vessel || undefined,
-      etaValencia: etaValencia ? new Date(etaValencia) : undefined,
-      etaPlanta: etaPlanta ? new Date(etaPlanta) : undefined,
+      departureDate: new Date(departureDate),
     });
     await logAudit({
       userId: actor.id,

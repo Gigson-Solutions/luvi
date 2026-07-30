@@ -175,7 +175,10 @@ export interface CreatePurchaseOrderInput {
   supplierId: string;
   materialId?: string;
   orderedTons: number;
-  pricePerTon?: number;
+  /** Puerto o país de origen del pedido. */
+  originPort?: string;
+  /** Precio total del pedido (€). Deriva pricePerTon = totalPrice / orderedTons. */
+  totalPrice?: number;
   notes?: string;
 }
 
@@ -192,18 +195,26 @@ async function generatePoNumber(): Promise<string> {
   return `${prefix}${String(count + 1).padStart(3, "0")}`;
 }
 
-/** Crea una orden de compra con poNumber autogenerado. */
+/** Crea una orden de compra con poNumber autogenerado.
+ *  El precio por tonelada se deriva del precio total: pricePerTon =
+ *  totalPrice / orderedTons (4 decimales) cuando hay precio total y toneladas>0. */
 export async function createPurchaseOrder(
   input: CreatePurchaseOrderInput,
 ): Promise<PurchaseOrderWithShipments> {
   const poNumber = await generatePoNumber();
+  const pricePerTon =
+    input.totalPrice != null && input.orderedTons > 0
+      ? Math.round((input.totalPrice / input.orderedTons) * 10000) / 10000
+      : null;
   return prisma.purchaseOrder.create({
     data: {
       poNumber,
       supplierId: input.supplierId,
       materialId: input.materialId ?? null,
       orderedTons: input.orderedTons,
-      pricePerTon: input.pricePerTon ?? null,
+      originPort: input.originPort ?? null,
+      totalPrice: input.totalPrice ?? null,
+      pricePerTon,
       notes: input.notes ?? null,
     },
     include: {
@@ -213,58 +224,89 @@ export async function createPurchaseOrder(
   });
 }
 
+/** Milisegundos en un día, para el cálculo de ETAs. */
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Días de tránsito marítimo/terrestre por defecto (naming del negocio). */
+export const DEFAULT_MARITIME_DAYS = 30;
+export const DEFAULT_TERRESTRIAL_DAYS = 7;
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * MS_PER_DAY);
+}
+
+/** Par contenedor: bill of lading + nº de contenedor tecleado por el usuario. */
+export interface ShipmentContainerInput {
+  billOfLading: string;
+  reference: string;
+}
+
 export interface CreateShipmentInput {
   purchaseOrderId: string;
-  billOfLading?: string;
-  origin?: string;
-  vessel?: string;
-  etaValencia?: Date;
-  etaPlanta?: Date;
+  /** Fecha de salida de origen — base del cálculo de ETAs. */
+  departureDate: Date;
+  /** Días de tránsito marítimo (default 30). */
+  maritimeDays?: number;
+  /** Días de tránsito terrestre Valencia → planta (default 7). */
+  terrestrialDays?: number;
+  /** Pares BL ↔ nº de contenedor. Mínimo 1. */
+  containers: ShipmentContainerInput[];
   weightKg?: number;
-  numContainers?: number;
   notes?: string;
 }
 
 /**
- * Crea un envío de proveedor asociado a una PO, opcionalmente con N contenedores
- * vacíos (placeholders) que luego se completan en Recepciones. Transaccional.
- * Al crear un envío, la PO pasa a EN_TRANSITO si seguía ABIERTA.
+ * Crea un envío de proveedor asociado a una PO. Flujo GL-45:
+ *  - ETAs derivadas de la fecha de salida:
+ *      etaValencia = salida + díasMarítimos
+ *      etaPlanta   = salida + díasMarítimos + díasTerrestres
+ *  - Un Container por cada par {billOfLading, reference}, con supplier/material
+ *    heredados de la PO y estimatedArrival = etaPlanta → aparecen en Recepciones
+ *    como pendientes de recibir con su fecha prevista.
+ * Transaccional. Al crear un envío, la PO pasa a EN_TRANSITO si seguía ABIERTA.
  */
 export async function createProviderShipment(
   input: CreateShipmentInput,
 ): Promise<ShipmentWithOrder> {
-  const numContainers = Math.max(0, Math.floor(input.numContainers ?? 0));
+  const maritimeDays = input.maritimeDays ?? DEFAULT_MARITIME_DAYS;
+  const terrestrialDays = input.terrestrialDays ?? DEFAULT_TERRESTRIAL_DAYS;
+  const etaValencia = addDays(input.departureDate, maritimeDays);
+  const etaPlanta = addDays(
+    input.departureDate,
+    maritimeDays + terrestrialDays,
+  );
 
   const shipment = await prisma.$transaction(async (tx) => {
+    const order = await tx.purchaseOrder.findUniqueOrThrow({
+      where: { id: input.purchaseOrderId },
+      select: { supplierId: true, materialId: true },
+    });
+
     const created = await tx.providerShipment.create({
       data: {
         purchaseOrderId: input.purchaseOrderId,
-        billOfLading: input.billOfLading ?? null,
-        origin: input.origin ?? null,
-        vessel: input.vessel ?? null,
-        etaValencia: input.etaValencia ?? null,
-        etaPlanta: input.etaPlanta ?? null,
+        billOfLading: input.containers[0]?.billOfLading ?? null,
+        departureDate: input.departureDate,
+        maritimeDays,
+        terrestrialDays,
+        etaValencia,
+        etaPlanta,
         weightKg: input.weightKg ?? null,
         notes: input.notes ?? null,
       },
     });
 
-    if (numContainers > 0) {
-      const order = await tx.purchaseOrder.findUnique({
-        where: { id: input.purchaseOrderId },
-        select: { supplierId: true, materialId: true, poNumber: true },
+    for (const c of input.containers) {
+      await tx.container.create({
+        data: {
+          reference: c.reference,
+          billOfLading: c.billOfLading,
+          supplierId: order.supplierId,
+          materialId: order.materialId,
+          providerShipmentId: created.id,
+          estimatedArrival: etaPlanta,
+        },
       });
-      if (order) {
-        await tx.container.createMany({
-          data: Array.from({ length: numContainers }, (_, i) => ({
-            reference: `${order.poNumber}-C${String(i + 1).padStart(2, "0")}`,
-            supplierId: order.supplierId,
-            materialId: order.materialId,
-            billOfLading: input.billOfLading ?? null,
-            providerShipmentId: created.id,
-          })),
-        });
-      }
     }
 
     return tx.providerShipment.findUniqueOrThrow({
