@@ -346,6 +346,11 @@ model ProductionLot {
   producedAt DateTime  @default(now())
   notes      String?
 
+  // GL-36: lotes de 22 sacas. Un lote acumula sacas de salida mientras está
+  // abierto; al llegar a 22 se cierra (isOpen=false) y queda "listo para enviar".
+  isOpen   Boolean   @default(true)
+  closedAt DateTime?
+
   material        Material         @relation(fields: [materialId], references: [id])
   sacks           Sack[]           // sacas de output (PT/Sub/Rechazo)
   transformations Transformation[]

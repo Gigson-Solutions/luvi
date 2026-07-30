@@ -9,6 +9,7 @@ import {
   enterHopper,
   createOutputSack,
   findWarehouseSackByQr,
+  MAX_SACKS_PER_LOT,
   type SackWithMaterialZone,
 } from "@/lib/services/production.service";
 import type { CurrentUser } from "@/lib/rbac";
@@ -108,29 +109,34 @@ export async function createOutputSackAction(
     }
     const d = parsed.data;
     // La saca de salida NO se ubica en almacén: va directa a Expediciones.
-    const { id, qrCode, lotNumber, inputCount } = await createOutputSack({
-      type: d.type,
-      materialId: d.materialId,
-      weight: d.weight,
-      notes: d.notes || undefined,
-    });
+    const { id, qrCode, lotNumber, inputCount, sackCount, lotClosed } =
+      await createOutputSack({
+        type: d.type,
+        materialId: d.materialId,
+        weight: d.weight,
+        notes: d.notes || undefined,
+      });
     await logAudit({
       userId: actor.id,
       action: "CREATE_OUTPUT_SACK",
       entity: "Sack",
       entityId: id,
-      payload: { lotNumber, qrCode, type: d.type, inputCount },
+      payload: { lotNumber, qrCode, type: d.type, inputCount, sackCount },
     });
     revalidatePath("/produccion");
     revalidatePath("/almacen");
+    revalidatePath("/expediciones");
     revalidatePath("/trazabilidad");
     const origen =
       inputCount > 0
         ? ` · ${inputCount} saca${inputCount === 1 ? "" : "s"} de origen`
         : "";
+    const lote = lotClosed
+      ? ` · lote ${lotNumber} COMPLETO (${sackCount}/${MAX_SACKS_PER_LOT})`
+      : ` · lote ${lotNumber} (${sackCount}/${MAX_SACKS_PER_LOT})`;
     return {
       ok: true,
-      message: `Saca ${qrCode} · lote ${lotNumber}${origen}`,
+      message: `Saca ${qrCode}${lote}${origen}`,
       created: { id, qrCode, lotNumber },
     };
   } catch (e) {

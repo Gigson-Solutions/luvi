@@ -48,6 +48,9 @@ function startOfToday(): Date {
   return d;
 }
 
+/** GL-36: nº máximo de sacas de salida por lote. Al alcanzarlo, el lote se cierra. */
+export const MAX_SACKS_PER_LOT = 22;
+
 // ─── Consultas ─────────────────────────────────────────────────────────────────
 
 /** Sacas EN_ALMACEN disponibles para entrar a tolva. */
@@ -218,13 +221,16 @@ async function getOrCreateDailyLot(
   type: LotType,
   materialId: string,
 ): Promise<Prisma.ProductionLotGetPayload<Record<string, never>>> {
-  const start = startOfToday();
+  // GL-36: reutiliza el lote ABIERTO del mismo tipo+material (aunque sea de un
+  // día anterior si todavía no ha llegado a 22 sacas). Solo si no hay ninguno
+  // abierto se crea uno nuevo.
   const existing = await tx.productionLot.findFirst({
-    where: { type, materialId, producedAt: { gte: start } },
-    orderBy: { producedAt: "desc" },
+    where: { type, materialId, isOpen: true },
+    orderBy: { producedAt: "asc" },
   });
   if (existing) return existing;
 
+  const start = startOfToday();
   const countToday = await tx.productionLot.count({
     where: { producedAt: { gte: start } },
   });
@@ -359,6 +365,8 @@ export async function createOutputSack(input: CreateOutputSackInput): Promise<{
   qrCode: string;
   lotNumber: string;
   inputCount: number;
+  sackCount: number;
+  lotClosed: boolean;
 }> {
   if (input.weight <= 0) {
     throw new Error("El peso debe ser mayor que 0.");
@@ -400,11 +408,25 @@ export async function createOutputSack(input: CreateOutputSackInput): Promise<{
       }
     }
 
+    // GL-36: al llegar a 22 sacas, el lote se cierra automáticamente y queda
+    // "listo para enviar".
+    const sackCount = await tx.sack.count({ where: { lotId: lot.id } });
+    let lotClosed = false;
+    if (lot.isOpen && sackCount >= MAX_SACKS_PER_LOT) {
+      await tx.productionLot.update({
+        where: { id: lot.id },
+        data: { isOpen: false, closedAt: new Date() },
+      });
+      lotClosed = true;
+    }
+
     return {
       id: sack.id,
       qrCode: sack.qrCode,
       lotNumber: lot.lotNumber,
       inputCount,
+      sackCount,
+      lotClosed,
     };
   });
 }

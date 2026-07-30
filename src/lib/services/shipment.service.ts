@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createAlbaran } from "@/lib/integrations/holded";
+import { getCostsConfig, type CostsConfig } from "@/lib/services/cost.service";
 import {
   LotType,
   SackStatus,
@@ -145,14 +146,33 @@ export interface AvailableLotSack {
   weight: number;
 }
 
+/** GL-36 — desglose del coste total de un lote de salida. */
+export interface LotCosts {
+  /** Coste de materia prima: Σ (€/t de compra × toneladas) de las sacas de entrada. */
+  material: number;
+  /** Coste de procesado: Σ sacas de entrada consumidas × coste/saca. */
+  processing: number;
+  /** Coste de consumibles: nº sacas × (coste palé + coste saca vacía). */
+  consumable: number;
+  /** Suma de los tres. */
+  total: number;
+  /** Nº de sacas de entrada que conformaron el lote (para procesado/material). */
+  inputSacks: number;
+}
+
 export interface AvailableOutputLot {
   id: string;
   lotNumber: string;
   type: LotType;
   materialName: string;
   producedAt: Date;
+  /** GL-36: false = cerrado (22 sacas, listo para enviar); true = acumulando. */
+  isOpen: boolean;
+  /** Nº de sacas de salida en el lote (para el contador n/22). */
+  sackCount: number;
   availableKg: number;
   availableSacks: number;
+  costs: LotCosts;
   sacks: AvailableLotSack[];
 }
 
@@ -162,9 +182,75 @@ export interface AvailableOutputLots {
   rechazo: AvailableOutputLot[];
 }
 
+/**
+ * GL-36 — coste total de un lote a partir de sus sacas de salida y las sacas de
+ * entrada que las conformaron (trazabilidad GL-37):
+ *   · material   = Σ (€/t de compra de la saca de entrada × sus toneladas)
+ *   · procesado  = nº sacas de entrada consumidas × coste/saca configurado
+ *   · consumible = nº sacas de salida × (coste palé + coste saca vacía)
+ */
+function computeLotCosts(
+  outputSacks: {
+    composedOf: {
+      inputSack: {
+        weight: number;
+        container: {
+          providerShipment: {
+            purchaseOrder: { pricePerTon: number | null } | null;
+          } | null;
+        } | null;
+      };
+    }[];
+  }[],
+  sackCount: number,
+  costs: CostsConfig,
+): LotCosts {
+  let inputSacks = 0;
+  let material = 0;
+  for (const s of outputSacks) {
+    for (const c of s.composedOf) {
+      inputSacks += 1;
+      const pricePerTon =
+        c.inputSack.container?.providerShipment?.purchaseOrder?.pricePerTon ??
+        0;
+      material += pricePerTon * (c.inputSack.weight / 1000);
+    }
+  }
+  const processing = inputSacks * costs.processingPerSack;
+  const consumable = sackCount * (costs.palletCost + costs.emptySackCost);
+  const round = (n: number): number => Math.round(n * 100) / 100;
+  return {
+    material: round(material),
+    processing: round(processing),
+    consumable: round(consumable),
+    total: round(material + processing + consumable),
+    inputSacks,
+  };
+}
+
+const lotCostSackSelect = {
+  composedOf: {
+    select: {
+      inputSack: {
+        select: {
+          weight: true,
+          container: {
+            select: {
+              providerShipment: {
+                select: { purchaseOrder: { select: { pricePerTon: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.SackSelect;
+
 /** Lotes de un tipo con sus sacas todavía disponibles (no expedidas). */
 async function availableLotsByType(
   type: LotType,
+  costs: CostsConfig,
 ): Promise<AvailableOutputLot[]> {
   const sackStatus = LOT_TYPE_TO_SACK_STATUS[type];
   const lots = await prisma.productionLot.findMany({
@@ -178,11 +264,13 @@ async function availableLotsByType(
           qrCode: true,
           weight: true,
           material: { select: { name: true } },
+          ...lotCostSackSelect,
         },
         orderBy: { createdAt: "asc" },
       },
     },
-    orderBy: { producedAt: "desc" },
+    // Abiertos primero (el lote en curso arriba), luego por fecha desc.
+    orderBy: [{ isOpen: "desc" }, { producedAt: "desc" }],
   });
 
   return lots.map((l) => ({
@@ -191,9 +279,12 @@ async function availableLotsByType(
     type: l.type,
     materialName: l.material.name,
     producedAt: l.producedAt,
+    isOpen: l.isOpen,
+    sackCount: l.sacks.length,
     availableKg:
       Math.round(l.sacks.reduce((sum, s) => sum + s.weight, 0) * 100) / 100,
     availableSacks: l.sacks.length,
+    costs: computeLotCosts(l.sacks, l.sacks.length, costs),
     sacks: l.sacks.map((s) => ({
       id: s.id,
       qrCode: s.qrCode,
@@ -208,10 +299,11 @@ async function availableLotsByType(
  * Subproducto, Rechazo). Alimenta la pestaña "Lotes de Salida".
  */
 export async function getAvailableOutputLots(): Promise<AvailableOutputLots> {
+  const costs = await getCostsConfig();
   const [productoTerminado, subproducto, rechazo] = await Promise.all([
-    availableLotsByType(LotType.PRODUCTO_TERMINADO),
-    availableLotsByType(LotType.SUBPRODUCTO),
-    availableLotsByType(LotType.RECHAZO),
+    availableLotsByType(LotType.PRODUCTO_TERMINADO, costs),
+    availableLotsByType(LotType.SUBPRODUCTO, costs),
+    availableLotsByType(LotType.RECHAZO, costs),
   ]);
   return { productoTerminado, subproducto, rechazo };
 }
