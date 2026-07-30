@@ -216,6 +216,39 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
           },
         },
       },
+      // Trazabilidad precisa saca-a-saca (GL-37).
+      // Si es salida: `composedOf` = sacas de entrada que la conformaron.
+      composedOf: {
+        include: {
+          inputSack: {
+            select: {
+              id: true,
+              qrCode: true,
+              weight: true,
+              status: true,
+              lotId: true,
+              material: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      // Si es entrada: `consumedBy` = sacas de salida a las que contribuyó.
+      consumedBy: {
+        include: {
+          outputSack: {
+            select: {
+              id: true,
+              qrCode: true,
+              weight: true,
+              status: true,
+              lotId: true,
+              material: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
@@ -416,20 +449,30 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
   let related: TraceRelatedSack[] = [];
 
   if (isOutput) {
-    // Padres: sacas de entrada consumidas para producir su lote.
+    // Padres: sacas de entrada que conformaron ESTA saca de salida.
+    // Precisión GL-37: si hay trazabilidad saca-a-saca (`composedOf`), se usa
+    // esa; si no (datos antiguos), se cae al nivel de lote (transformaciones).
     const seenParents = new Set<string>();
-    for (const t of originTransformations) {
-      for (const inp of t.inputs) {
-        if (seenParents.has(inp.id)) continue;
-        seenParents.add(inp.id);
-        parents.push({
-          id: inp.id,
-          qrCode: inp.qrCode,
-          weight: inp.weight,
-          materialName: inp.materialName,
-          status: inp.status,
-          isOutput: false,
-        });
+    if (sack.composedOf.length > 0) {
+      for (const c of sack.composedOf) {
+        if (seenParents.has(c.inputSack.id)) continue;
+        seenParents.add(c.inputSack.id);
+        parents.push(toRelated(c.inputSack));
+      }
+    } else {
+      for (const t of originTransformations) {
+        for (const inp of t.inputs) {
+          if (seenParents.has(inp.id)) continue;
+          seenParents.add(inp.id);
+          parents.push({
+            id: inp.id,
+            qrCode: inp.qrCode,
+            weight: inp.weight,
+            materialName: inp.materialName,
+            status: inp.status,
+            isOutput: false,
+          });
+        }
       }
     }
     // Relacionadas: hermanas del mismo lote de salida.
@@ -442,15 +485,26 @@ export async function traceSack(query: string): Promise<SackTrace | null> {
       related = siblings.map(toRelated);
     }
   } else {
-    // Hijos: sacas finales producidas a partir de los lotes que alimentó.
-    const producedLotIds = Array.from(producedLotsById.keys());
-    if (producedLotIds.length > 0) {
-      const outputs = await prisma.sack.findMany({
-        where: { lotId: { in: producedLotIds } },
-        select: relatedSelect,
-        orderBy: { qrCode: "asc" },
-      });
-      children = outputs.map(toRelated);
+    // Hijos: sacas de salida que ESTA saca de entrada conformó.
+    // Precisión GL-37: si hay trazabilidad saca-a-saca (`consumedBy`), se usa
+    // esa; si no (datos antiguos), se cae al nivel de lote.
+    if (sack.consumedBy.length > 0) {
+      const seenChildren = new Set<string>();
+      for (const c of sack.consumedBy) {
+        if (seenChildren.has(c.outputSack.id)) continue;
+        seenChildren.add(c.outputSack.id);
+        children.push(toRelated(c.outputSack));
+      }
+    } else {
+      const producedLotIds = Array.from(producedLotsById.keys());
+      if (producedLotIds.length > 0) {
+        const outputs = await prisma.sack.findMany({
+          where: { lotId: { in: producedLotIds } },
+          select: relatedSelect,
+          orderBy: { qrCode: "asc" },
+        });
+        children = outputs.map(toRelated);
+      }
     }
     // Relacionadas: otras sacas de entrada consumidas en las mismas transformaciones.
     const txs = await prisma.transformation.findMany({

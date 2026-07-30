@@ -316,6 +316,12 @@ model Sack {
   transformationInputs  TransformationInput[]
   shipmentSacks         ShipmentSack[]
 
+  // Trazabilidad de salida (GL-37): si es saca de salida (PT/Sub/Rechazo),
+  // `composedOf` son las sacas de entrada que la conformaron; si es saca de
+  // entrada (tolva), `consumedBy` son las salidas a las que contribuyó.
+  composedOf OutputSackInput[] @relation("SackComposition")
+  consumedBy OutputSackInput[] @relation("SackConsumedBy")
+
   notes       String?
   batchNumber String? // nº saca dentro del contenedor (ej: 1/50)
 
@@ -385,6 +391,26 @@ model TransformationInput {
   @@index([transformationId])
   @@index([sackId])
   @@map("transformation_inputs")
+}
+
+// Trazabilidad saca de salida → sacas de entrada (GL-37).
+// Cada saca de salida (PT/Subproducto/Rechazo) registra qué sacas de la tolva
+// la conformaron. El acumulador por tipo se deriva: los inputs de la
+// transformación abierta que aún no están ligados a una salida de ese tipo.
+model OutputSackInput {
+  id           String @id @default(cuid())
+  outputSackId String // saca de salida (PT/Sub/Rechazo)
+  inputSackId  String // saca de entrada (tolva) que la conformó
+
+  outputSack Sack @relation("SackComposition", fields: [outputSackId], references: [id], onDelete: Cascade)
+  inputSack  Sack @relation("SackConsumedBy", fields: [inputSackId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([outputSackId, inputSackId])
+  @@index([outputSackId])
+  @@index([inputSackId])
+  @@map("output_sack_inputs")
 }
 
 // ─── Expediciones ─────────────────────────────────────────────────────────────

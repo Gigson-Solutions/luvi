@@ -222,6 +222,7 @@ function OutputTab({
             <TH>QR</TH>
             <TH>Material</TH>
             <TH>Peso</TH>
+            <TH>Sacas de origen</TH>
             <TH>Lote</TH>
             <TH>Fecha</TH>
           </TR>
@@ -232,6 +233,23 @@ function OutputTab({
               <TD className="font-medium">{s.qrCode}</TD>
               <TD>{s.material.name}</TD>
               <TD>{formatKg(s.weight)}</TD>
+              <TD>
+                {s.composedOf.length === 0 ? (
+                  <span className="text-[var(--color-muted)]">—</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {s.composedOf.map((c) => (
+                      <span
+                        key={c.id}
+                        title={`${c.inputSack.material.name} · ${formatKg(c.inputSack.weight)}`}
+                        className="inline-flex items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-hover)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-foreground)]"
+                      >
+                        {c.inputSack.qrCode}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </TD>
               <TD>{s.lot?.lotNumber ?? "—"}</TD>
               <TD>{formatDate(s.createdAt, true)}</TD>
             </TR>

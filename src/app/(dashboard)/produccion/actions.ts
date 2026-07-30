@@ -108,7 +108,7 @@ export async function createOutputSackAction(
     }
     const d = parsed.data;
     // La saca de salida NO se ubica en almacén: va directa a Expediciones.
-    const { id, qrCode, lotNumber } = await createOutputSack({
+    const { id, qrCode, lotNumber, inputCount } = await createOutputSack({
       type: d.type,
       materialId: d.materialId,
       weight: d.weight,
@@ -119,13 +119,18 @@ export async function createOutputSackAction(
       action: "CREATE_OUTPUT_SACK",
       entity: "Sack",
       entityId: id,
-      payload: { lotNumber, qrCode, type: d.type },
+      payload: { lotNumber, qrCode, type: d.type, inputCount },
     });
     revalidatePath("/produccion");
     revalidatePath("/almacen");
+    revalidatePath("/trazabilidad");
+    const origen =
+      inputCount > 0
+        ? ` · ${inputCount} saca${inputCount === 1 ? "" : "s"} de origen`
+        : "";
     return {
       ok: true,
-      message: `Saca ${qrCode} · lote ${lotNumber}`,
+      message: `Saca ${qrCode} · lote ${lotNumber}${origen}`,
       created: { id, qrCode, lotNumber },
     };
   } catch (e) {
