@@ -28,6 +28,10 @@ const movementSchema = z.object({
     .positive("La cantidad debe ser mayor que 0"),
   reason: z.string().min(1, "Indica el motivo"),
   vehiclePlate: z.string().optional(),
+  unitPrice: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().positive("El precio debe ser mayor que 0").optional(),
+  ),
   notes: z.string().optional(),
 });
 
@@ -51,6 +55,8 @@ export async function registerConsumableMovementAction(
       quantity: signedQuantity,
       reason: d.reason,
       vehiclePlate: d.vehiclePlate || undefined,
+      // El precio solo aplica a las entradas (compras).
+      unitPrice: d.direction === "entrada" ? d.unitPrice : undefined,
       notes: d.notes || undefined,
     });
     await logAudit({
