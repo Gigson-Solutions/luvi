@@ -22,7 +22,11 @@ export type SackWithMaterialZone = Prisma.SackGetPayload<{
 }>;
 
 export type OutputSack = Prisma.SackGetPayload<{
-  include: { material: true; lot: true };
+  include: {
+    material: true;
+    lot: true;
+    composedOf: { include: { inputSack: { include: { material: true } } } };
+  };
 }>;
 
 /** Estados de saca de salida por tipo de lote. */
@@ -86,7 +90,14 @@ export function listTodayOutput(): Promise<OutputSack[]> {
       status: { in: OUTPUT_STATUSES },
       createdAt: { gte: startOfToday() },
     },
-    include: { material: true, lot: true },
+    include: {
+      material: true,
+      lot: true,
+      composedOf: {
+        include: { inputSack: { include: { material: true } } },
+        orderBy: { createdAt: "asc" },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -101,7 +112,14 @@ export function listOutputSacksByType(
 ): Promise<OutputSack[]> {
   return prisma.sack.findMany({
     where: { status: OUTPUT_STATUS[type] },
-    include: { material: true, lot: true },
+    include: {
+      material: true,
+      lot: true,
+      composedOf: {
+        include: { inputSack: { include: { material: true } } },
+        orderBy: { createdAt: "asc" },
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -214,6 +232,59 @@ async function getOrCreateDailyLot(
   return tx.productionLot.create({ data: { lotNumber, type, materialId } });
 }
 
+/** Devuelve la transformación abierta del día, o null si no hay ninguna. */
+async function findOpenTransformation(tx: Tx): Promise<string | null> {
+  const open = await tx.transformation.findFirst({
+    where: { endedAt: null, startedAt: { gte: startOfToday() } },
+    orderBy: { startedAt: "desc" },
+    select: { id: true },
+  });
+  return open?.id ?? null;
+}
+
+/**
+ * Acumulador de trazabilidad por tipo (GL-37): sacas de entrada de la
+ * transformación abierta que AÚN no se han ligado a ninguna saca de salida del
+ * tipo indicado. Al crear una salida de ese tipo se ligan estas sacas y, como
+ * quedan registradas contra ese tipo, dejan de contar para la próxima salida
+ * del mismo tipo (se "resetea" solo ese contador; los otros tipos siguen
+ * acumulando las mismas sacas).
+ */
+async function accumulatedInputSackIds(
+  tx: Tx,
+  transformationId: string,
+  type: LotType,
+): Promise<string[]> {
+  // Todas las sacas que han entrado a la tolva en esta transformación.
+  const inputs = await tx.transformationInput.findMany({
+    where: { transformationId },
+    select: { sackId: true },
+    orderBy: { enteredAt: "asc" },
+  });
+  const inputIds = inputs.map((i) => i.sackId);
+  if (inputIds.length === 0) return [];
+
+  // Sacas de entrada ya ligadas a una salida de ESTE tipo → excluidas.
+  const alreadyLinked = await tx.outputSackInput.findMany({
+    where: {
+      inputSackId: { in: inputIds },
+      outputSack: { status: OUTPUT_STATUS[type] },
+    },
+    select: { inputSackId: true },
+  });
+  const linkedSet = new Set(alreadyLinked.map((l) => l.inputSackId));
+
+  // Preservar el orden de entrada y evitar duplicados.
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of inputIds) {
+    if (linkedSet.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 /** Reutiliza la transformación abierta del día o crea una nueva. */
 async function getOrCreateOpenTransformation(
   tx: Tx,
@@ -283,9 +354,12 @@ export interface CreateOutputSackInput {
  * asocia al lote del día correspondiente (transaccional). El nº de lote se
  * autogenera; para PT se acumula en el lote PT del día del mismo material.
  */
-export async function createOutputSack(
-  input: CreateOutputSackInput,
-): Promise<{ id: string; qrCode: string; lotNumber: string }> {
+export async function createOutputSack(input: CreateOutputSackInput): Promise<{
+  id: string;
+  qrCode: string;
+  lotNumber: string;
+  inputCount: number;
+}> {
   if (input.weight <= 0) {
     throw new Error("El peso debe ser mayor que 0.");
   }
@@ -303,6 +377,34 @@ export async function createOutputSack(
         notes: input.notes ?? null,
       },
     });
-    return { id: sack.id, qrCode: sack.qrCode, lotNumber: lot.lotNumber };
+
+    // Trazabilidad (GL-37): ligar las sacas de entrada acumuladas para este
+    // tipo. Al quedar registradas contra esta salida, no contarán para la
+    // próxima salida del mismo tipo (reset por tipo).
+    const transformationId = await findOpenTransformation(tx);
+    let inputCount = 0;
+    if (transformationId) {
+      const inputIds = await accumulatedInputSackIds(
+        tx,
+        transformationId,
+        input.type,
+      );
+      if (inputIds.length > 0) {
+        await tx.outputSackInput.createMany({
+          data: inputIds.map((inputSackId) => ({
+            outputSackId: sack.id,
+            inputSackId,
+          })),
+        });
+        inputCount = inputIds.length;
+      }
+    }
+
+    return {
+      id: sack.id,
+      qrCode: sack.qrCode,
+      lotNumber: lot.lotNumber,
+      inputCount,
+    };
   });
 }
