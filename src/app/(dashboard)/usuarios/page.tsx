@@ -12,10 +12,10 @@ import {
   NewUserDialog,
   RoleSelect,
   RoleBadge,
-  ROLES,
   ToggleActiveButton,
   ResetPasswordDialog,
 } from "./user-dialogs";
+import { ROLES } from "./roles";
 
 /** Descripción de cada rol (naming validado con cliente). */
 const ROLE_DESCRIPTIONS: Record<UserRole, string> = {

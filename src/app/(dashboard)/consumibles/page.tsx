@@ -59,7 +59,6 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
       <PageHeader
         title="Consumibles"
         description="Stock de palés, sacas vacías y capuchones. Palés retornables por comprador."
-        actions={<ConsumableMovementDialog consumables={consumableOptions} />}
       />
 
       {/* KPIs */}
@@ -242,13 +241,11 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
                     <ConsumableMovementDialog
                       consumables={consumableOptions}
                       defaultConsumableId={c.id}
-                      defaultDirection="salida"
                       mode="consumo"
                     />
                     <ConsumableMovementDialog
                       consumables={consumableOptions}
                       defaultConsumableId={c.id}
-                      defaultDirection="entrada"
                       mode="compra"
                     />
                   </div>
