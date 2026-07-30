@@ -250,7 +250,21 @@ export function ReceiveDialog({
           (r.weight != null && r.tare != null ? r.weight - r.tare : undefined);
         if (netValue != null) setNet(String(netValue));
         setSource("gestruck");
-        setReadMsg("Pesos leídos de la báscula.");
+        // Hora del pesaje leído, para que el operario verifique que es el de este camión.
+        const when = r.weighedAt
+          ? new Date(r.weighedAt).toLocaleString("es-ES", {
+              timeZone: "Europe/Madrid",
+              day: "2-digit",
+              month: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : null;
+        setReadMsg(
+          when
+            ? `Pesos leídos de la báscula · pesado ${when}. Verifica que es este camión.`
+            : "Pesos leídos de la báscula.",
+        );
       } else {
         setSource("manual");
         setReadMsg(r.reason ?? "Introduce los pesos manualmente.");

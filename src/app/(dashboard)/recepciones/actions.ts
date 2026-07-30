@@ -84,6 +84,7 @@ export async function fetchGestruckWeightAction(vehicle: string): Promise<{
   weight?: number; // bruto
   tare?: number;
   net?: number;
+  weighedAt?: string; // ISO del pesaje leído (para mostrar la hora)
   reason?: string;
 }> {
   await requireSession();
@@ -93,6 +94,7 @@ export async function fetchGestruckWeightAction(vehicle: string): Promise<{
     weight: r.weight,
     tare: r.tare,
     net: r.net,
+    weighedAt: r.weighedAt,
     reason: r.reason,
   };
 }
