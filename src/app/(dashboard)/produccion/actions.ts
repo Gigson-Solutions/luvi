@@ -19,7 +19,7 @@ export type ActionState = {
   error?: string;
   message?: string;
   /** Datos de la saca recién creada (para mostrar el QR tras crearla). */
-  created?: { id: string; qrCode: string; lotNumber: string };
+  created?: { id: string; qrCode: string; lotNumber: string | null };
 };
 
 /** Exige acceso al módulo de producción y devuelve el usuario actual (actor). */
@@ -131,9 +131,12 @@ export async function createOutputSackAction(
       inputCount > 0
         ? ` · ${inputCount} saca${inputCount === 1 ? "" : "s"} de origen`
         : "";
-    const lote = lotClosed
-      ? ` · lote ${lotNumber} COMPLETO (${sackCount}/${MAX_SACKS_PER_LOT})`
-      : ` · lote ${lotNumber} (${sackCount}/${MAX_SACKS_PER_LOT})`;
+    const lote =
+      lotNumber == null
+        ? " · suelto (agrupar en Expediciones)"
+        : lotClosed
+          ? ` · lote ${lotNumber} COMPLETO (${sackCount}/${MAX_SACKS_PER_LOT})`
+          : ` · lote ${lotNumber} (${sackCount}/${MAX_SACKS_PER_LOT})`;
     return {
       ok: true,
       message: `Saca ${qrCode}${lote}${origen}`,

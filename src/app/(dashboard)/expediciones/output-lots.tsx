@@ -1,4 +1,5 @@
 import { Package, Recycle, Trash2, ChevronDown } from "lucide-react";
+import { LotType } from "@prisma/client";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,8 +9,14 @@ import { MAX_SACKS_PER_LOT } from "@/lib/services/production.service";
 import type {
   AvailableOutputLot,
   AvailableOutputLots,
+  LooseOutputSacks,
   LotCosts,
 } from "@/lib/services/shipment.service";
+import {
+  CreateManualLotDialog,
+  RemoveSackButton,
+  type LooseSackOption,
+} from "./shipment-dialogs";
 
 const eur = (n: number): string => `${n.toFixed(2)}€`;
 
@@ -120,12 +127,14 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
       </summary>
       <div className="border-t border-[var(--color-border)] p-3">
         {lot.costs.total > 0 && <CostBoxes costs={lot.costs} />}
+        {/* GL-39: mientras el lote no esté asignado se pueden sacar sacas. */}
         <Table>
           <THead>
             <TR>
               <TH>QR</TH>
               <TH>Material</TH>
               <TH className="text-right">Peso</TH>
+              <TH className="text-right">Acción</TH>
             </TR>
           </THead>
           <TBody>
@@ -134,6 +143,9 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
                 <TD className="font-mono text-xs">{s.qrCode}</TD>
                 <TD>{s.materialName}</TD>
                 <TD className="text-right">{formatKg(s.weight)}</TD>
+                <TD className="text-right">
+                  <RemoveSackButton sackId={s.id} />
+                </TD>
               </TR>
             ))}
           </TBody>
@@ -143,35 +155,50 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
   );
 }
 
-/** Tabla plana de sacas disponibles (Subproductos / Rechazos). */
-function SackTable({
-  lots,
+/** GL-41 — sacas sueltas de un tipo + botón para crear lote manual. */
+function LooseSacksSection({
+  type,
+  sacks,
 }: {
-  lots: AvailableOutputLot[];
-}): React.JSX.Element {
+  type: LotType;
+  sacks: LooseSackOption[];
+}): React.JSX.Element | null {
+  if (sacks.length === 0) return null;
+  const totalKg = sacks.reduce((sum, s) => sum + s.weight, 0);
   return (
-    <Table>
-      <THead>
-        <TR>
-          <TH>QR</TH>
-          <TH>Material</TH>
-          <TH>Lote</TH>
-          <TH className="text-right">Peso</TH>
-        </TR>
-      </THead>
-      <TBody>
-        {lots.flatMap((lot) =>
-          lot.sacks.map((s) => (
+    <div className="rounded-xl border border-dashed border-[var(--color-border)] p-3 mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-medium text-[var(--color-foreground)]">
+          Sacas sueltas{" "}
+          <span className="text-[var(--color-muted)] font-normal">
+            {sacks.length} · {formatKg(totalKg)}
+          </span>
+        </p>
+        <CreateManualLotDialog
+          type={type}
+          sacks={sacks}
+          maxSacks={MAX_SACKS_PER_LOT}
+        />
+      </div>
+      <Table>
+        <THead>
+          <TR>
+            <TH>QR</TH>
+            <TH>Material</TH>
+            <TH className="text-right">Peso</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {sacks.map((s) => (
             <TR key={s.id}>
               <TD className="font-mono text-xs">{s.qrCode}</TD>
               <TD>{s.materialName}</TD>
-              <TD className="text-[var(--color-muted)]">{lot.lotNumber}</TD>
               <TD className="text-right">{formatKg(s.weight)}</TD>
             </TR>
-          )),
-        )}
-      </TBody>
-    </Table>
+          ))}
+        </TBody>
+      </Table>
+    </div>
   );
 }
 
@@ -193,19 +220,51 @@ function SectionHeading({
   );
 }
 
+/** Sección de un tipo con sacas sueltas + lotes (Subproductos / Rechazos). */
+function TypeSection({
+  icon,
+  title,
+  type,
+  loose,
+  lots,
+}: {
+  icon: React.ElementType;
+  title: string;
+  type: LotType;
+  loose: LooseSackOption[];
+  lots: AvailableOutputLot[];
+}): React.JSX.Element {
+  return (
+    <section>
+      <SectionHeading icon={icon} title={title} count={lots.length} />
+      <LooseSacksSection type={type} sacks={loose} />
+      {lots.length === 0 ? (
+        loose.length === 0 ? (
+          <Card className="p-4 text-sm text-[var(--color-muted)]">
+            Sin {title.toLowerCase()} disponibles.
+          </Card>
+        ) : null
+      ) : (
+        <div className="space-y-2">
+          {lots.map((lot) => (
+            <LotRow key={lot.id} lot={lot} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Panel "Lotes de Salida": Producto Terminado, Subproductos y Rechazos. */
 export function OutputLotsPanel({
   lots,
+  loose,
 }: {
   lots: AvailableOutputLots;
+  loose: LooseOutputSacks;
 }): React.JSX.Element {
   const { productoTerminado, subproducto, rechazo } = lots;
   const openLot = productoTerminado.find((l) => l.isOpen);
-  const subproductoSacks = subproducto.reduce(
-    (n, l) => n + l.availableSacks,
-    0,
-  );
-  const rechazoSacks = rechazo.reduce((n, l) => n + l.availableSacks, 0);
 
   return (
     <div className="space-y-8">
@@ -218,13 +277,20 @@ export function OutputLotsPanel({
         />
         {/* GL-36: lote abierto en curso, arriba y destacado */}
         {openLot && <OpenLotCard lot={openLot} />}
+        {/* GL-39: sacas PT sacadas de un lote quedan sueltas y re-agrupables */}
+        <LooseSacksSection
+          type={LotType.PRODUCTO_TERMINADO}
+          sacks={loose.productoTerminado}
+        />
 
         {productoTerminado.length === 0 ? (
-          <EmptyState
-            icon={Package}
-            title="No hay lotes de Producto Terminado disponibles"
-            description="Las sacas de Producto Terminado se agrupan en lotes de 22 en Producción y aparecen aquí, listas para expedir."
-          />
+          loose.productoTerminado.length === 0 && (
+            <EmptyState
+              icon={Package}
+              title="No hay lotes de Producto Terminado disponibles"
+              description="Las sacas de Producto Terminado se agrupan en lotes de 22 en Producción y aparecen aquí, listas para expedir."
+            />
+          )
         ) : (
           <div className="space-y-2">
             {productoTerminado.map((lot) => (
@@ -234,33 +300,21 @@ export function OutputLotsPanel({
         )}
       </section>
 
-      {/* Subproductos */}
-      <section>
-        <SectionHeading
-          icon={Recycle}
-          title="Subproductos"
-          count={subproductoSacks}
-        />
-        {subproducto.length === 0 ? (
-          <Card className="p-4 text-sm text-[var(--color-muted)]">
-            Sin subproductos disponibles.
-          </Card>
-        ) : (
-          <SackTable lots={subproducto} />
-        )}
-      </section>
+      <TypeSection
+        icon={Recycle}
+        title="Subproductos"
+        type={LotType.SUBPRODUCTO}
+        loose={loose.subproducto}
+        lots={subproducto}
+      />
 
-      {/* Rechazos */}
-      <section>
-        <SectionHeading icon={Trash2} title="Rechazos" count={rechazoSacks} />
-        {rechazo.length === 0 ? (
-          <Card className="p-4 text-sm text-[var(--color-muted)]">
-            Sin rechazos disponibles.
-          </Card>
-        ) : (
-          <SackTable lots={rechazo} />
-        )}
-      </section>
+      <TypeSection
+        icon={Trash2}
+        title="Rechazos"
+        type={LotType.RECHAZO}
+        loose={loose.rechazo}
+        lots={rechazo}
+      />
     </div>
   );
 }

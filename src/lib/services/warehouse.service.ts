@@ -300,6 +300,43 @@ export function getSackDetail(sackId: string): Promise<SackDetail | null> {
 
 // ─── 4. Traslado de sacas entre zonas ───────────────────────────────────────
 
+/** Datos de una saca EN_ALMACEN para el flujo de traslado (pistoleo). */
+export interface MovableSackData {
+  id: string;
+  qrCode: string;
+  materialName: string;
+  weight: number;
+  zoneId: string | null;
+  warehouseName: string | null;
+}
+
+/**
+ * Busca una saca EN_ALMACEN por su QR y devuelve los datos necesarios para el
+ * traslado múltiple (material, peso, zona y planta actual). Devuelve null si no
+ * existe ninguna saca en almacén con ese QR. Se usa en el modo "Escanear" del
+ * diálogo "Trasladar varias".
+ */
+export async function findMovableSackByQr(
+  qrCode: string,
+): Promise<MovableSackData | null> {
+  const sack = await prisma.sack.findFirst({
+    where: { qrCode: qrCode.trim(), status: SackStatus.EN_ALMACEN },
+    include: {
+      material: { select: { name: true } },
+      zone: { include: { warehouse: { select: { name: true } } } },
+    },
+  });
+  if (!sack) return null;
+  return {
+    id: sack.id,
+    qrCode: sack.qrCode,
+    materialName: sack.material.name,
+    weight: sack.weight,
+    zoneId: sack.zoneId,
+    warehouseName: sack.zone?.warehouse.name ?? null,
+  };
+}
+
 export interface MoveSackInput {
   sackId: string;
   zoneId: string;

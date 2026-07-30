@@ -356,14 +356,15 @@ export interface CreateOutputSackInput {
 }
 
 /**
- * Crea una saca de salida (Producto Terminado / Subproducto / Rechazo) y la
- * asocia al lote del día correspondiente (transaccional). El nº de lote se
- * autogenera; para PT se acumula en el lote PT del día del mismo material.
+ * Crea una saca de salida (Producto Terminado / Subproducto / Rechazo)
+ * (transaccional). GL-41: solo el Producto Terminado se auto-acumula en el lote
+ * PT del día (lotes de 22, GL-36). Los Subproductos y Rechazos se crean SUELTOS
+ * (sin lote) y se agrupan manualmente en lotes desde Expediciones.
  */
 export async function createOutputSack(input: CreateOutputSackInput): Promise<{
   id: string;
   qrCode: string;
-  lotNumber: string;
+  lotNumber: string | null;
   inputCount: number;
   sackCount: number;
   lotClosed: boolean;
@@ -373,7 +374,10 @@ export async function createOutputSack(input: CreateOutputSackInput): Promise<{
   }
 
   return prisma.$transaction(async (tx) => {
-    const lot = await getOrCreateDailyLot(tx, input.type, input.materialId);
+    const lot =
+      input.type === LotType.PRODUCTO_TERMINADO
+        ? await getOrCreateDailyLot(tx, input.type, input.materialId)
+        : null;
     const sack = await tx.sack.create({
       data: {
         qrCode: `SACK-${randomUUID().slice(0, 8).toUpperCase()}`,
@@ -381,7 +385,7 @@ export async function createOutputSack(input: CreateOutputSackInput): Promise<{
         weight: input.weight,
         materialId: input.materialId,
         zoneId: input.zoneId ?? null,
-        lotId: lot.id,
+        lotId: lot?.id ?? null,
         notes: input.notes ?? null,
       },
     });
@@ -408,22 +412,25 @@ export async function createOutputSack(input: CreateOutputSackInput): Promise<{
       }
     }
 
-    // GL-36: al llegar a 22 sacas, el lote se cierra automáticamente y queda
-    // "listo para enviar".
-    const sackCount = await tx.sack.count({ where: { lotId: lot.id } });
+    // GL-36: al llegar a 22 sacas, el lote PT se cierra automáticamente y queda
+    // "listo para enviar". (Solo aplica a PT; sub/rechazo no tienen lote aquí.)
+    let sackCount = 0;
     let lotClosed = false;
-    if (lot.isOpen && sackCount >= MAX_SACKS_PER_LOT) {
-      await tx.productionLot.update({
-        where: { id: lot.id },
-        data: { isOpen: false, closedAt: new Date() },
-      });
-      lotClosed = true;
+    if (lot) {
+      sackCount = await tx.sack.count({ where: { lotId: lot.id } });
+      if (lot.isOpen && sackCount >= MAX_SACKS_PER_LOT) {
+        await tx.productionLot.update({
+          where: { id: lot.id },
+          data: { isOpen: false, closedAt: new Date() },
+        });
+        lotClosed = true;
+      }
     }
 
     return {
       id: sack.id,
       qrCode: sack.qrCode,
-      lotNumber: lot.lotNumber,
+      lotNumber: lot?.lotNumber ?? null,
       inputCount,
       sackCount,
       lotClosed,

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { createAlbaran } from "@/lib/integrations/holded";
+import { generateLotNumber } from "@/lib/utils";
+import { MAX_SACKS_PER_LOT } from "@/lib/services/production.service";
 import { getCostsConfig, type CostsConfig } from "@/lib/services/cost.service";
 import {
   LotType,
@@ -21,6 +23,12 @@ import {
  *
  * Holded NO es fuente de verdad del inventario: la app manda.
  */
+
+function startOfToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
 export type ShipmentWithRefs = Prisma.ShipmentGetPayload<{
   include: {
@@ -254,7 +262,12 @@ async function availableLotsByType(
 ): Promise<AvailableOutputLot[]> {
   const sackStatus = LOT_TYPE_TO_SACK_STATUS[type];
   const lots = await prisma.productionLot.findMany({
-    where: { type, sacks: { some: { status: sackStatus } } },
+    // Lotes con sacas disponibles y NO asignados aún a ningún envío (GL-42).
+    where: {
+      type,
+      sacks: { some: { status: sackStatus } },
+      shipmentLots: { none: {} },
+    },
     include: {
       material: { select: { name: true } },
       sacks: {
@@ -308,16 +321,224 @@ export async function getAvailableOutputLots(): Promise<AvailableOutputLots> {
   return { productoTerminado, subproducto, rechazo };
 }
 
+// ─── Lotes sueltos, creación manual y modificación (GL-41 / GL-39) ─────────────
+
+export interface LooseOutputSack {
+  id: string;
+  qrCode: string;
+  materialId: string;
+  materialName: string;
+  weight: number;
+}
+
+/**
+ * GL-41 — sacas de salida SUELTAS de un tipo (sin lote asignado), disponibles
+ * para agrupar manualmente en un lote. Subproductos/Rechazos se crean sueltos;
+ * también aparecen aquí las sacas sacadas de un lote (GL-39).
+ */
+export function listLooseOutputSacks(
+  type: LotType,
+): Promise<LooseOutputSack[]> {
+  const sackStatus = LOT_TYPE_TO_SACK_STATUS[type];
+  return prisma.sack
+    .findMany({
+      where: { status: sackStatus, lotId: null },
+      select: {
+        id: true,
+        qrCode: true,
+        weight: true,
+        materialId: true,
+        material: { select: { name: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    })
+    .then((sacks) =>
+      sacks.map((s) => ({
+        id: s.id,
+        qrCode: s.qrCode,
+        materialId: s.materialId,
+        materialName: s.material.name,
+        weight: s.weight,
+      })),
+    );
+}
+
+export interface LooseOutputSacks {
+  productoTerminado: LooseOutputSack[];
+  subproducto: LooseOutputSack[];
+  rechazo: LooseOutputSack[];
+}
+
+/** GL-41 — sacas sueltas (sin lote) agrupadas por tipo, para el panel de lotes. */
+export async function getLooseOutputSacks(): Promise<LooseOutputSacks> {
+  const [productoTerminado, subproducto, rechazo] = await Promise.all([
+    listLooseOutputSacks(LotType.PRODUCTO_TERMINADO),
+    listLooseOutputSacks(LotType.SUBPRODUCTO),
+    listLooseOutputSacks(LotType.RECHAZO),
+  ]);
+  return { productoTerminado, subproducto, rechazo };
+}
+
+/**
+ * GL-41 — crea un lote de salida MANUAL agrupando sacas sueltas del mismo tipo
+ * (máximo 22). Todas las sacas deben ser del tipo indicado, estar sueltas
+ * (sin lote) y compartir material. Devuelve el lote creado.
+ */
+export async function createManualLot(
+  type: LotType,
+  sackIds: string[],
+): Promise<{ id: string; lotNumber: string; sackCount: number }> {
+  if (sackIds.length === 0) {
+    throw new Error("Selecciona al menos una saca.");
+  }
+  if (sackIds.length > MAX_SACKS_PER_LOT) {
+    throw new Error(
+      `Un lote no puede tener más de ${MAX_SACKS_PER_LOT} sacas.`,
+    );
+  }
+  const sackStatus = LOT_TYPE_TO_SACK_STATUS[type];
+
+  return prisma.$transaction(async (tx) => {
+    const sacks = await tx.sack.findMany({
+      where: { id: { in: sackIds } },
+      select: { id: true, status: true, lotId: true, materialId: true },
+    });
+    if (sacks.length !== sackIds.length) {
+      throw new Error("Alguna saca no existe.");
+    }
+    if (sacks.some((s) => s.status !== sackStatus)) {
+      throw new Error("Alguna saca no es del tipo del lote.");
+    }
+    if (sacks.some((s) => s.lotId !== null)) {
+      throw new Error("Alguna saca ya pertenece a un lote.");
+    }
+    const materialId = sacks[0].materialId;
+    if (sacks.some((s) => s.materialId !== materialId)) {
+      throw new Error("Todas las sacas del lote deben ser del mismo material.");
+    }
+
+    const start = startOfToday();
+    const countToday = await tx.productionLot.count({
+      where: { producedAt: { gte: start } },
+    });
+    const lotNumber = generateLotNumber(new Date(), countToday + 1);
+    // El lote manual se crea cerrado si llega a 22; si no, queda abierto para
+    // poder añadir más sacas después.
+    const lot = await tx.productionLot.create({
+      data: {
+        lotNumber,
+        type,
+        materialId,
+        isOpen: sackIds.length < MAX_SACKS_PER_LOT,
+        closedAt: sackIds.length >= MAX_SACKS_PER_LOT ? new Date() : null,
+      },
+    });
+    await tx.sack.updateMany({
+      where: { id: { in: sackIds } },
+      data: { lotId: lot.id },
+    });
+    return { id: lot.id, lotNumber: lot.lotNumber, sackCount: sackIds.length };
+  });
+}
+
+/**
+ * GL-41 — añade sacas sueltas a un lote existente ABIERTO (sin superar 22).
+ */
+export async function addSacksToLot(
+  lotId: string,
+  sackIds: string[],
+): Promise<{ sackCount: number }> {
+  if (sackIds.length === 0) {
+    throw new Error("Selecciona al menos una saca.");
+  }
+  return prisma.$transaction(async (tx) => {
+    const lot = await tx.productionLot.findUniqueOrThrow({
+      where: { id: lotId },
+      include: { _count: { select: { sacks: true } } },
+    });
+    if (!lot.isOpen) {
+      throw new Error("El lote está cerrado; no admite más sacas.");
+    }
+    const sackStatus = LOT_TYPE_TO_SACK_STATUS[lot.type];
+    const sacks = await tx.sack.findMany({
+      where: { id: { in: sackIds } },
+      select: { id: true, status: true, lotId: true, materialId: true },
+    });
+    if (sacks.length !== sackIds.length)
+      throw new Error("Alguna saca no existe.");
+    if (sacks.some((s) => s.status !== sackStatus || s.lotId !== null)) {
+      throw new Error("Alguna saca no está suelta o no es del tipo del lote.");
+    }
+    if (sacks.some((s) => s.materialId !== lot.materialId)) {
+      throw new Error("Las sacas deben ser del mismo material que el lote.");
+    }
+    const nextCount = lot._count.sacks + sackIds.length;
+    if (nextCount > MAX_SACKS_PER_LOT) {
+      throw new Error(
+        `El lote quedaría con ${nextCount} sacas (máximo ${MAX_SACKS_PER_LOT}).`,
+      );
+    }
+    await tx.sack.updateMany({
+      where: { id: { in: sackIds } },
+      data: { lotId: lot.id },
+    });
+    if (nextCount >= MAX_SACKS_PER_LOT) {
+      await tx.productionLot.update({
+        where: { id: lot.id },
+        data: { isOpen: false, closedAt: new Date() },
+      });
+    }
+    return { sackCount: nextCount };
+  });
+}
+
+/**
+ * GL-39 — saca una saca de un lote que AÚN no está asignado a un envío. La saca
+ * queda suelta (sin lote) y podrá añadirse a otro lote más adelante. Si el lote
+ * se queda vacío, se elimina.
+ */
+export async function removeSackFromLot(sackId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const sack = await tx.sack.findUniqueOrThrow({
+      where: { id: sackId },
+      select: { id: true, lotId: true },
+    });
+    if (!sack.lotId) throw new Error("La saca no pertenece a ningún lote.");
+
+    const assigned = await tx.shipmentLot.count({
+      where: { lotId: sack.lotId },
+    });
+    if (assigned > 0) {
+      throw new Error(
+        "El lote ya está asignado a un envío; no se puede modificar.",
+      );
+    }
+
+    const lotId = sack.lotId;
+    await tx.sack.update({ where: { id: sackId }, data: { lotId: null } });
+
+    // Si el lote se queda sin sacas, lo eliminamos; si no, lo reabrimos para
+    // poder seguir añadiendo sacas.
+    const remaining = await tx.sack.count({ where: { lotId } });
+    if (remaining === 0) {
+      await tx.productionLot.delete({ where: { id: lotId } });
+    } else {
+      await tx.productionLot.update({
+        where: { id: lotId },
+        data: { isOpen: true, closedAt: null },
+      });
+    }
+  });
+}
+
 export interface CreateShipmentInput {
   buyerId: string;
   carrierId?: string;
   vehiclePlate?: string;
   driverName?: string;
   notes?: string;
-  lots: { lotId: string; weightKg: number }[];
-  /** Palés retornables prestados al comprador con este envío (enlaza con Consumibles). */
-  returnablePallets?: boolean;
-  palletCount?: number;
+  /** GL-42: opcional. El envío puede crearse vacío y asignarle lotes después. */
+  lots?: { lotId: string; weightKg: number }[];
 }
 
 /** Genera una referencia autogenerada tipo EXP-YYMMDD-NNN (secuencial diario). */
@@ -333,20 +554,21 @@ async function nextReference(tx: Prisma.TransactionClient): Promise<string> {
   return `${prefix}-${String(count + 1).padStart(3, "0")}`;
 }
 
-/** Paso 1 — crea el envío en estado BORRADOR con sus lotes. */
+/**
+ * Paso 1 — crea el envío en estado BORRADOR (GL-42: normalmente vacío; los
+ * lotes se asignan después con `assignLotToShipment`).
+ */
 export async function createShipment(
   input: CreateShipmentInput,
 ): Promise<ShipmentWithRefs> {
-  if (input.lots.length === 0) {
-    throw new Error("Añade al menos un lote al envío.");
-  }
-  if (input.lots.some((l) => l.weightKg <= 0)) {
+  const lots = input.lots ?? [];
+  if (lots.some((l) => l.weightKg <= 0)) {
     throw new Error("El peso de cada lote debe ser mayor que 0.");
   }
 
   return prisma.$transaction(async (tx) => {
     const reference = await nextReference(tx);
-    const shipment = await tx.shipment.create({
+    return tx.shipment.create({
       data: {
         reference,
         status: ShipmentStatus.BORRADOR,
@@ -356,30 +578,70 @@ export async function createShipment(
         driverName: input.driverName ?? null,
         notes: input.notes ?? null,
         lots: {
-          create: input.lots.map((l) => ({
-            lotId: l.lotId,
-            weightKg: l.weightKg,
-          })),
+          create: lots.map((l) => ({ lotId: l.lotId, weightKg: l.weightKg })),
         },
       },
       include: shipmentInclude,
     });
+  });
+}
 
-    // Palés retornables → préstamo al comprador enlazado con el envío.
-    // Aparece en Consumibles (saldos de palés por comprador).
-    if (input.returnablePallets && input.palletCount && input.palletCount > 0) {
-      await tx.palletMovement.create({
-        data: {
-          buyerId: input.buyerId,
-          quantity: input.palletCount, // positivo = préstamo
-          condition: "OK",
-          shipmentId: shipment.id,
-          notes: `Palés retornables del envío ${shipment.reference}`,
-        },
-      });
+/**
+ * GL-42 — asigna un lote (cerrado, listo para enviar) a un envío en BORRADOR.
+ * El peso del lote se calcula con sus sacas disponibles.
+ */
+export async function assignLotToShipment(
+  shipmentId: string,
+  lotId: string,
+): Promise<ShipmentWithRefs> {
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findUniqueOrThrow({
+      where: { id: shipmentId },
+      select: { status: true },
+    });
+    if (shipment.status !== ShipmentStatus.BORRADOR) {
+      throw new Error("Solo se pueden asignar lotes a envíos en borrador.");
     }
+    const already = await tx.shipmentLot.count({ where: { lotId } });
+    if (already > 0) {
+      throw new Error("Ese lote ya está asignado a un envío.");
+    }
+    const lot = await tx.productionLot.findUniqueOrThrow({
+      where: { id: lotId },
+      select: { type: true },
+    });
+    const sacks = await tx.sack.findMany({
+      where: { lotId, status: LOT_TYPE_TO_SACK_STATUS[lot.type] },
+      select: { weight: true },
+    });
+    const weightKg =
+      Math.round(sacks.reduce((sum, s) => sum + s.weight, 0) * 100) / 100;
+    await tx.shipmentLot.create({ data: { shipmentId, lotId, weightKg } });
+    return tx.shipment.findUniqueOrThrow({
+      where: { id: shipmentId },
+      include: shipmentInclude,
+    });
+  });
+}
 
-    return shipment;
+/** GL-42 — quita un lote de un envío en BORRADOR (vuelve a estar disponible). */
+export async function unassignLotFromShipment(
+  shipmentId: string,
+  lotId: string,
+): Promise<ShipmentWithRefs> {
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findUniqueOrThrow({
+      where: { id: shipmentId },
+      select: { status: true },
+    });
+    if (shipment.status !== ShipmentStatus.BORRADOR) {
+      throw new Error("Solo se pueden quitar lotes de envíos en borrador.");
+    }
+    await tx.shipmentLot.deleteMany({ where: { shipmentId, lotId } });
+    return tx.shipment.findUniqueOrThrow({
+      where: { id: shipmentId },
+      include: shipmentInclude,
+    });
   });
 }
 
@@ -400,21 +662,43 @@ export async function confirmShipment(
   });
 }
 
+/** Estados de saca de salida (para marcar EN_TRANSITO al expedir). */
+const OUTPUT_SACK_STATUSES: SackStatus[] = [
+  SackStatus.PRODUCTO_TERMINADO,
+  SackStatus.SUBPRODUCTO,
+  SackStatus.RECHAZO,
+];
+
+export interface ExpediteOptions {
+  /** GL-42: palés retornables prestados al comprador con este envío. */
+  returnablePallets?: boolean;
+  palletCount?: number;
+}
+
 /**
- * Paso 3 — expide el envío (CONFIRMADO → EXPEDIDO).
+ * Paso 3 — expide el envío (BORRADOR/CONFIRMADO → EXPEDIDO).
  * Crea el albarán en Holded, guarda holdedAlbaranId, marca las sacas de los
  * lotes como EN_TRANSITO y sella expeditedAt. Si Holded simula, continúa.
+ * GL-42: al expedir se indica si los palés son retornables (préstamo al
+ * comprador, enlazado con Consumibles).
  */
 export async function expediteShipment(
   shipmentId: string,
+  options: ExpediteOptions = {},
 ): Promise<{ shipment: ShipmentWithRefs; simulated: boolean }> {
   const shipment = await prisma.shipment.findUniqueOrThrow({
     where: { id: shipmentId },
     include: { buyer: true, lots: { include: { lot: true } } },
   });
 
-  if (shipment.status !== ShipmentStatus.CONFIRMADO) {
-    throw new Error("Solo se pueden expedir envíos confirmados.");
+  if (
+    shipment.status !== ShipmentStatus.CONFIRMADO &&
+    shipment.status !== ShipmentStatus.BORRADOR
+  ) {
+    throw new Error("Este envío ya ha sido expedido.");
+  }
+  if (shipment.lots.length === 0) {
+    throw new Error("Asigna al menos un lote al envío antes de expedirlo.");
   }
 
   const albaran = await createAlbaran({
@@ -438,7 +722,10 @@ export async function expediteShipment(
 
   const updated = await prisma.$transaction(async (tx) => {
     await tx.sack.updateMany({
-      where: { lotId: { in: lotIds }, status: SackStatus.PRODUCTO_TERMINADO },
+      where: {
+        lotId: { in: lotIds },
+        status: { in: OUTPUT_SACK_STATUSES },
+      },
       data: { status: SackStatus.EN_TRANSITO },
     });
     // Persistir el contacto Holded en el comprador si se creó al vuelo.
@@ -446,6 +733,22 @@ export async function expediteShipment(
       await tx.buyer.update({
         where: { id: shipment.buyerId },
         data: { holdedId: albaran.contactId },
+      });
+    }
+    // GL-42: palés retornables → préstamo al comprador (Consumibles).
+    if (
+      options.returnablePallets &&
+      options.palletCount &&
+      options.palletCount > 0
+    ) {
+      await tx.palletMovement.create({
+        data: {
+          buyerId: shipment.buyerId,
+          quantity: options.palletCount,
+          condition: "OK",
+          shipmentId: shipment.id,
+          notes: `Palés retornables del envío ${shipment.reference}`,
+        },
       });
     }
     return tx.shipment.update({

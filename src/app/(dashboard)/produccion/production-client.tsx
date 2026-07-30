@@ -189,7 +189,7 @@ export function OutputSackDialog({
   const [created, setCreated] = useState<{
     id: string;
     qrCode: string;
-    lotNumber: string;
+    lotNumber: string | null;
   } | null>(null);
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
@@ -233,7 +233,7 @@ export function OutputSackDialog({
                 <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-hover)] p-3">
                   <p className="text-xs text-[var(--color-muted)]">Lote</p>
                   <p className="font-mono font-medium text-[var(--color-foreground)]">
-                    {created.lotNumber}
+                    {created.lotNumber ?? "Suelto"}
                   </p>
                 </div>
               </div>
