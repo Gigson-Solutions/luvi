@@ -83,7 +83,16 @@ export async function readWeight(params: {
     // La API pagina de MÁS ANTIGUO a MÁS NUEVO y no admite orden descendente,
     // así que pedimos una ventana amplia de esa matrícula y elegimos el pesaje
     // más reciente en cliente (un vehículo repite visitas → no vale `Size=1`).
-    const qs = new URLSearchParams({ Status: "Completed", Size: "100" });
+    // `StartDate = hoy` (hora de planta) acota a los pesajes del día: así una
+    // matrícula que ya vino otro día nunca trae un pesaje antiguo por error.
+    const today = new Date().toLocaleDateString("sv-SE", {
+      timeZone: "Europe/Madrid",
+    }); // YYYY-MM-DD
+    const qs = new URLSearchParams({
+      Status: "Completed",
+      Size: "100",
+      StartDate: today,
+    });
     if (params.vehicle) qs.set("Vehicle", params.vehicle);
 
     const res = await fetch(`${url}/api/v1/weighing/search?${qs.toString()}`, {
@@ -107,7 +116,11 @@ export async function readWeight(params: {
     );
     const line = item?.Lines?.[0];
     if (!item || !line) {
-      return { manual: true, reason: "Sin pesajes recientes" };
+      return {
+        manual: true,
+        reason:
+          "Sin pesaje de báscula hoy para esta matrícula (introduce el peso a mano)",
+      };
     }
 
     // Bruto = pesada mayor, tara = pesada menor (robusto para Input y Output).
