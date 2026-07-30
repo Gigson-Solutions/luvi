@@ -56,7 +56,12 @@ export default async function AlmacenPage({
   }>;
 }): Promise<React.JSX.Element> {
   const params = await searchParams;
-  const statusFilter = isSackStatus(params.status) ? params.status : undefined;
+  // Almacén muestra solo materia prima ubicada (EN_ALMACEN) por defecto.
+  // Las sacas de salida (PT/Subproducto/Rechazo) y demás estados viven en
+  // Producción/Expediciones; se pueden consultar aquí pinchando su pill.
+  const statusFilter = isSackStatus(params.status)
+    ? params.status
+    : SackStatus.EN_ALMACEN;
   const materialFilter = params.material || undefined;
   const zoneFilter = params.zone || undefined;
   const searchQuery = params.q?.trim() || undefined;
@@ -111,9 +116,12 @@ export default async function AlmacenPage({
           label="Filtradas"
           value={sacks.length}
           hint={
-            statusFilter || materialFilter || zoneFilter || searchQuery
+            statusFilter !== SackStatus.EN_ALMACEN ||
+            materialFilter ||
+            zoneFilter ||
+            searchQuery
               ? "Con los filtros aplicados"
-              : "Sin filtros"
+              : "En almacén"
           }
         />
       </div>
@@ -308,15 +316,6 @@ export default async function AlmacenPage({
           <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
             Estado:
           </span>
-          <FilterChip
-            href={buildQuery({
-              material: materialFilter,
-              zone: zoneFilter,
-              q: searchQuery,
-            })}
-            active={!statusFilter}
-            label="Todos"
-          />
           {STATUS_VALUES.map((s) => (
             <FilterChip
               key={s}
