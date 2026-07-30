@@ -89,7 +89,6 @@ const outputSchema = z.object({
   type: z.nativeEnum(LotType),
   materialId: z.string().min(1, "Selecciona un material"),
   weight: z.coerce.number().positive("El peso debe ser mayor que 0"),
-  zoneId: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -108,11 +107,11 @@ export async function createOutputSackAction(
       };
     }
     const d = parsed.data;
+    // La saca de salida NO se ubica en almacén: va directa a Expediciones.
     const { id, qrCode, lotNumber } = await createOutputSack({
       type: d.type,
       materialId: d.materialId,
       weight: d.weight,
-      zoneId: d.zoneId || undefined,
       notes: d.notes || undefined,
     });
     await logAudit({
