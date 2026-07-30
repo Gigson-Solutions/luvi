@@ -182,10 +182,8 @@ const TYPE_LABELS: { value: string; label: string }[] = [
 
 export function OutputSackDialog({
   materials,
-  zones,
 }: {
   materials: Option[];
-  zones: Option[];
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [created, setCreated] = useState<{
@@ -306,18 +304,6 @@ export function OutputSackDialog({
                   placeholder="0.00"
                 />
               </div>
-            </div>
-
-            <div>
-              <Label htmlFor="zoneId">Zona destino (opcional)</Label>
-              <Select id="zoneId" name="zoneId" defaultValue="">
-                <option value="">Sin ubicar</option>
-                {zones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.warehouseName} · {z.name}
-                  </option>
-                ))}
-              </Select>
             </div>
 
             <div>

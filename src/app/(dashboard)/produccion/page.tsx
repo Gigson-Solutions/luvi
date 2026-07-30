@@ -99,12 +99,7 @@ export default async function ProduccionPage({
       <PageHeader
         title="Producción"
         description="Entrada a tolva, sacas de salida y lotes autogenerados."
-        actions={
-          <OutputSackDialog
-            materials={formData.materials}
-            zones={formData.zones}
-          />
-        }
+        actions={<OutputSackDialog materials={formData.materials} />}
       />
 
       {/* KPIs */}
