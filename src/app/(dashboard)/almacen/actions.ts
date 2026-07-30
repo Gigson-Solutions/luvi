@@ -4,7 +4,12 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
-import { moveSack, transferSacks } from "@/lib/services/warehouse.service";
+import {
+  findMovableSackByQr,
+  moveSack,
+  transferSacks,
+  type MovableSackData,
+} from "@/lib/services/warehouse.service";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
@@ -47,6 +52,33 @@ export async function moveSackAction(
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Error al trasladar la saca",
+    };
+  }
+}
+
+/**
+ * Resuelve un QR a una saca EN_ALMACEN para el modo "Escanear" (pistoleo) del
+ * traslado múltiple. Devuelve los datos de la saca para acumularla en la lista.
+ */
+export async function findWarehouseSackByQrAction(
+  qrCode: string,
+): Promise<{ ok: boolean; sack?: MovableSackData; error?: string }> {
+  try {
+    await requireSession();
+    const trimmed = qrCode.trim();
+    if (!trimmed) return { ok: false, error: "Código QR vacío" };
+    const sack = await findMovableSackByQr(trimmed);
+    if (!sack) {
+      return {
+        ok: false,
+        error: "No se encontró ninguna saca en almacén con ese QR.",
+      };
+    }
+    return { ok: true, sack };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al buscar la saca",
     };
   }
 }

@@ -12,12 +12,16 @@ import {
   getShipmentStats,
   getShipmentFormData,
   getAvailableOutputLots,
+  getLooseOutputSacks,
+  type AvailableOutputLot,
 } from "@/lib/services/shipment.service";
 import {
   NewShipmentDialog,
-  ConfirmShipmentButton,
   ExpediteShipmentButton,
   DeliverShipmentButton,
+  AssignLotButton,
+  UnassignLotButton,
+  type AssignableLot,
 } from "./shipment-dialogs";
 import { OutputLotsPanel } from "./output-lots";
 
@@ -30,8 +34,7 @@ const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
 
 const FILTERS: { value: ShipmentStatus | "TODOS"; label: string }[] = [
   { value: "TODOS", label: "Todos" },
-  { value: "BORRADOR", label: "Borrador" },
-  { value: "CONFIRMADO", label: "Confirmado" },
+  { value: "BORRADOR", label: "Pendiente" },
   { value: "EXPEDIDO", label: "Expedido" },
   { value: "ENTREGADO", label: "Entregado" },
 ];
@@ -45,6 +48,19 @@ function isShipmentStatus(v: string | undefined): v is ShipmentStatus {
   );
 }
 
+/** Aplana los lotes disponibles (todos los tipos) para el diálogo de asignación. */
+function toAssignable(lot: AvailableOutputLot): AssignableLot {
+  return {
+    id: lot.id,
+    lotNumber: lot.lotNumber,
+    type: lot.type,
+    materialName: lot.materialName,
+    availableKg: lot.availableKg,
+    sackCount: lot.sackCount,
+    isOpen: lot.isOpen,
+  };
+}
+
 export default async function ExpedicionesPage({
   searchParams,
 }: {
@@ -54,12 +70,23 @@ export default async function ExpedicionesPage({
   const filter = isShipmentStatus(status) ? status : undefined;
   const activeTab: Tab = tab === "envios" ? "envios" : "lotes";
 
-  const [shipments, stats, formData, outputLots] = await Promise.all([
-    listShipments(filter),
-    getShipmentStats(),
-    getShipmentFormData(),
-    getAvailableOutputLots(),
-  ]);
+  const [shipments, stats, formData, outputLots, looseSacks] =
+    await Promise.all([
+      listShipments(filter),
+      getShipmentStats(),
+      getShipmentFormData(),
+      getAvailableOutputLots(),
+      getLooseOutputSacks(),
+    ]);
+
+  // Lotes cerrados y sin asignar: candidatos a asignar a un envío (GL-42).
+  const assignableLots: AssignableLot[] = [
+    ...outputLots.productoTerminado,
+    ...outputLots.subproducto,
+    ...outputLots.rechazo,
+  ]
+    .filter((l) => !l.isOpen)
+    .map(toAssignable);
 
   return (
     <div>
@@ -70,25 +97,24 @@ export default async function ExpedicionesPage({
           <NewShipmentDialog
             buyers={formData.buyers}
             carriers={formData.carriers}
-            lots={formData.lots}
           />
         }
       />
 
       {/* StatCards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
-        <StatCard label="Borrador" value={stats.byStatus.BORRADOR} />
-        <StatCard
-          label="Confirmado"
-          value={stats.byStatus.CONFIRMADO}
-          accent="var(--color-warning)"
-        />
+        <StatCard label="Pendientes" value={stats.byStatus.BORRADOR} />
         <StatCard
           label="Expedido"
           value={stats.byStatus.EXPEDIDO}
           accent="var(--color-primary)"
         />
         <StatCard label="Entregado" value={stats.byStatus.ENTREGADO} />
+        <StatCard
+          label="Lotes disponibles"
+          value={assignableLots.length}
+          accent="var(--color-warning)"
+        />
         <StatCard label="Kg expedidos" value={formatKg(stats.kgExpedited)} />
       </div>
 
@@ -116,7 +142,7 @@ export default async function ExpedicionesPage({
       </div>
 
       {activeTab === "lotes" ? (
-        <OutputLotsPanel lots={outputLots} />
+        <OutputLotsPanel lots={outputLots} loose={looseSacks} />
       ) : (
         <>
           {/* Filtro por estado */}
@@ -149,63 +175,102 @@ export default async function ExpedicionesPage({
             <EmptyState
               icon={Truck}
               title="No hay envíos"
-              description="Crea un envío para expedir lotes de Producto Terminado a un comprador."
+              description="Crea un envío y asígnale lotes de salida para expedir a un comprador."
             />
           ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>Referencia</TH>
-                  <TH>Estado</TH>
-                  <TH>Comprador</TH>
-                  <TH>Transportista</TH>
-                  <TH>Lotes</TH>
-                  <TH>Peso</TH>
-                  <TH>Fecha</TH>
-                  <TH className="text-right">Acción</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {shipments.map((s) => {
-                  const totalKg = s.lots.reduce(
-                    (sum, l) => sum + l.weightKg,
-                    0,
-                  );
-                  const date = s.deliveredAt ?? s.expeditedAt ?? s.createdAt;
-                  return (
-                    <TR key={s.id}>
-                      <TD className="font-medium">{s.reference}</TD>
-                      <TD>
-                        <ShipmentStatusBadge status={s.status} />
-                      </TD>
-                      <TD>{s.buyer.name}</TD>
-                      <TD>{s.carrier?.name ?? "—"}</TD>
-                      <TD>{s.lots.length}</TD>
-                      <TD>{formatKg(totalKg)}</TD>
-                      <TD>{formatDate(date, true)}</TD>
-                      <TD className="text-right">
-                        {s.status === ShipmentStatus.BORRADOR && (
-                          <ConfirmShipmentButton shipmentId={s.id} />
+            <div className="space-y-3">
+              {shipments.map((s) => {
+                const totalKg = s.lots.reduce((sum, l) => sum + l.weightKg, 0);
+                const date = s.deliveredAt ?? s.expeditedAt ?? s.createdAt;
+                const isDraft = s.status === ShipmentStatus.BORRADOR;
+                return (
+                  <div
+                    key={s.id}
+                    className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-[var(--color-foreground)]">
+                            {s.reference}
+                          </p>
+                          <ShipmentStatusBadge status={s.status} />
+                        </div>
+                        <p className="text-xs text-[var(--color-muted)] mt-0.5">
+                          {s.buyer.name}
+                          {s.carrier ? ` · ${s.carrier.name}` : ""} ·{" "}
+                          {s.lots.length}{" "}
+                          {s.lots.length === 1 ? "lote" : "lotes"} ·{" "}
+                          {formatKg(totalKg)} · {formatDate(date, true)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isDraft && (
+                          <AssignLotButton
+                            shipmentId={s.id}
+                            lots={assignableLots}
+                          />
                         )}
-                        {s.status === ShipmentStatus.CONFIRMADO && (
-                          <ExpediteShipmentButton shipmentId={s.id} />
+                        {isDraft && (
+                          <ExpediteShipmentButton
+                            shipmentId={s.id}
+                            disabled={s.lots.length === 0}
+                          />
                         )}
                         {s.status === ShipmentStatus.EXPEDIDO && (
                           <DeliverShipmentButton shipmentId={s.id} />
                         )}
-                        {s.status === ShipmentStatus.ENTREGADO && (
-                          <span className="text-xs text-[var(--color-muted)]">
-                            {s.holdedAlbaranId
-                              ? `Albarán ${s.holdedAlbaranId}`
-                              : "—"}
-                          </span>
-                        )}
-                      </TD>
-                    </TR>
-                  );
-                })}
-              </TBody>
-            </Table>
+                        {s.status === ShipmentStatus.ENTREGADO &&
+                          s.holdedAlbaranId && (
+                            <span className="text-xs text-[var(--color-muted)]">
+                              Albarán {s.holdedAlbaranId}
+                            </span>
+                          )}
+                      </div>
+                    </div>
+
+                    {/* Lotes asignados */}
+                    {s.lots.length > 0 && (
+                      <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+                        <Table>
+                          <THead>
+                            <TR>
+                              <TH>Lote</TH>
+                              <TH>Material</TH>
+                              <TH className="text-right">Peso</TH>
+                              {isDraft && (
+                                <TH className="text-right">Acción</TH>
+                              )}
+                            </TR>
+                          </THead>
+                          <TBody>
+                            {s.lots.map((l) => (
+                              <TR key={l.id}>
+                                <TD className="font-mono text-xs">
+                                  {l.lot.lotNumber}
+                                </TD>
+                                <TD>{l.lot.material.name}</TD>
+                                <TD className="text-right">
+                                  {formatKg(l.weightKg)}
+                                </TD>
+                                {isDraft && (
+                                  <TD className="text-right">
+                                    <UnassignLotButton
+                                      shipmentId={s.id}
+                                      lotId={l.lotId}
+                                    />
+                                  </TD>
+                                )}
+                              </TR>
+                            ))}
+                          </TBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </>
       )}

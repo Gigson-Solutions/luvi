@@ -151,7 +151,7 @@ describe("Producción — sacas de salida y lotes", () => {
     const dd = String(now.getDate()).padStart(2, "0");
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const yy = String(now.getFullYear()).slice(-2);
-    expect(lotNumber.startsWith(`${dd}${mm}${yy}-`)).toBe(true);
+    expect(lotNumber?.startsWith(`${dd}${mm}${yy}-`)).toBe(true);
   });
 
   it("acumula dos PT del mismo material en el mismo lote del día", async () => {
@@ -177,7 +177,7 @@ describe("Producción — sacas de salida y lotes", () => {
     expect(sacks).toHaveLength(2);
   });
 
-  it("SUBPRODUCTO y RECHAZO crean lotes de su propio tipo", async () => {
+  it("SUBPRODUCTO y RECHAZO se crean sueltos, sin lote (GL-41)", async () => {
     const sub = await createOutputSack({
       type: LotType.SUBPRODUCTO,
       materialId: base.materialId,
@@ -189,16 +189,9 @@ describe("Producción — sacas de salida y lotes", () => {
       weight: 120,
     });
 
-    expect(sub.lotNumber).not.toBe(rej.lotNumber);
-
-    const subLot = await prisma.productionLot.findUniqueOrThrow({
-      where: { lotNumber: sub.lotNumber },
-    });
-    const rejLot = await prisma.productionLot.findUniqueOrThrow({
-      where: { lotNumber: rej.lotNumber },
-    });
-    expect(subLot.type).toBe(LotType.SUBPRODUCTO);
-    expect(rejLot.type).toBe(LotType.RECHAZO);
+    // No auto-generan lote: se agrupan manualmente en Expediciones.
+    expect(sub.lotNumber).toBeNull();
+    expect(rej.lotNumber).toBeNull();
 
     const subSack = await prisma.sack.findFirstOrThrow({
       where: { qrCode: sub.qrCode },
@@ -207,23 +200,19 @@ describe("Producción — sacas de salida y lotes", () => {
       where: { qrCode: rej.qrCode },
     });
     expect(subSack.status).toBe(SackStatus.SUBPRODUCTO);
+    expect(subSack.lotId).toBeNull();
     expect(rejSack.status).toBe(SackStatus.RECHAZO);
+    expect(rejSack.lotId).toBeNull();
   });
 
-  it("el nº secuencial del lote crece con el total de lotes del día", async () => {
+  it("el primer lote PT del día lleva nº secuencial 1", async () => {
     const pt = await createOutputSack({
       type: LotType.PRODUCTO_TERMINADO,
       materialId: base.materialId,
       weight: 400,
     });
-    const sub = await createOutputSack({
-      type: LotType.SUBPRODUCTO,
-      materialId: base.materialId,
-      weight: 200,
-    });
-    const seq = (n: string): number => Number(n.split("-")[1]);
+    const seq = (n: string | null): number => Number((n ?? "-0").split("-")[1]);
     expect(seq(pt.lotNumber)).toBe(1);
-    expect(seq(sub.lotNumber)).toBe(2);
   });
 
   it("rechaza peso <= 0", async () => {

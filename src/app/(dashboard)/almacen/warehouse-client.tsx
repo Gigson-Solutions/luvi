@@ -1,11 +1,18 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { ArrowRightLeft, PackageCheck } from "lucide-react";
+import {
+  ArrowRightLeft,
+  PackageCheck,
+  ListChecks,
+  ScanLine,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { QrScanner } from "@/components/qr/qr-scanner";
 import {
   Dialog,
   DialogTrigger,
@@ -16,6 +23,7 @@ import { formatKg } from "@/lib/utils";
 import {
   moveSackAction,
   transferSacksAction,
+  findWarehouseSackByQrAction,
   type ActionState,
 } from "./actions";
 
@@ -117,15 +125,28 @@ export function TransferSacksDialog({
   zones: ZoneOption[];
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"select" | "scan">("select");
   const [zoneId, setZoneId] = useState("");
+  // Modo manual: ids seleccionados de la lista de sacas en almacén.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Modo escáner: sacas acumuladas al pistolear (id → datos de la saca).
+  const [scanned, setScanned] = useState<Map<string, MovableSack>>(new Map());
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  function reset(): void {
+    setMode("select");
+    setSelected(new Set());
+    setScanned(new Map());
+    setZoneId("");
+    setScanError(null);
+  }
+
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await transferSacksAction(prev, formData);
       if (result.ok) {
         setOpen(false);
-        setSelected(new Set());
-        setZoneId("");
+        reset();
       }
       return result;
     },
@@ -141,14 +162,42 @@ export function TransferSacksDialog({
     });
   }
 
+  async function handleScan(code: string): Promise<void> {
+    setScanError(null);
+    const r = await findWarehouseSackByQrAction(code);
+    if (!r.ok || !r.sack) {
+      setScanError(r.error ?? "Saca no encontrada");
+      return;
+    }
+    const sack = r.sack;
+    setScanned((prev) => {
+      if (prev.has(sack.id)) return prev; // evita duplicados
+      const next = new Map(prev);
+      next.set(sack.id, sack);
+      return next;
+    });
+  }
+
+  function removeScanned(id: string): void {
+    setScanned((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  // Sacas efectivas a trasladar según el modo activo.
+  const selectedSacks: MovableSack[] =
+    mode === "select"
+      ? movableSacks.filter((s) => selected.has(s.id))
+      : Array.from(scanned.values());
+
   const destZone = zones.find((z) => z.id === zoneId);
   const interPlant =
     destZone != null &&
-    movableSacks.some(
+    selectedSacks.some(
       (s) =>
-        selected.has(s.id) &&
-        s.warehouseName != null &&
-        s.warehouseName !== destZone.warehouseName,
+        s.warehouseName != null && s.warehouseName !== destZone.warehouseName,
     );
 
   return (
@@ -160,10 +209,14 @@ export function TransferSacksDialog({
       </DialogTrigger>
       <DialogContent
         title="Trasladar varias sacas"
-        description="Selecciona las sacas y la zona destino. Si el traslado cruza de planta (La Gineta ↔ Montalbos), se genera un albarán en Holded a nombre de la planta destino."
+        description="Selecciona o pistolea (escanea QR) las sacas y elige la zona destino. Si el traslado cruza de planta (La Gineta ↔ Montalbos), se genera un albarán en Holded a nombre de la planta destino."
       >
         <form action={action} className="space-y-4">
           <input type="hidden" name="zoneId" value={zoneId} />
+          {selectedSacks.map((s) => (
+            <input key={s.id} type="hidden" name="sackIds" value={s.id} />
+          ))}
+
           <div>
             <Label htmlFor="transfer-zone">Zona destino</Label>
             <Select
@@ -183,46 +236,111 @@ export function TransferSacksDialog({
             </Select>
           </div>
 
-          <div>
-            <Label>Sacas ({selected.size} seleccionadas)</Label>
-            <div className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
-              {movableSacks.length === 0 ? (
-                <p className="p-3 text-sm text-[var(--color-muted)]">
-                  No hay sacas en almacén para trasladar.
-                </p>
-              ) : (
-                movableSacks.map((s) => {
-                  const atDest = destZone != null && s.zoneId === destZone.id;
-                  return (
-                    <label
-                      key={s.id}
-                      className="flex items-center gap-2 p-2.5 text-sm cursor-pointer hover:bg-[var(--color-surface-hover)]"
-                    >
-                      <input
-                        type="checkbox"
-                        name="sackIds"
-                        value={s.id}
-                        checked={selected.has(s.id)}
-                        onChange={() => toggle(s.id)}
-                        disabled={atDest}
-                      />
-                      <span className="font-medium text-[var(--color-foreground)]">
-                        {s.qrCode}
-                      </span>
-                      <span className="text-[var(--color-muted)]">
-                        {s.materialName} · {formatKg(s.weight)}
-                      </span>
-                      {s.warehouseName && (
-                        <span className="ml-auto text-xs text-[var(--color-muted)]">
-                          {s.warehouseName}
-                        </span>
-                      )}
-                    </label>
-                  );
-                })
-              )}
-            </div>
+          {/* Selector de modo: seleccionar manualmente o pistolear QR */}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === "select" ? "primary" : "outline"}
+              onClick={() => setMode("select")}
+            >
+              <ListChecks className="w-4 h-4" /> Seleccionar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === "scan" ? "primary" : "outline"}
+              onClick={() => setMode("scan")}
+            >
+              <ScanLine className="w-4 h-4" /> Escanear
+            </Button>
           </div>
+
+          {mode === "select" ? (
+            <div>
+              <Label>Sacas ({selected.size} seleccionadas)</Label>
+              <div className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                {movableSacks.length === 0 ? (
+                  <p className="p-3 text-sm text-[var(--color-muted)]">
+                    No hay sacas en almacén para trasladar.
+                  </p>
+                ) : (
+                  movableSacks.map((s) => {
+                    const atDest = destZone != null && s.zoneId === destZone.id;
+                    return (
+                      <label
+                        key={s.id}
+                        className="flex items-center gap-2 p-2.5 text-sm cursor-pointer hover:bg-[var(--color-surface-hover)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.has(s.id)}
+                          onChange={() => toggle(s.id)}
+                          disabled={atDest}
+                        />
+                        <span className="font-medium text-[var(--color-foreground)]">
+                          {s.qrCode}
+                        </span>
+                        <span className="text-[var(--color-muted)]">
+                          {s.materialName} · {formatKg(s.weight)}
+                        </span>
+                        {s.warehouseName && (
+                          <span className="ml-auto text-xs text-[var(--color-muted)]">
+                            {s.warehouseName}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <QrScanner onScan={handleScan} />
+              {scanError && <p className="text-sm text-red-600">{scanError}</p>}
+
+              <div>
+                <Label>{scanned.size} sacas a trasladar</Label>
+                <div className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                  {scanned.size === 0 ? (
+                    <p className="p-3 text-sm text-[var(--color-muted)]">
+                      Escanea el QR de una saca en almacén para añadirla.
+                    </p>
+                  ) : (
+                    Array.from(scanned.values()).map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-2 p-2.5 text-sm"
+                      >
+                        <span className="font-medium text-[var(--color-foreground)]">
+                          {s.qrCode}
+                        </span>
+                        <span className="text-[var(--color-muted)]">
+                          {s.materialName} · {formatKg(s.weight)}
+                        </span>
+                        {s.warehouseName && (
+                          <span className="text-xs text-[var(--color-muted)]">
+                            {s.warehouseName}
+                          </span>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="ml-auto"
+                          onClick={() => removeScanned(s.id)}
+                          aria-label={`Quitar ${s.qrCode}`}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {interPlant && (
             <p className="text-xs text-[var(--color-primary)] flex items-center gap-1.5">
@@ -238,7 +356,9 @@ export function TransferSacksDialog({
                 Cancelar
               </Button>
             </DialogClose>
-            <SubmitButton pendingText="Trasladando…">Trasladar</SubmitButton>
+            <SubmitButton pendingText="Trasladando…">
+              Trasladar {selectedSacks.length} saca(s)
+            </SubmitButton>
           </div>
         </form>
       </DialogContent>

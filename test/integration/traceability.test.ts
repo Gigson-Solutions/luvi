@@ -71,6 +71,7 @@ async function buildChain(): Promise<Chain> {
     weight: 900,
     zoneId: base.zoneCId,
   });
+  if (!lotNumber) throw new Error("El PT debe tener lote de salida.");
   const outputSack = await prisma.sack.findFirstOrThrow({
     where: { qrCode: outputQr },
   });
