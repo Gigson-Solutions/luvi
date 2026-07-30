@@ -47,6 +47,10 @@ interface WarehouseSack {
 }
 
 // ─── Entrada a tolva ────────────────────────────────────────────────────────────
+// `sacks` = sacas que YA están dentro de la tolva (EN_PRODUCCION). El escáner
+// resuelve el QR contra almacén por server action (findSackByQrAction), así que
+// la tabla es puramente informativa; el flujo "Entrar a tolva" vive en la tarjeta
+// del escáner.
 export function HopperEntry({
   sacks,
 }: {
@@ -126,11 +130,18 @@ export function HopperEntry({
 
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
 
+      <h3 className="text-sm font-semibold text-[var(--color-foreground)]">
+        En la tolva
+        <span className="ml-2 font-normal text-[var(--color-muted)]">
+          {sacks.length}
+        </span>
+      </h3>
+
       {sacks.length === 0 ? (
         <EmptyState
           icon={ArrowDownToLine}
-          title="No hay sacas en almacén"
-          description="Recibe material en Recepciones para poder alimentar la tolva."
+          title="No hay sacas en la tolva"
+          description="Escanea una saca de almacén para alimentar la tolva."
         />
       ) : (
         <Table>
@@ -141,7 +152,6 @@ export function HopperEntry({
               <TH>Zona</TH>
               <TH>Peso</TH>
               <TH>Estado</TH>
-              <TH className="text-right">Acción</TH>
             </TR>
           </THead>
           <TBody>
@@ -153,14 +163,6 @@ export function HopperEntry({
                 <TD>{formatKg(s.weight)}</TD>
                 <TD>
                   <SackStatusBadge status={s.status} />
-                </TD>
-                <TD className="text-right">
-                  <form action={action} className="inline-flex">
-                    <input type="hidden" name="sackId" value={s.id} />
-                    <SubmitButton variant="outline" pendingText="…">
-                      <ArrowDownToLine className="w-3.5 h-3.5" /> Entrar a tolva
-                    </SubmitButton>
-                  </form>
                 </TD>
               </TR>
             ))}

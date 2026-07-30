@@ -7,7 +7,7 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatKg, formatDate, cn } from "@/lib/utils";
 import {
-  listWarehouseSacks,
+  listHopperSacks,
   listOutputSacksByType,
   getOutputCounts,
   getProductionStats,
@@ -61,17 +61,19 @@ export default async function ProduccionPage({
   const { tab } = await searchParams;
   const activeTab: Tab = isTab(tab) ? tab : "entrada";
 
-  const [stats, formData, counts, sacks, outputSacks] = await Promise.all([
-    getProductionStats(),
-    getProductionFormData(),
-    getOutputCounts(),
-    activeTab === "entrada"
-      ? listWarehouseSacks()
-      : Promise.resolve<SackWithMaterialZone[]>([]),
-    activeTab === "entrada"
-      ? Promise.resolve<OutputSack[]>([])
-      : listOutputSacksByType(TAB_TYPE[activeTab]),
-  ]);
+  const [stats, formData, counts, hopperSacks, outputSacks] = await Promise.all(
+    [
+      getProductionStats(),
+      getProductionFormData(),
+      getOutputCounts(),
+      activeTab === "entrada"
+        ? listHopperSacks()
+        : Promise.resolve<SackWithMaterialZone[]>([]),
+      activeTab === "entrada"
+        ? Promise.resolve<OutputSack[]>([])
+        : listOutputSacksByType(TAB_TYPE[activeTab]),
+    ],
+  );
 
   const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
     { value: "entrada", label: "Entrada", icon: ArrowDownToLine },
@@ -164,12 +166,9 @@ export default async function ProduccionPage({
         <section>
           <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
             Entrada a tolva
-            <span className="ml-2 text-[var(--color-muted)] font-normal">
-              {sacks.length} en almacén
-            </span>
           </h2>
           <HopperEntry
-            sacks={sacks.map((s) => ({
+            sacks={hopperSacks.map((s) => ({
               id: s.id,
               qrCode: s.qrCode,
               weight: s.weight,

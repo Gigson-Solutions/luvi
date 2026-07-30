@@ -58,6 +58,17 @@ export function listWarehouseSacks(
   });
 }
 
+/** Sacas EN_PRODUCCION actualmente dentro de la tolva (mismo shape que
+ * listWarehouseSacks: material + zona). */
+export function listHopperSacks(limit = 100): Promise<SackWithMaterialZone[]> {
+  return prisma.sack.findMany({
+    where: { status: SackStatus.EN_PRODUCCION },
+    include: { material: true, zone: true },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+  });
+}
+
 /** Busca una saca por su QR (para el escáner). Solo sacas EN_ALMACEN. */
 export function findWarehouseSackByQr(
   qrCode: string,
