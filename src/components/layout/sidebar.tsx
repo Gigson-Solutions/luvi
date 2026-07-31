@@ -20,10 +20,57 @@ import {
   Settings,
   Menu,
   X,
+  LogOut,
 } from "lucide-react";
 import { canAccess } from "@/lib/permissions";
 import { UserRole } from "@prisma/client";
 import { cn } from "@/lib/utils";
+import { logoutAction } from "@/app/(dashboard)/logout";
+
+/** Pie del sidebar: usuario actual + cerrar sesión. */
+function SidebarFooter({
+  userName,
+  userEmail,
+}: {
+  userName: string | null;
+  userEmail: string | null;
+}): React.JSX.Element {
+  return (
+    <div className="px-3 py-3 border-t border-white/10 space-y-2">
+      {(userName || userEmail) && (
+        <div className="flex items-center gap-2 px-1">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-xs font-semibold text-white uppercase">
+            {(userName || userEmail || "?").charAt(0)}
+          </div>
+          <div className="min-w-0">
+            {userName && (
+              <p className="truncate text-sm font-medium text-white">
+                {userName}
+              </p>
+            )}
+            {userEmail && (
+              <p className="truncate text-xs text-[var(--color-sidebar-text)] opacity-60">
+                {userEmail}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      <form action={logoutAction}>
+        <button
+          type="submit"
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-sidebar-text)] hover:bg-[var(--color-sidebar-hover)] hover:text-white transition-colors"
+        >
+          <LogOut className="w-4 h-4 shrink-0" />
+          Cerrar sesión
+        </button>
+      </form>
+      <p className="text-xs text-[var(--color-sidebar-text)] opacity-40 px-1">
+        Luvi2000 · Gigson Solutions
+      </p>
+    </div>
+  );
+}
 
 interface NavItem {
   label: string;
@@ -149,9 +196,15 @@ function NavLinks({
 
 interface SidebarProps {
   role: string;
+  userName?: string | null;
+  userEmail?: string | null;
 }
 
-export function Sidebar({ role }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  role,
+  userName = null,
+  userEmail = null,
+}: SidebarProps): React.JSX.Element {
   const userRole = role as UserRole;
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -181,11 +234,7 @@ export function Sidebar({ role }: SidebarProps): React.JSX.Element {
           <Logo />
         </div>
         <NavLinks items={visibleItems} pathname={pathname} />
-        <div className="px-3 py-3 border-t border-white/10">
-          <p className="text-xs text-[var(--color-sidebar-text)] opacity-50">
-            Luvi2000 · Gigson Solutions
-          </p>
-        </div>
+        <SidebarFooter userName={userName} userEmail={userEmail} />
       </aside>
 
       {/* Drawer — móvil */}
@@ -213,11 +262,7 @@ export function Sidebar({ role }: SidebarProps): React.JSX.Element {
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
-            <div className="px-3 py-3 border-t border-white/10">
-              <p className="text-xs text-[var(--color-sidebar-text)] opacity-50">
-                Luvi2000 · Gigson Solutions
-              </p>
-            </div>
+            <SidebarFooter userName={userName} userEmail={userEmail} />
           </div>
         </div>
       )}
