@@ -10,9 +10,19 @@ export default async function DashboardLayout({
   const session = await auth();
   if (!session) redirect("/login");
 
+  const u = session.user as {
+    role?: string;
+    name?: string | null;
+    email?: string | null;
+  };
+
   return (
     <div className="md:flex min-h-screen">
-      <Sidebar role={(session.user as { role?: string }).role ?? "OPERARIO"} />
+      <Sidebar
+        role={u.role ?? "OPERARIO"}
+        userName={u.name ?? null}
+        userEmail={u.email ?? null}
+      />
       <main className="flex-1 min-w-0 overflow-auto">
         <div className="px-4 md:px-6 py-5 max-w-screen-2xl mx-auto">
           {children}
