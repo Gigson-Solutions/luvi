@@ -85,7 +85,9 @@ export default async function ExpedicionesPage({
     ...outputLots.productoTerminado,
     ...outputLots.subproducto,
     ...outputLots.rechazo,
-  ].map(toAssignable);
+  ]
+    .filter((l) => l.state !== "asignado")
+    .map(toAssignable);
 
   return (
     <div>
