@@ -40,9 +40,9 @@ const BLOCK: Record<BlockTone, { wrap: string; head: string; icon: string }> = {
     icon: "text-green-700 dark:text-green-400",
   },
   blue: {
-    wrap: "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30",
-    head: "text-blue-800 dark:text-blue-300",
-    icon: "text-blue-700 dark:text-blue-400",
+    wrap: "border-blue-300 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30",
+    head: "text-blue-900 dark:text-blue-200",
+    icon: "text-blue-800 dark:text-blue-300",
   },
   amber: {
     wrap: "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30",
@@ -78,7 +78,7 @@ function ColorBlock({
     <section className={`rounded-xl border p-5 ${c.wrap}`}>
       <div className="flex items-center gap-2 mb-4">
         <Icon className={`w-5 h-5 shrink-0 ${c.icon}`} />
-        <h3 className={`text-base font-semibold ${c.head}`}>{title}</h3>
+        <h3 className={`text-base font-bold ${c.head}`}>{title}</h3>
         {count != null && (
           <span className={`text-sm ${c.head} opacity-70`}>({count})</span>
         )}

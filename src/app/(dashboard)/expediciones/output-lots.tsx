@@ -14,9 +14,23 @@ import type {
 } from "@/lib/services/shipment.service";
 import {
   CreateManualLotDialog,
+  AddToLotDialog,
   RemoveSackButton,
   type LooseSackOption,
+  type OpenLotOption,
 } from "./shipment-dialogs";
+
+/** Lotes abiertos (con hueco) de un conjunto, para «Añadir a lote». */
+function openLotOptions(lots: AvailableOutputLot[]): OpenLotOption[] {
+  return lots
+    .filter((l) => l.isOpen && l.sackCount < MAX_SACKS_PER_LOT)
+    .map((l) => ({
+      id: l.id,
+      lotNumber: l.lotNumber,
+      materialId: l.materialId,
+      sackCount: l.sackCount,
+    }));
+}
 
 const eur = (n: number): string => `${n.toFixed(2)}€`;
 
@@ -155,30 +169,40 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
   );
 }
 
-/** GL-41 — sacas sueltas de un tipo + botón para crear lote manual. */
+/** GL-41/GL-39 — sacas sueltas de un tipo + crear lote / añadir a lote existente. */
 function LooseSacksSection({
   type,
   sacks,
+  openLots,
 }: {
   type: LotType;
   sacks: LooseSackOption[];
+  openLots: OpenLotOption[];
 }): React.JSX.Element | null {
   if (sacks.length === 0) return null;
   const totalKg = sacks.reduce((sum, s) => sum + s.weight, 0);
   return (
     <div className="rounded-xl border border-dashed border-[var(--color-border)] p-3 mb-3">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between gap-2 mb-2">
         <p className="text-sm font-medium text-[var(--color-foreground)]">
           Sacas sueltas{" "}
           <span className="text-[var(--color-muted)] font-normal">
             {sacks.length} · {formatKg(totalKg)}
           </span>
         </p>
-        <CreateManualLotDialog
-          type={type}
-          sacks={sacks}
-          maxSacks={MAX_SACKS_PER_LOT}
-        />
+        <div className="flex items-center gap-1.5">
+          <AddToLotDialog
+            type={type}
+            sacks={sacks}
+            openLots={openLots}
+            maxSacks={MAX_SACKS_PER_LOT}
+          />
+          <CreateManualLotDialog
+            type={type}
+            sacks={sacks}
+            maxSacks={MAX_SACKS_PER_LOT}
+          />
+        </div>
       </div>
       <Table>
         <THead>
@@ -237,7 +261,11 @@ function TypeSection({
   return (
     <section>
       <SectionHeading icon={icon} title={title} count={lots.length} />
-      <LooseSacksSection type={type} sacks={loose} />
+      <LooseSacksSection
+        type={type}
+        sacks={loose}
+        openLots={openLotOptions(lots)}
+      />
       {lots.length === 0 ? (
         loose.length === 0 ? (
           <Card className="p-4 text-sm text-[var(--color-muted)]">
@@ -281,6 +309,7 @@ export function OutputLotsPanel({
         <LooseSacksSection
           type={LotType.PRODUCTO_TERMINADO}
           sacks={loose.productoTerminado}
+          openLots={openLotOptions(productoTerminado)}
         />
 
         {productoTerminado.length === 0 ? (

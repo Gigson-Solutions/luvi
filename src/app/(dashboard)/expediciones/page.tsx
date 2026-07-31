@@ -201,6 +201,9 @@ export default async function ExpedicionesPage({
                           {s.lots.length}{" "}
                           {s.lots.length === 1 ? "lote" : "lotes"} ·{" "}
                           {formatKg(totalKg)} · {formatDate(date, true)}
+                          {s.scheduledAt
+                            ? ` · programado ${formatDate(s.scheduledAt)}`
+                            : ""}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
