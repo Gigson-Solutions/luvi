@@ -222,10 +222,15 @@ async function getOrCreateDailyLot(
   materialId: string,
 ): Promise<Prisma.ProductionLotGetPayload<Record<string, never>>> {
   // GL-36: reutiliza el lote ABIERTO del mismo tipo+material (aunque sea de un
-  // día anterior si todavía no ha llegado a 22 sacas). Solo si no hay ninguno
-  // abierto se crea uno nuevo.
+  // día anterior si todavía no ha llegado a 22 sacas). Un lote ya comprometido a
+  // un envío (con ShipmentLot) NO acumula: las nuevas sacas arrancan lote nuevo.
   const existing = await tx.productionLot.findFirst({
-    where: { type, materialId, isOpen: true },
+    where: {
+      type,
+      materialId,
+      isOpen: true,
+      shipmentLots: { none: {} },
+    },
     orderBy: { producedAt: "asc" },
   });
   if (existing) return existing;

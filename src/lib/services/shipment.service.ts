@@ -721,6 +721,12 @@ export async function expediteShipment(
   const lotIds = shipment.lots.map((sl) => sl.lotId);
 
   const updated = await prisma.$transaction(async (tx) => {
+    // Al expedir, los lotes del envío que sigan abiertos (envío parcial <22) se
+    // dan por terminados: isOpen=false + closedAt (tal y como se envían).
+    await tx.productionLot.updateMany({
+      where: { id: { in: lotIds }, isOpen: true },
+      data: { isOpen: false, closedAt: new Date() },
+    });
     await tx.sack.updateMany({
       where: {
         lotId: { in: lotIds },
