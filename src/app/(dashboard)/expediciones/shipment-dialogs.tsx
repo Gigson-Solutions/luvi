@@ -32,6 +32,7 @@ import {
   assignLotAction,
   unassignLotAction,
   createManualLotAction,
+  addToLotAction,
   removeSackFromLotAction,
   type ActionState,
 } from "./actions";
@@ -115,8 +116,8 @@ export function NewShipmentDialog({
               />
             </div>
             <div>
-              <Label htmlFor="driverName">Conductor</Label>
-              <Input id="driverName" name="driverName" />
+              <Label htmlFor="scheduledAt">Fecha programada</Label>
+              <Input id="scheduledAt" name="scheduledAt" type="date" />
             </div>
           </div>
 
@@ -458,6 +459,159 @@ export function CreateManualLotDialog({
                 </Button>
               </DialogClose>
               <SubmitButton>Crear lote ({selected.length})</SubmitButton>
+            </div>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── GL-39: añadir sacas sueltas a un lote existente abierto ────────────────────
+export interface OpenLotOption {
+  id: string;
+  lotNumber: string;
+  materialId: string;
+  sackCount: number;
+}
+
+export function AddToLotDialog({
+  type,
+  sacks,
+  openLots,
+  maxSacks,
+}: {
+  type: LotType;
+  sacks: LooseSackOption[];
+  openLots: OpenLotOption[];
+  maxSacks: number;
+}): React.JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [lotId, setLotId] = useState("");
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await addToLotAction(prev, formData);
+      if (result.ok) {
+        setOpen(false);
+        setSelected([]);
+        setLotId("");
+      }
+      return result;
+    },
+    INITIAL,
+  );
+
+  // Solo hay lotes abiertos donde meter sacas si existen; si no, no mostramos.
+  if (openLots.length === 0) return null;
+
+  const lockedMaterial =
+    selected.length > 0
+      ? sacks.find((s) => s.id === selected[0])?.materialId
+      : null;
+  // Lotes candidatos: mismo material que la selección y con hueco.
+  const candidateLots = openLots.filter(
+    (l) =>
+      (lockedMaterial == null || l.materialId === lockedMaterial) &&
+      l.sackCount + selected.length <= maxSacks,
+  );
+
+  function toggle(id: string): void {
+    setSelected((prev) =>
+      prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : prev.length < maxSacks
+          ? [...prev, id]
+          : prev,
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost">
+          <Plus className="w-3.5 h-3.5" /> Añadir a lote
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title={`Añadir a lote existente · ${TYPE_LABEL[type]}`}
+        description="Selecciona sacas sueltas y el lote abierto donde añadirlas (mismo material, máx 22)."
+      >
+        {sacks.length === 0 ? (
+          <p className="text-sm text-[var(--color-muted)]">
+            No hay sacas sueltas para añadir.
+          </p>
+        ) : (
+          <form action={action} className="space-y-4">
+            <input
+              type="hidden"
+              name="sackIds"
+              value={JSON.stringify(selected)}
+            />
+            <div className="max-h-56 overflow-y-auto rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+              {sacks.map((s) => {
+                const checked = selected.includes(s.id);
+                const disabled =
+                  !checked &&
+                  ((lockedMaterial != null &&
+                    s.materialId !== lockedMaterial) ||
+                    selected.length >= maxSacks);
+                return (
+                  <label
+                    key={s.id}
+                    className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer ${
+                      disabled ? "opacity-40 cursor-not-allowed" : ""
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => toggle(s.id)}
+                    />
+                    <span className="font-mono text-xs">{s.qrCode}</span>
+                    <span className="text-[var(--color-muted)]">
+                      {s.materialName}
+                    </span>
+                    <span className="ml-auto">{formatKg(s.weight)}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div>
+              <Label htmlFor="add-lotId">Lote destino</Label>
+              <Select
+                id="add-lotId"
+                name="lotId"
+                required
+                value={lotId}
+                onChange={(e) => setLotId(e.target.value)}
+                disabled={selected.length === 0}
+              >
+                <option value="" disabled>
+                  {selected.length === 0
+                    ? "Selecciona sacas primero…"
+                    : candidateLots.length === 0
+                      ? "Ningún lote con hueco para este material"
+                      : "Selecciona un lote…"}
+                </option>
+                {candidateLots.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.lotNumber} · {l.sackCount}/{maxSacks}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {state.error && (
+              <p className="text-sm text-red-600">{state.error}</p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  Cancelar
+                </Button>
+              </DialogClose>
+              <SubmitButton>Añadir ({selected.length})</SubmitButton>
             </div>
           </form>
         )}

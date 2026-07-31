@@ -172,6 +172,7 @@ export interface AvailableOutputLot {
   id: string;
   lotNumber: string;
   type: LotType;
+  materialId: string;
   materialName: string;
   producedAt: Date;
   /** GL-36: false = cerrado (22 sacas, listo para enviar); true = acumulando. */
@@ -290,6 +291,7 @@ async function availableLotsByType(
     id: l.id,
     lotNumber: l.lotNumber,
     type: l.type,
+    materialId: l.materialId,
     materialName: l.material.name,
     producedAt: l.producedAt,
     isOpen: l.isOpen,
@@ -535,8 +537,9 @@ export interface CreateShipmentInput {
   buyerId: string;
   carrierId?: string;
   vehiclePlate?: string;
-  driverName?: string;
   notes?: string;
+  /** GL-42: fecha programada de expedición. */
+  scheduledAt?: Date;
   /** GL-42: opcional. El envío puede crearse vacío y asignarle lotes después. */
   lots?: { lotId: string; weightKg: number }[];
 }
@@ -575,8 +578,8 @@ export async function createShipment(
         buyerId: input.buyerId,
         carrierId: input.carrierId ?? null,
         vehiclePlate: input.vehiclePlate ?? null,
-        driverName: input.driverName ?? null,
         notes: input.notes ?? null,
+        scheduledAt: input.scheduledAt ?? null,
         lots: {
           create: lots.map((l) => ({ lotId: l.lotId, weightKg: l.weightKg })),
         },

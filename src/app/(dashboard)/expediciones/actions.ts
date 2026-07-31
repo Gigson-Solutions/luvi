@@ -13,6 +13,7 @@ import {
   assignLotToShipment,
   unassignLotFromShipment,
   createManualLot,
+  addSacksToLot,
   removeSackFromLot,
 } from "@/lib/services/shipment.service";
 import type { CurrentUser } from "@/lib/rbac";
@@ -31,7 +32,7 @@ const createSchema = z.object({
   buyerId: z.string().min(1, "Selecciona un comprador"),
   carrierId: z.string().optional(),
   vehiclePlate: z.string().optional(),
-  driverName: z.string().optional(),
+  scheduledAt: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -49,12 +50,13 @@ export async function createShipmentAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { buyerId, carrierId, vehiclePlate, driverName, notes } = parsed.data;
+    const { buyerId, carrierId, vehiclePlate, scheduledAt, notes } =
+      parsed.data;
     const shipment = await createShipment({
       buyerId,
       carrierId: carrierId || undefined,
       vehiclePlate: vehiclePlate || undefined,
-      driverName: driverName || undefined,
+      scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
       notes: notes || undefined,
     });
     revalidatePath("/expediciones");
@@ -255,6 +257,53 @@ export async function createManualLotAction(
       ok: true,
       message: `Lote ${lot.lotNumber} creado (${lot.sackCount} sacas)`,
     };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : INITIAL_ERROR };
+  }
+}
+
+const addToLotSchema = z.object({
+  lotId: z.string().min(1),
+  sackIds: z
+    .string()
+    .transform((s, ctx) => {
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Sacas inválidas",
+        });
+        return z.NEVER;
+      }
+    })
+    .pipe(z.array(z.string().min(1)).min(1, "Selecciona al menos una saca")),
+});
+
+/** GL-39 — añade sacas sueltas a un lote existente abierto. */
+export async function addToLotAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = addToLotSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    const r = await addSacksToLot(parsed.data.lotId, parsed.data.sackIds);
+    await logAudit({
+      userId: actor.id,
+      action: "ADD_SACKS_TO_LOT",
+      entity: "ProductionLot",
+      entityId: parsed.data.lotId,
+      payload: { sackCount: r.sackCount },
+    });
+    revalidatePath("/expediciones");
+    return { ok: true, message: `Sacas añadidas al lote (${r.sackCount}/22)` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : INITIAL_ERROR };
   }

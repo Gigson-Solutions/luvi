@@ -430,6 +430,7 @@ model Shipment {
   driverName  String?
   notes       String?
 
+  scheduledAt     DateTime? // GL-42: fecha programada de expedición
   holdedAlbaranId String? // ID albarán en Holded (generado al confirmar)
   expeditedAt     DateTime?
   deliveredAt     DateTime?
