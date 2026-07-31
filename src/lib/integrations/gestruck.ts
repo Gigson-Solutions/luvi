@@ -24,6 +24,8 @@
 
 export interface WeightReading {
   manual: boolean;
+  /** Pesaje a medias (solo 1 pesada hecha): aún no hay neto. */
+  inProgress?: boolean;
   weight?: number; // kg
   tare?: number; // kg
   net?: number; // kg
@@ -76,7 +78,10 @@ export async function readWeight(params: {
   const key = process.env.GESTRUCK_API_KEY;
 
   if (!url || !key) {
-    return { manual: true, reason: "Gestruck no configurado (entrada manual)" };
+    return {
+      manual: true,
+      reason: "La báscula no está conectada. Introduce el peso a mano.",
+    };
   }
 
   try {
@@ -88,8 +93,9 @@ export async function readWeight(params: {
     const today = new Date().toLocaleDateString("sv-SE", {
       timeZone: "Europe/Madrid",
     }); // YYYY-MM-DD
+    // Sin filtro de Status: así también vemos un pesaje "a medias" (primera
+    // pesada hecha, falta la segunda) y podemos avisar de ello.
     const qs = new URLSearchParams({
-      Status: "Completed",
       Size: "100",
       StartDate: today,
     });
@@ -119,7 +125,21 @@ export async function readWeight(params: {
       return {
         manual: true,
         reason:
-          "Sin pesaje de báscula hoy para esta matrícula (introduce el peso a mano)",
+          "La báscula todavía no tiene el pesaje de esta matrícula. Comprueba que el camión ha terminado de pesar, o introduce el peso a mano.",
+      };
+    }
+
+    // Pesaje a medias: solo se ha hecho una pesada (falta la segunda) → aún no
+    // hay neto. Avisamos en vez de dar un peso incompleto.
+    const hasFirst = line.FirstWeighing != null;
+    const hasSecond = line.SecondWeighing != null;
+    const completed = item.Status === "Completed" || (hasFirst && hasSecond);
+    if (!completed) {
+      return {
+        manual: true,
+        inProgress: true,
+        reason:
+          "El pesaje está a medias: se ha pesado con carga pero falta la pesada sin carga. Espera a que terminen de pesar o introduce el peso a mano.",
       };
     }
 
@@ -144,9 +164,12 @@ export async function readWeight(params: {
       scaleId: params.scaleId,
     };
   } catch (err) {
+    // Detalle técnico solo en el log del servidor; al operario, mensaje claro.
+    console.error("[gestruck] fallo al leer la báscula:", err);
     return {
       manual: true,
-      reason: err instanceof Error ? err.message : "Báscula no disponible",
+      reason:
+        "No se pudo conectar con la báscula. Introduce el peso a mano y vuelve a intentarlo en un momento.",
     };
   }
 }
