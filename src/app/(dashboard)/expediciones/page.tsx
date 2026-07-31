@@ -79,14 +79,13 @@ export default async function ExpedicionesPage({
       getLooseOutputSacks(),
     ]);
 
-  // Lotes cerrados y sin asignar: candidatos a asignar a un envío (GL-42).
+  // Lotes sin asignar (abiertos o cerrados) candidatos a asignar a un envío.
+  // Se permite enviar un lote parcial (<22): al expedir se cierra (isOpen=false).
   const assignableLots: AssignableLot[] = [
     ...outputLots.productoTerminado,
     ...outputLots.subproducto,
     ...outputLots.rechazo,
-  ]
-    .filter((l) => !l.isOpen)
-    .map(toAssignable);
+  ].map(toAssignable);
 
   return (
     <div>
