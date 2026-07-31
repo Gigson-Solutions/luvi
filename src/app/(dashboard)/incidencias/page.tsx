@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  ClipboardList,
+} from "lucide-react";
 import { IncidentStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -18,7 +24,7 @@ import {
   getMonthlyIncidentsByWarehouse,
   type IncidentWithReporter,
 } from "@/lib/services/incident.service";
-import { NewIncidentDialog, AdvanceStatusButton } from "./incident-dialogs";
+import { NewIncidentDialog, ManageIncidentButton } from "./incident-dialogs";
 
 const MONTH_ABBR = [
   "ene",
@@ -94,7 +100,17 @@ export default async function IncidenciasPage({
     ABIERTA: "var(--color-status-rechazo)",
     EN_REVISION: "var(--color-warning)",
     EN_PROCESO: "var(--color-primary)",
+    RESUELTA: "var(--color-status-terminado)",
     CERRADA: "var(--color-muted)",
+  };
+
+  // Icono por estado — círculo de color en la StatCard (estilo Emergent).
+  const STAT_ICONS: Record<IncidentStatus, React.ElementType> = {
+    ABIERTA: AlertTriangle,
+    EN_REVISION: Clock,
+    EN_PROCESO: Clock,
+    RESUELTA: CheckCircle2,
+    CERRADA: XCircle,
   };
 
   return (
@@ -113,6 +129,7 @@ export default async function IncidenciasPage({
             label={INCIDENT_LABELS[s]}
             value={stats[s]}
             accent={STAT_ACCENTS[s]}
+            icon={STAT_ICONS[s]}
             hint={
               total > 0
                 ? `${Math.round((stats[s] / total) * 100)}% del total`
@@ -120,7 +137,7 @@ export default async function IncidenciasPage({
             }
           />
         ))}
-        <StatCard label="Total" value={total} />
+        <StatCard label="Total" value={total} icon={ClipboardList} />
       </div>
 
       {/* Filtro por estado */}
@@ -382,7 +399,11 @@ function IncidentRow({
         <TD>{inc.resolvedAt ? formatDate(inc.resolvedAt, true) : "—"}</TD>
       ) : (
         <TD className="text-right">
-          <AdvanceStatusButton id={inc.id} status={inc.status} />
+          <ManageIncidentButton
+            id={inc.id}
+            title={inc.title}
+            status={inc.status}
+          />
         </TD>
       )}
     </TR>

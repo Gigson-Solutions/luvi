@@ -4,9 +4,11 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
+import { IncidentStatus } from "@prisma/client";
 import {
   createIncident,
   advanceIncidentStatus,
+  setIncidentStatus,
 } from "@/lib/services/incident.service";
 import { saveImage } from "@/lib/storage";
 
@@ -94,6 +96,49 @@ export async function advanceIncidentStatusAction(
     await logAudit({
       userId: actor.id,
       action: "ADVANCE_INCIDENT_STATUS",
+      entity: "Incident",
+      entityId: updated.id,
+      payload: { status: updated.status },
+    });
+
+    revalidatePath("/incidencias");
+    return { ok: true, message: `Estado actualizado a ${updated.status}` };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al actualizar el estado",
+    };
+  }
+}
+
+const setStatusSchema = z.object({
+  id: z.string().min(1),
+  status: z.nativeEnum(IncidentStatus),
+});
+
+/**
+ * Cambia la incidencia a cualquier estado destino (diálogo "Gestionar").
+ * A diferencia de advanceIncidentStatusAction, permite saltar a cualquiera
+ * de los 5 estados. Sella `resolvedAt` al pasar a RESUELTA.
+ */
+export async function setIncidentStatusAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireModule("incidencias");
+
+    const parsed = setStatusSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return { ok: false, error: "Estado inválido" };
+    }
+
+    const updated = await setIncidentStatus(parsed.data.id, parsed.data.status);
+
+    // Traza de auditoría: cambio de estado de la incidencia.
+    await logAudit({
+      userId: actor.id,
+      action: "SET_INCIDENT_STATUS",
       entity: "Incident",
       entityId: updated.id,
       payload: { status: updated.status },

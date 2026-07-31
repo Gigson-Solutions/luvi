@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { Package, Warehouse as WarehouseIcon, Search } from "lucide-react";
+import {
+  Package,
+  Warehouse as WarehouseIcon,
+  Search,
+  Scale,
+  AlertTriangle,
+  Filter,
+} from "lucide-react";
 import { SackStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -13,12 +20,14 @@ import {
   CardContent,
   StatCard,
 } from "@/components/ui/card";
+import { Badge, type Tone } from "@/components/ui/badge";
 import { SackStatusBadge, SACK_LABELS } from "@/components/ui/status-badge";
 import { formatKg } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
   getWarehouseOverview,
   listSacks,
+  countSacks,
   getWarehouseFilterData,
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
@@ -66,16 +75,22 @@ export default async function AlmacenPage({
   const zoneFilter = params.zone || undefined;
   const searchQuery = params.q?.trim() || undefined;
 
-  const [overview, sacks, filterData] = await Promise.all([
+  const sackFilters = {
+    status: statusFilter,
+    materialId: materialFilter,
+    zoneId: zoneFilter,
+    search: searchQuery,
+  };
+
+  const [overview, sacks, totalMatching, filterData] = await Promise.all([
     getWarehouseOverview(),
-    listSacks({
-      status: statusFilter,
-      materialId: materialFilter,
-      zoneId: zoneFilter,
-      search: searchQuery,
-    }),
+    listSacks(sackFilters),
+    countSacks(sackFilters),
     getWarehouseFilterData(),
   ]);
+
+  // La tabla está recortada si hay más coincidencias que sacas devueltas.
+  const truncated = totalMatching > sacks.length;
 
   const movableSacks = sacks
     .filter((s) => s.status === SackStatus.EN_ALMACEN)
@@ -101,20 +116,27 @@ export default async function AlmacenPage({
           label="Sacas en almacén"
           value={overview.stats.totalSacks}
           accent="var(--color-primary)"
+          icon={Package}
         />
-        <StatCard label="Peso total" value={formatKg(overview.stats.totalKg)} />
+        <StatCard
+          label="Peso total"
+          value={formatKg(overview.stats.totalKg)}
+          icon={Scale}
+        />
         <StatCard
           label="Zonas al límite"
           value={overview.stats.zonesAtLimit}
           accent={
             overview.stats.zonesAtLimit > 0
               ? "var(--color-status-rechazo)"
-              : "var(--color-muted)"
+              : "var(--color-status-pending)"
           }
+          icon={AlertTriangle}
         />
         <StatCard
           label="Filtradas"
           value={sacks.length}
+          icon={Filter}
           hint={
             statusFilter !== SackStatus.EN_ALMACEN ||
             materialFilter ||
@@ -423,7 +445,11 @@ export default async function AlmacenPage({
                       {s.qrCode}
                     </Link>
                   </TD>
-                  <TD>{s.material.name}</TD>
+                  <TD>
+                    <Badge tone={materialTone(s.material.name)}>
+                      {s.material.name}
+                    </Badge>
+                  </TD>
                   <TD>{formatKg(s.weight)}</TD>
                   <TD>
                     <SackStatusBadge status={s.status} />
@@ -464,6 +490,13 @@ export default async function AlmacenPage({
               ))}
             </TBody>
           </Table>
+        )}
+
+        {truncated && (
+          <p className="mt-3 text-center text-xs text-[var(--color-muted)]">
+            Mostrando {sacks.length} de {totalMatching} sacas. Afina los filtros
+            para ver el resto.
+          </p>
         )}
       </section>
     </div>
@@ -572,6 +605,21 @@ function ProjectedOccupancy({
       </Card>
     </section>
   );
+}
+
+/**
+ * Asigna un color de badge estable a cada material a partir de su nombre, para
+ * distinguirlos de un vistazo en la tabla. Se excluyen tonos que ya tienen
+ * semántica en la página (rojo = rechazo/límite, gris/neutro = vacío).
+ */
+const MATERIAL_TONES: Tone[] = ["blue", "green", "purple", "sky", "amber"];
+
+function materialTone(name: string): Tone {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return MATERIAL_TONES[Math.abs(hash) % MATERIAL_TONES.length];
 }
 
 function FilterChip({

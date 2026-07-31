@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { PackagePlus, ArrowDownToLine, ScanLine, X } from "lucide-react";
+import { PackagePlus, ArrowDownToLine, ScanLine, Scale, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -295,14 +295,27 @@ export function OutputSackDialog({
               </div>
               <div>
                 <Label htmlFor="weight">Peso (kg)</Label>
-                <Input
-                  id="weight"
-                  name="weight"
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="0.00"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="weight"
+                    name="weight"
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9.5 w-9.5 shrink-0"
+                    title="Leer peso de báscula"
+                    aria-label="Leer peso de báscula"
+                  >
+                    <Scale className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </div>
 

@@ -62,6 +62,21 @@ export const SAMPLE_MEASURE_UNITS: Record<SampleMeasureKey, string> = {
   otros: "%",
 };
 
+/**
+ * Color base por parámetro para tintar la rejilla de muestras y las tarjetas de
+ * promedios (Densidad verde, PVC naranja, Cola amarillo, Multicapas azul, Metal
+ * morado, Otros slate). Se mezclan con `color-mix` para lograr fondos suaves que
+ * se adaptan al tema claro/oscuro.
+ */
+export const SAMPLE_MEASURE_COLORS: Record<SampleMeasureKey, string> = {
+  density: "#22c55e",
+  pvc: "#f97316",
+  cola: "#eab308",
+  multicapas: "#3b82f6",
+  metal: "#8b5cf6",
+  otros: "#64748b",
+};
+
 /** Rangos por defecto: solo Densidad tiene umbral validado (330–370 g). */
 export const DEFAULT_QUALITY_RANGES: QualityRanges = {
   density: { ...DEFAULT_DENSITY_RANGE },

@@ -119,31 +119,49 @@ export function NewReceptionDialog({
               ))}
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="expectedWeight">Peso estimado (kg)</Label>
-              <Input
-                id="expectedWeight"
-                name="expectedWeight"
-                type="number"
-                step="0.01"
-              />
+          <div className="border-t border-[var(--color-border)] pt-3 space-y-3">
+            <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">
+              Estimación
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="expectedWeight">Peso estimado (kg)</Label>
+                <Input
+                  id="expectedWeight"
+                  name="expectedWeight"
+                  type="number"
+                  step="0.01"
+                  placeholder="20000"
+                />
+              </div>
+              <div>
+                <Label htmlFor="tareWeight">Tara estimada (kg)</Label>
+                <Input
+                  id="tareWeight"
+                  name="tareWeight"
+                  type="number"
+                  step="0.01"
+                  placeholder="5000"
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="numSacks">Nº sacas (estimado)</Label>
-              <Input id="numSacks" name="numSacks" type="number" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="numSacks">Nº sacas (estimado)</Label>
+                <Input id="numSacks" name="numSacks" type="number" />
+              </div>
+              <div>
+                <Label htmlFor="sackType">Tipo de saca</Label>
+                <Select id="sackType" name="sackType" defaultValue="">
+                  <option value="">Sin definir</option>
+                  {SACK_TYPE_OPTIONS.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
-          </div>
-          <div>
-            <Label htmlFor="sackType">Tipo de saca</Label>
-            <Select id="sackType" name="sackType" defaultValue="">
-              <option value="">Sin definir</option>
-              {SACK_TYPE_OPTIONS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -186,6 +204,7 @@ export function ReceiveDialog({
   zones,
   defaultMaterialId,
   estimatedSacks,
+  estimatedTare,
 }: {
   containerId: string;
   reference: string;
@@ -193,6 +212,8 @@ export function ReceiveDialog({
   zones: Option[];
   defaultMaterialId?: string | null;
   estimatedSacks?: number | null;
+  /** Tara estimada declarada al registrar; pre-rellena el campo Tara. */
+  estimatedTare?: number | null;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(
@@ -206,7 +227,9 @@ export function ReceiveDialog({
   // Bruto / Tara / Neto. El Neto es el que se guarda en actualWeight (requerido);
   // Bruto → grossWeight, Tara → tareWeight (ambos opcionales).
   const [gross, setGross] = useState("");
-  const [tare, setTare] = useState("");
+  const [tare, setTare] = useState(
+    estimatedTare != null ? String(estimatedTare) : "",
+  );
   const [net, setNet] = useState("");
   const [source, setSource] = useState<"gestruck" | "manual">("manual");
   const [reading, setReading] = useState(false);
@@ -337,6 +360,11 @@ export function ReceiveDialog({
                   onChange={(e) => onTareChange(e.target.value)}
                   placeholder="0.00"
                 />
+                {estimatedTare != null && (
+                  <p className="text-[11px] text-[var(--color-muted)] mt-1">
+                    Est.: {estimatedTare} kg
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="actualWeight" className="text-xs">

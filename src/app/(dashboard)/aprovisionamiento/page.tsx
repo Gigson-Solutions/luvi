@@ -1,5 +1,13 @@
 import Link from "next/link";
-import { Package, Ship, Anchor, Factory, ChevronDown } from "lucide-react";
+import {
+  Package,
+  Ship,
+  Anchor,
+  Factory,
+  ChevronDown,
+  Truck,
+  CheckCircle,
+} from "lucide-react";
 import { PurchaseOrderStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -60,8 +68,30 @@ function isPurchaseOrderStatus(
   );
 }
 
-function tons(n: number): string {
-  return `${n.toFixed(2)} TM`;
+/** Tonelaje agregado con unidad "t" y 1 decimal (paridad Emergent). */
+function tonsShort(n: number): string {
+  return `${n.toFixed(1)} t`;
+}
+
+/** Porcentaje entero acotado a [0, 100]. */
+function pct(part: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((part / total) * 100)));
+}
+
+/**
+ * Un envío está "Retrasado" cuando ya pasó su ETA a planta y todavía no ha
+ * llegado. Se calcula en el render comparando con la fecha de hoy.
+ */
+function isShipmentDelayed(shipment: {
+  arrivedPlanta: Date | null;
+  etaPlanta: Date | null;
+}): boolean {
+  return (
+    !shipment.arrivedPlanta &&
+    shipment.etaPlanta != null &&
+    shipment.etaPlanta.getTime() < Date.now()
+  );
 }
 
 /** Chip compacto pedido / enviado / recibido / pendiente. */
@@ -81,7 +111,7 @@ function TonChip({
         className="text-sm font-semibold"
         style={accent ? { color: accent } : undefined}
       >
-        {tons(value)}
+        {tonsShort(value)}
       </p>
     </div>
   );
@@ -94,21 +124,38 @@ function ShipmentCard({
   shipment: PurchaseOrderPivot["order"]["providerShipments"][number];
 }): React.JSX.Element {
   const stage = shipmentStage(shipment);
+  const delayed = isShipmentDelayed(shipment);
+  const shipmentTons =
+    shipment.weightKg != null ? shipment.weightKg / 1000 : null;
+  // 1 saca ≈ 1 t (regla de negocio del prototipo Emergent).
+  const approxSacks =
+    shipmentTons != null ? Math.max(0, Math.round(shipmentTons)) : null;
   return (
     <div
       className={cn(
         "rounded-lg border border-l-4 border-[var(--color-border)] bg-[var(--color-surface)] p-3",
-        STAGE_BORDERS[stage],
+        delayed ? "border-l-red-500" : STAGE_BORDERS[stage],
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium text-[var(--color-foreground)]">
               {shipment.billOfLading ?? "Envío"}
             </p>
             <Badge tone={STAGE_TONES[stage]}>{STAGE_LABELS[stage]}</Badge>
+            {delayed && <Badge tone="red">Retrasado</Badge>}
           </div>
+          {shipmentTons != null && (
+            <p className="mt-1 text-lg font-bold text-[var(--color-foreground)]">
+              {tonsShort(shipmentTons)}
+              {approxSacks != null && (
+                <span className="ml-2 text-xs font-normal text-[var(--color-muted)]">
+                  ≈ {approxSacks} {approxSacks === 1 ? "saca" : "sacas"}
+                </span>
+              )}
+            </p>
+          )}
           <p className="text-xs text-[var(--color-muted)] mt-0.5">
             {shipment.containers.length}{" "}
             {shipment.containers.length === 1 ? "contenedor" : "contenedores"}
@@ -208,13 +255,13 @@ function OrderRow({ p }: { p: PurchaseOrderPivot }): React.JSX.Element {
             <span className="text-[var(--color-muted)]">
               Pedido{" "}
               <span className="font-medium text-[var(--color-foreground)]">
-                {tons(p.orderedTons)}
+                {tonsShort(p.orderedTons)}
               </span>
             </span>
             <span className="text-[var(--color-muted)]">
               Recibido{" "}
               <span className="font-medium text-green-700">
-                {tons(p.receivedTons)}
+                {tonsShort(p.receivedTons)}
               </span>
             </span>
           </div>
@@ -223,6 +270,19 @@ function OrderRow({ p }: { p: PurchaseOrderPivot }): React.JSX.Element {
       </summary>
 
       <div className="border-t border-[var(--color-border)] p-3 space-y-3">
+        {/* Progreso recibido / pedido (paridad Emergent) */}
+        <div className="flex items-center gap-2">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-hover)]">
+            <div
+              className="h-full rounded-full bg-green-600 transition-all"
+              style={{ width: `${pct(p.receivedTons, p.orderedTons)}%` }}
+            />
+          </div>
+          <span className="w-10 text-right text-xs text-[var(--color-muted)]">
+            {pct(p.receivedTons, p.orderedTons)}%
+          </span>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <TonChip label="Pedido" value={p.orderedTons} />
           <TonChip
@@ -293,8 +353,40 @@ export default async function AprovisionamientoPage({
         }
       />
 
-      {/* StatCards: desglose de pedidos por estado + toneladas en tránsito */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-8">
+      {/* KPIs principales: tonelaje agregado (paridad Emergent) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <StatCard
+          label="Total Pedido"
+          value={tonsShort(stats.totalOrderedTons)}
+          hint={`${stats.orderCount} ${stats.orderCount === 1 ? "pedido" : "pedidos"}`}
+          accent="#2563eb"
+          icon={Package}
+        />
+        <StatCard
+          label="Enviado"
+          value={tonsShort(stats.totalSentTons)}
+          hint={`${pct(stats.totalSentTons, stats.totalOrderedTons)}% del total`}
+          accent="#0891b2"
+          icon={Ship}
+        />
+        <StatCard
+          label="En Tránsito"
+          value={tonsShort(stats.tonsInTransit)}
+          hint="Por llegar"
+          accent="#d97706"
+          icon={Truck}
+        />
+        <StatCard
+          label="Recibido"
+          value={tonsShort(stats.totalReceivedTons)}
+          hint={`${pct(stats.totalReceivedTons, stats.totalOrderedTons)}% del total`}
+          accent="#15803d"
+          icon={CheckCircle}
+        />
+      </div>
+
+      {/* Desglose de órdenes de compra por estado */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
         <StatCard label="Abierta" value={stats.byStatus.ABIERTA} />
         <StatCard
           label="En tránsito"
@@ -308,11 +400,6 @@ export default async function AprovisionamientoPage({
         />
         <StatCard label="Completada" value={stats.byStatus.COMPLETADA} />
         <StatCard label="Cancelada" value={stats.byStatus.CANCELADA} />
-        <StatCard
-          label="En tránsito (t)"
-          value={tons(stats.tonsInTransit)}
-          accent="var(--color-primary)"
-        />
       </div>
 
       {/* Filtro por estado */}

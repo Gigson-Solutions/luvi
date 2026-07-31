@@ -137,20 +137,33 @@ export function listShipments(limit = 100): Promise<ShipmentWithOrder[]> {
 export interface ProcurementStats {
   /** Nº de órdenes de compra por estado. */
   byStatus: Record<PurchaseOrderStatus, number>;
+  /** Toneladas enviadas aún no recibidas en planta ("Por llegar"). */
   tonsInTransit: number;
   openOrders: number;
+  /** Nº total de órdenes de compra (todas). */
+  orderCount: number;
+  /** Σ toneladas pedidas en todas las órdenes. */
+  totalOrderedTons: number;
+  /** Σ toneladas enviadas (peso de todos los envíos). */
+  totalSentTons: number;
+  /** Σ toneladas recibidas en planta. */
+  totalReceivedTons: number;
 }
 
 /**
- * KPIs del módulo: desglose de órdenes de compra por estado, toneladas en
- * tránsito (aún no en planta) y pedidos abiertos (abierta/en tránsito/parcial).
+ * KPIs del módulo. Además del desglose de órdenes por estado, expone los
+ * agregados de tonelaje (pedido / enviado / en tránsito / recibido) que
+ * alimentan las tarjetas principales de la cabecera.
  */
 export async function getProcurementStats(): Promise<ProcurementStats> {
-  const [grouped, inTransit] = await Promise.all([
+  const [grouped, orderAgg, shipments] = await Promise.all([
     prisma.purchaseOrder.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.purchaseOrder.aggregate({
+      _sum: { orderedTons: true },
+      _count: true,
+    }),
     prisma.providerShipment.findMany({
-      where: { arrivedPlanta: null },
-      select: { weightKg: true },
+      select: { weightKg: true, arrivedPlanta: true },
     }),
   ]);
 
@@ -167,8 +180,22 @@ export async function getProcurementStats(): Promise<ProcurementStats> {
 
   const openOrders =
     byStatus.ABIERTA + byStatus.EN_TRANSITO + byStatus.RECIBIDA_PARCIAL;
-  const transitKg = inTransit.reduce((acc, s) => acc + (s.weightKg ?? 0), 0);
-  return { byStatus, tonsInTransit: toTons(transitKg), openOrders };
+
+  const sentKg = shipments.reduce((acc, s) => acc + (s.weightKg ?? 0), 0);
+  const receivedKg = shipments.reduce(
+    (acc, s) => acc + (s.arrivedPlanta ? (s.weightKg ?? 0) : 0),
+    0,
+  );
+
+  return {
+    byStatus,
+    tonsInTransit: toTons(sentKg - receivedKg),
+    openOrders,
+    orderCount: orderAgg._count,
+    totalOrderedTons: orderAgg._sum.orderedTons ?? 0,
+    totalSentTons: toTons(sentKg),
+    totalReceivedTons: toTons(receivedKg),
+  };
 }
 
 export interface CreatePurchaseOrderInput {

@@ -4,6 +4,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  BarChart3,
+  TrendingUp,
+  XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -23,6 +26,7 @@ import {
   NewRecordDialog,
   SampleEditorDialog,
   DeleteRecordButton,
+  MonthYearNav,
   type EditorRecordData,
 } from "./quality-editor";
 
@@ -78,6 +82,7 @@ export default async function CalidadPage({
   return (
     <div>
       <PageHeader
+        icon={ClipboardCheck}
         title="Calidad"
         description="Registros de calidad por día, turno y cliente con hoja de 20 muestras."
         actions={<NewRecordDialog />}
@@ -90,9 +95,7 @@ export default async function CalidadPage({
             <ChevronLeft className="w-4 h-4" />
           </Button>
         </Link>
-        <span className="min-w-40 text-center text-sm font-semibold text-[var(--color-foreground)]">
-          {MONTHS[month - 1]} {year}
-        </span>
+        <MonthYearNav year={year} month={month} />
         <Link
           href={monthHref(next.year, next.month)}
           aria-label="Mes siguiente"
@@ -110,18 +113,31 @@ export default async function CalidadPage({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-        <StatCard label="Registros" value={stats.totalRecords} />
-        <StatCard label="Muestras" value={stats.totalSamples} />
+        <StatCard
+          label="Registros"
+          value={stats.totalRecords}
+          icon={ClipboardCheck}
+          accent="#2563eb"
+        />
+        <StatCard
+          label="Muestras"
+          value={stats.totalSamples}
+          icon={BarChart3}
+          accent="#8b5cf6"
+        />
         <StatCard
           label="Promedio densidad"
           value={
             stats.avgDensity == null ? "—" : `${stats.avgDensity.toFixed(1)} g`
           }
+          icon={TrendingUp}
+          accent="#15803d"
         />
         <StatCard
           label="Días NOK"
           value={stats.nokDays}
-          accent="var(--color-danger, #dc2626)"
+          icon={XCircle}
+          accent="#dc2626"
         />
       </div>
 

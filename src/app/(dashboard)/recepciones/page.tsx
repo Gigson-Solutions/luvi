@@ -156,7 +156,6 @@ export default async function RecepcionesPage({
                 <TH>Proveedor</TH>
                 <TH>Llegada prevista</TH>
                 <TH>Est. (kg)</TH>
-                <TH>Sacas est.</TH>
                 <TH>Tipo Saca</TH>
                 <TH className="text-right">Acción</TH>
               </TR>
@@ -170,7 +169,6 @@ export default async function RecepcionesPage({
                     {c.estimatedArrival ? formatDate(c.estimatedArrival) : "—"}
                   </TD>
                   <TD>{c.expectedWeight ? formatKg(c.expectedWeight) : "—"}</TD>
-                  <TD>{c.numSacks ?? "—"}</TD>
                   <TD>{sackTypeLabel(c.sackType)}</TD>
                   <TD className="text-right">
                     <ReceiveDialog
@@ -180,6 +178,7 @@ export default async function RecepcionesPage({
                       zones={formData.zones}
                       defaultMaterialId={c.materialId}
                       estimatedSacks={c.numSacks}
+                      estimatedTare={c.tareWeight}
                     />
                   </TD>
                 </TR>

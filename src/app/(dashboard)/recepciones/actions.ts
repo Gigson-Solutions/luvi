@@ -26,6 +26,10 @@ const registerSchema = z.object({
   warehouseId: z.string().optional(),
   billOfLading: z.string().optional(),
   expectedWeight: z.coerce.number().positive().optional(),
+  tareWeight: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().positive().optional(),
+  ),
   numSacks: z.coerce.number().int().positive().optional(),
   numPallets: z.coerce.number().int().min(0).optional(),
   sackType: z.preprocess(

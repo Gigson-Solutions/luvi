@@ -4,12 +4,22 @@ import {
   Scale,
   Package,
   AlertTriangle,
-  PackageCheck,
+  Send,
+  TrendingUp,
+  Euro,
+  PiggyBank,
   Boxes,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  StatCard,
+} from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
@@ -141,14 +151,14 @@ export default async function PanelPrincipalPage({
     {
       title: "Envíos Pendientes",
       value: stats.pendingShipments,
-      icon: PackageCheck,
+      icon: Send,
       href: "/expediciones",
       tone: "#7c3aed",
     },
     {
       title: "Alertas Consumibles",
       value: stats.consumableAlerts,
-      icon: Boxes,
+      icon: TrendingUp,
       href: "/consumibles",
       tone: "#c2410c",
       alert: true,
@@ -163,7 +173,7 @@ export default async function PanelPrincipalPage({
       href: "/incidencias",
       icon: AlertTriangle,
     },
-    { label: "Crear Envío", href: "/expediciones", icon: PackageCheck },
+    { label: "Crear Envío", href: "/expediciones", icon: Send },
   ];
 
   return (
@@ -207,11 +217,19 @@ export default async function PanelPrincipalPage({
       </Card>
 
       {/* ─── Rentabilidad ───────────────────────────────────────────── */}
-      <Card>
+      <Card
+        style={{
+          borderColor:
+            "color-mix(in srgb, var(--color-primary) 35%, transparent)",
+        }}
+      >
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>Rentabilidad</CardTitle>
-            <div className="flex items-center gap-1.5">
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-[var(--color-primary)]" />
+              Rentabilidad
+            </CardTitle>
+            <div className="flex items-center gap-1 rounded-lg bg-[var(--color-surface-hover)] p-1">
               {PERIODS.map((d) => {
                 const active = d === days;
                 return (
@@ -219,10 +237,10 @@ export default async function PanelPrincipalPage({
                     key={d}
                     href={`/dashboards?days=${d}`}
                     className={cn(
-                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                      "rounded-md px-3 py-1 text-sm font-medium transition-colors",
                       active
                         ? "bg-[var(--color-primary)] text-white"
-                        : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)]",
+                        : "text-[var(--color-muted)] hover:bg-[var(--color-surface)]",
                     )}
                   >
                     {d}d
@@ -235,55 +253,38 @@ export default async function PanelPrincipalPage({
         <CardContent className="space-y-5">
           {/* KPIs de rentabilidad */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                Inversión
-              </p>
-              <p
-                className="mt-1.5 text-2xl font-semibold"
-                style={{ color: "var(--color-primary)" }}
-              >
-                {fmtEuro(profit.totalInvested)}
-              </p>
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                {profit.shipmentsCount} envíos · {profit.totalQuantityTons}t
-              </p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                € / Tonelada
-              </p>
-              <p className="mt-1.5 text-2xl font-semibold">
-                {fmtEuro(profit.avgCostPerTon)}
-              </p>
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                Promedio compras
-              </p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                Coste Lotes
-              </p>
-              <p className="mt-1.5 text-2xl font-semibold">
-                {fmtEuro(profit.totalLotCost)}
-              </p>
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                {profit.lotsCount} lotes
-              </p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                Coste Medio Lote
-              </p>
-              <p className="mt-1.5 text-2xl font-semibold">
-                {fmtEuro(profit.avgLotCost)}
-              </p>
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                {profit.avgCostPerKg > 0
+            <StatCard
+              label="Inversión"
+              value={fmtEuro(profit.totalInvested)}
+              hint={`${profit.shipmentsCount} envíos · ${profit.totalQuantityTons}t`}
+              icon={PiggyBank}
+              accent="#059669"
+            />
+            <StatCard
+              label="€ / Tonelada"
+              value={fmtEuro(profit.avgCostPerTon)}
+              hint="Promedio compras"
+              icon={Euro}
+              accent="#2563eb"
+            />
+            <StatCard
+              label="Coste Lotes"
+              value={fmtEuro(profit.totalLotCost)}
+              hint={`${profit.lotsCount} lotes cerrados`}
+              icon={Boxes}
+              accent="#d97706"
+            />
+            <StatCard
+              label="Coste Medio Lote"
+              value={fmtEuro(profit.avgLotCost)}
+              hint={
+                profit.avgCostPerKg > 0
                   ? `${profit.avgCostPerKg.toFixed(3)} €/kg`
-                  : "—"}
-              </p>
-            </Card>
+                  : "—"
+              }
+              icon={TrendingUp}
+              accent="#9333ea"
+            />
           </div>
 
           {/* Ranking de proveedores */}
@@ -314,7 +315,14 @@ export default async function PanelPrincipalPage({
                 </THead>
                 <TBody>
                   {profit.byProvider.map((p, idx) => (
-                    <TR key={p.name} className={idx === 0 ? "font-medium" : ""}>
+                    <TR
+                      key={p.name}
+                      className={
+                        idx === 0
+                          ? "bg-[color-mix(in_srgb,var(--color-primary)_10%,transparent)] font-medium"
+                          : ""
+                      }
+                    >
                       <TD>
                         <span
                           className={cn(

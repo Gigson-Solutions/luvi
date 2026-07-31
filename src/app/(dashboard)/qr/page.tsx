@@ -31,7 +31,8 @@ export default async function QrPage({
   return (
     <div>
       <PageHeader
-        title="Gestión QR"
+        icon={QrCodeIcon}
+        title="Gestión de QR"
         description="Busca una saca por ID o código QR y reimprime su etiqueta."
       />
 
@@ -94,6 +95,28 @@ function Field({
   );
 }
 
+/** Fila de la maqueta de etiqueta: etiqueta a la izquierda, valor a la derecha. */
+function LabelRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="flex justify-between gap-2">
+      <dt className="text-[var(--color-muted)]">{label}</dt>
+      <dd
+        className={`text-[var(--color-foreground)]${mono ? " font-mono" : ""}`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 /** Panel de detalle de la saca: datos + vista previa del QR + reimpresión. */
 function SackPanel({ sack }: { sack: QrSackDetail }): React.JSX.Element {
   return (
@@ -107,7 +130,25 @@ function SackPanel({ sack }: { sack: QrSackDetail }): React.JSX.Element {
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
-          <QrCode value={sack.qrCode} size={160} />
+          {/* Maqueta textual de la etiqueta: es lo que se imprime (título SACA,
+              QR, código y datos). Reproduce el layout de la etiqueta física. */}
+          <div className="w-full max-w-[16rem] rounded-lg border-2 border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-center">
+            <p className="text-sm font-bold tracking-wide text-[var(--color-foreground)]">
+              SACA
+            </p>
+            <div className="my-3 flex justify-center">
+              <QrCode value={sack.qrCode} size={150} />
+            </div>
+            <p className="font-mono text-xs break-all text-[var(--color-foreground)]">
+              {sack.qrCode}
+            </p>
+            <dl className="mt-3 space-y-1 border-t border-[var(--color-border)] pt-3 text-left text-xs">
+              <LabelRow label="ID" value={sack.id} mono />
+              <LabelRow label="Material" value={sack.materialName} />
+              <LabelRow label="Peso" value={formatKg(sack.weight)} />
+              <LabelRow label="Lote" value={sack.lotNumber ?? "—"} />
+            </dl>
+          </div>
           <QrPrintButton job={toPrintJob(sack)} />
         </CardContent>
       </Card>

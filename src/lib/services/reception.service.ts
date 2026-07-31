@@ -79,6 +79,12 @@ export interface RegisterContainerInput {
   warehouseId?: string;
   billOfLading?: string;
   expectedWeight?: number;
+  /**
+   * Tara estimada (kg) declarada al registrar. Se guarda en `tareWeight`
+   * (vacío hasta el pesaje) para pre-rellenar la Tara al pesar/recibir; el
+   * pesaje real la sobrescribe con la tara medida.
+   */
+  tareWeight?: number;
   numSacks?: number;
   numPallets?: number;
   /** Tipo de saca declarado al registrar. */
@@ -99,6 +105,7 @@ export function registerContainer(
       warehouseId: input.warehouseId ?? null,
       billOfLading: input.billOfLading ?? null,
       expectedWeight: input.expectedWeight ?? null,
+      tareWeight: input.tareWeight ?? null,
       numSacks: input.numSacks ?? null,
       numPallets: input.numPallets ?? 0,
       sackType: input.sackType ?? null,
