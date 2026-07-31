@@ -57,10 +57,21 @@ export function ConsumableMovementDialog({
   const [open, setOpen] = useState(false);
   const isCompra = mode === "compra";
   const direction = isCompra ? "entrada" : "salida";
+  // Controlados para el helper en vivo «= X €/unidad» del diálogo de compra.
+  const [quantity, setQuantity] = useState("");
+  const [totalPrice, setTotalPrice] = useState("");
+  const qtyNum = Number(quantity);
+  const totalNum = Number(totalPrice);
+  const unitPricePreview =
+    isCompra && qtyNum > 0 && totalNum > 0 ? totalNum / qtyNum : null;
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await registerConsumableMovementAction(prev, formData);
-      if (result.ok) setOpen(false);
+      if (result.ok) {
+        setOpen(false);
+        setQuantity("");
+        setTotalPrice("");
+      }
       return result;
     },
     INITIAL,
@@ -115,6 +126,8 @@ export function ConsumableMovementDialog({
               type="number"
               min={1}
               required
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
             />
           </div>
           <div>
@@ -128,15 +141,22 @@ export function ConsumableMovementDialog({
           </div>
           {direction === "entrada" && (
             <div>
-              <Label htmlFor="unitPrice">Precio de compra (€/ud)</Label>
+              <Label htmlFor="totalPrice">Precio total (€)</Label>
               <Input
-                id="unitPrice"
-                name="unitPrice"
+                id="totalPrice"
+                name="totalPrice"
                 type="number"
                 min={0}
                 step="0.01"
                 placeholder="0,00"
+                value={totalPrice}
+                onChange={(e) => setTotalPrice(e.target.value)}
               />
+              {unitPricePreview != null && (
+                <p className="mt-1 text-xs font-medium text-[var(--color-primary)]">
+                  = {unitPricePreview.toFixed(2)} €/unidad
+                </p>
+              )}
             </div>
           )}
           <div>

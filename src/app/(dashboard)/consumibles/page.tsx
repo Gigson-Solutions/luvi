@@ -16,7 +16,9 @@ import {
   getBuyerOptions,
   listPalletConsumables,
   listPalletMovements,
+  getLastPurchaseByConsumable,
   CONSUMABLE_TYPE_LABELS,
+  CONSUMABLE_TYPE_EMOJI,
 } from "@/lib/services/consumable.service";
 import {
   ConsumableMovementDialog,
@@ -35,6 +37,7 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
     buyerOptions,
     palletConsumables,
     palletMovements,
+    lastPurchases,
   ] = await Promise.all([
     listConsumables(),
     listLowStockConsumables(),
@@ -45,6 +48,7 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
     getBuyerOptions(),
     listPalletConsumables(),
     listPalletMovements(),
+    getLastPurchaseByConsumable(),
   ]);
 
   // Control de Palés: stock físico (consumible tipo PALLET) + fianza pendiente.
@@ -82,6 +86,39 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
         />
       </section>
 
+      {/* Alertas de reposición — antes del Control de Palés (como Emergent) */}
+      {lowStock.length > 0 && (
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-[var(--color-status-rechazo)]" />
+            <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+              Alertas de reposición
+              <span className="ml-2 text-[var(--color-muted)] font-normal">
+                {lowStock.length}
+              </span>
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {lowStock.map((c) => (
+              <Card
+                key={c.id}
+                className="p-4 flex items-center justify-between"
+              >
+                <div>
+                  <p className="text-sm font-medium text-[var(--color-foreground)]">
+                    {c.name}
+                  </p>
+                  <p className="text-xs text-[var(--color-muted)] mt-0.5">
+                    {c.currentStock} / mín. {c.minStock} {c.unit}
+                  </p>
+                </div>
+                <Badge tone="red">Bajo mínimo</Badge>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Control de Palés — stock, fianza pendiente y propiedad total */}
       <section className="mb-8">
         <div className="flex items-center gap-2 mb-3">
@@ -116,39 +153,6 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
         </p>
       </section>
 
-      {/* Alertas de mínimo */}
-      {lowStock.length > 0 && (
-        <section className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-4 h-4 text-[var(--color-status-rechazo)]" />
-            <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
-              Alertas de mínimo
-              <span className="ml-2 text-[var(--color-muted)] font-normal">
-                {lowStock.length}
-              </span>
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {lowStock.map((c) => (
-              <Card
-                key={c.id}
-                className="p-4 flex items-center justify-between"
-              >
-                <div>
-                  <p className="text-sm font-medium text-[var(--color-foreground)]">
-                    {c.name}
-                  </p>
-                  <p className="text-xs text-[var(--color-muted)] mt-0.5">
-                    {c.currentStock} / mín. {c.minStock} {c.unit}
-                  </p>
-                </div>
-                <Badge tone="red">Bajo mínimo</Badge>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Stock de consumibles — tarjetas (Palés / Sacas vacías / Capuchones) */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold text-[var(--color-foreground)] mb-3">
@@ -180,10 +184,14 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
                       Math.round((c.currentStock / (c.minStock * 2)) * 100),
                     )
                   : 100;
+              const lastPurchase = lastPurchases.get(c.id);
               return (
                 <Card key={c.id} className="p-4 space-y-4">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium text-[var(--color-foreground)]">
+                    <p className="text-sm font-medium text-[var(--color-foreground)] flex items-center gap-1.5">
+                      <span aria-hidden="true">
+                        {CONSUMABLE_TYPE_EMOJI[c.type]}
+                      </span>
                       {c.name}
                     </p>
                     <Badge tone="neutral">
@@ -234,8 +242,14 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
                     </div>
                   </div>
 
-                  {/* TODO: consumo mensual y última compra no existen en el
-                      modelo Consumable; se omiten hasta que se añadan. */}
+                  {/* Última compra: derivada del último ConsumableMovement de
+                      entrada. El consumo mensual no existe en el modelo. */}
+                  {lastPurchase && (
+                    <p className="text-xs text-[var(--color-muted)]">
+                      Última compra: {formatDate(lastPurchase.date)} (
+                      {lastPurchase.quantity} uds)
+                    </p>
+                  )}
 
                   <div className="flex gap-2 pt-1">
                     <ConsumableMovementDialog

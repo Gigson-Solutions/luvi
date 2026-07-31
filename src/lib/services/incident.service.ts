@@ -216,6 +216,34 @@ export async function advanceIncidentStatus(
   });
 }
 
+/**
+ * Cambia la incidencia a cualquier estado destino (no solo el siguiente).
+ * Sella `resolvedAt` al pasar a RESUELTA y `closedAt` al pasar a CERRADA,
+ * conservando los sellos previos si ya existían.
+ */
+export async function setIncidentStatus(
+  id: string,
+  status: IncidentStatus,
+): Promise<IncidentWithReporter> {
+  const incident = await prisma.incident.findUniqueOrThrow({ where: { id } });
+
+  return prisma.incident.update({
+    where: { id },
+    data: {
+      status,
+      resolvedAt:
+        status === IncidentStatus.RESUELTA
+          ? (incident.resolvedAt ?? new Date())
+          : incident.resolvedAt,
+      closedAt:
+        status === IncidentStatus.CERRADA
+          ? (incident.closedAt ?? new Date())
+          : incident.closedAt,
+    },
+    include: { reportedBy: { select: { id: true, name: true } } },
+  });
+}
+
 /** Datos auxiliares para formularios y filtros de incidencias. */
 export function getIncidentFormData(): Promise<{
   warehouses: { id: string; name: string; code: string }[];

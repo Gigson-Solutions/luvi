@@ -28,9 +28,13 @@ const movementSchema = z.object({
     .positive("La cantidad debe ser mayor que 0"),
   reason: z.string().min(1, "Indica el motivo"),
   vehiclePlate: z.string().optional(),
-  unitPrice: z.preprocess(
+  // El diálogo de compra envía el precio TOTAL; el €/ud se deriva aquí.
+  totalPrice: z.preprocess(
     (v) => (v === "" || v == null ? undefined : v),
-    z.coerce.number().positive("El precio debe ser mayor que 0").optional(),
+    z.coerce
+      .number()
+      .positive("El precio total debe ser mayor que 0")
+      .optional(),
   ),
   notes: z.string().optional(),
 });
@@ -50,13 +54,18 @@ export async function registerConsumableMovementAction(
     }
     const d = parsed.data;
     const signedQuantity = d.direction === "salida" ? -d.quantity : d.quantity;
+    // El precio solo aplica a las entradas (compras): se recibe el total y se
+    // deriva el €/ud dividiendo por la cantidad (el servicio sigue guardando €/ud).
+    const unitPrice =
+      d.direction === "entrada" && d.totalPrice != null
+        ? d.totalPrice / d.quantity
+        : undefined;
     const consumable = await registerConsumableMovement({
       consumableId: d.consumableId,
       quantity: signedQuantity,
       reason: d.reason,
       vehiclePlate: d.vehiclePlate || undefined,
-      // El precio solo aplica a las entradas (compras).
-      unitPrice: d.direction === "entrada" ? d.unitPrice : undefined,
+      unitPrice,
       notes: d.notes || undefined,
     });
     await logAudit({

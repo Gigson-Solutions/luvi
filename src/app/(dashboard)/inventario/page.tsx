@@ -10,6 +10,8 @@ import {
   BarChart3,
   Recycle,
   Trash2,
+  CheckCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -30,6 +32,7 @@ import {
   getExpectedStock,
   getConsumablesStats,
   type ProviderStat,
+  type ExpectedProvider,
 } from "@/lib/services/inventory.service";
 
 type Tab =
@@ -97,6 +100,111 @@ function ProviderCards({
   );
 }
 
+function providerColor(index: number): string {
+  return PROVIDER_COLORS[index % PROVIDER_COLORS.length];
+}
+
+/** Badge de proveedor con fondo de color (Consumido / Ubicación / Esperado). */
+function ProviderBadge({
+  provider,
+  index,
+}: {
+  provider: string;
+  index: number;
+}): React.JSX.Element {
+  return (
+    <span
+      className="inline-block px-2 py-0.5 rounded text-white text-xs font-semibold"
+      style={{ backgroundColor: providerColor(index) }}
+    >
+      {provider}
+    </span>
+  );
+}
+
+/**
+ * Comparativa de 3 series (Actual / Tránsito / Comprado) agrupadas por proveedor,
+ * con barras CSS/divs y leyenda. Sin dependencias extra (mismo enfoque visual que
+ * los mini-charts del módulo). Server Component: solo presentación.
+ */
+function StockComparisonChart({
+  data,
+}: {
+  data: ExpectedProvider[];
+}): React.JSX.Element {
+  const series = [
+    {
+      key: "currentCount",
+      label: "Stock Actual",
+      color: "var(--color-primary)",
+    },
+    { key: "transitCount", label: "En Tránsito", color: "#f59e0b" },
+    { key: "purchasedCount", label: "Comprado", color: "#8b5cf6" },
+  ] as const;
+
+  const max = Math.max(
+    1,
+    ...data.flatMap((d) => [d.currentCount, d.transitCount, d.purchasedCount]),
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-4">
+        {series.map((s) => (
+          <div
+            key={s.key}
+            className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]"
+          >
+            <span
+              className="w-3 h-3 rounded-sm"
+              style={{ backgroundColor: s.color }}
+            />
+            {s.label}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-end gap-3 overflow-x-auto pb-2">
+        {data.map((d) => (
+          <div
+            key={d.provider}
+            className="flex flex-1 min-w-[72px] flex-col items-center gap-2"
+          >
+            <div className="flex h-40 w-full items-end justify-center gap-1">
+              {series.map((s) => {
+                const value = d[s.key];
+                const heightPct = (value / max) * 100;
+                return (
+                  <div
+                    key={s.key}
+                    className="flex h-full max-w-[26px] flex-1 flex-col items-center justify-end"
+                    title={`${s.label}: ${value} sacas`}
+                  >
+                    <span className="mb-0.5 text-[10px] text-[var(--color-muted)]">
+                      {value > 0 ? value : ""}
+                    </span>
+                    <div
+                      className="w-full rounded-t"
+                      style={{
+                        height: `${heightPct}%`,
+                        minHeight: value > 0 ? 2 : 0,
+                        backgroundColor: s.color,
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <span className="w-full truncate text-center text-xs text-[var(--color-muted)]">
+              {d.provider}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Pestañas ────────────────────────────────────────────────────────────────
 
 async function ProduccionTab(): Promise<React.JSX.Element> {
@@ -120,18 +228,21 @@ async function ProduccionTab(): Promise<React.JSX.Element> {
           value={stats.pt.count}
           hint={formatKg(stats.pt.weightKg)}
           accent="var(--color-primary)"
+          icon={Package}
         />
         <StatCard
           label="Subproducto"
           value={stats.subproducto.count}
           hint={formatKg(stats.subproducto.weightKg)}
           accent="#f59e0b"
+          icon={Recycle}
         />
         <StatCard
           label="Rechazo"
           value={stats.rechazo.count}
           hint={formatKg(stats.rechazo.weightKg)}
           accent="#ef4444"
+          icon={Trash2}
         />
       </div>
 
@@ -305,9 +416,11 @@ async function ConsumidoTab(): Promise<React.JSX.Element> {
                   </TR>
                 </THead>
                 <TBody>
-                  {stats.byProvider.map((p) => (
+                  {stats.byProvider.map((p, idx) => (
                     <TR key={p.provider}>
-                      <TD className="font-medium">{p.provider}</TD>
+                      <TD>
+                        <ProviderBadge provider={p.provider} index={idx} />
+                      </TD>
                       <TD className="text-right">{p.count}</TD>
                       <TD className="text-right">{formatKg(p.weightKg)}</TD>
                     </TR>
@@ -393,15 +506,16 @@ async function UbicacionTab(): Promise<React.JSX.Element> {
   return (
     <div className="space-y-4">
       {providers.map((p, idx) => (
-        <Card key={p.provider}>
+        <Card
+          key={p.provider}
+          className="border-l-4"
+          style={{ borderLeftColor: providerColor(idx) }}
+        >
           <CardContent className="pt-5">
             <div className="flex items-center gap-3 mb-3 flex-wrap">
               <span
                 className="px-2.5 py-1 rounded text-white text-sm font-semibold"
-                style={{
-                  backgroundColor:
-                    PROVIDER_COLORS[idx % PROVIDER_COLORS.length],
-                }}
+                style={{ backgroundColor: providerColor(idx) }}
               >
                 {p.provider}
               </span>
@@ -445,23 +559,28 @@ async function EsperadoTab(): Promise<React.JSX.Element> {
           value={`${totals.currentCount} sacas`}
           hint={formatKg(totals.currentWeightKg)}
           accent="var(--color-primary)"
+          icon={Warehouse}
         />
         <StatCard
           label="En Tránsito"
           value={`${totals.transitCount} sacas`}
           hint={formatKg(totals.transitWeightKg)}
           accent="#f59e0b"
+          icon={Ship}
         />
         <StatCard
           label="Comprado (no enviado)"
           value={`${totals.purchasedCount} sacas`}
           hint={formatKg(totals.purchasedWeightKg)}
           accent="#8b5cf6"
+          icon={ShoppingCart}
         />
         <StatCard
           label="Stock Proyectado"
           value={`${totals.totalCount} sacas`}
           hint={formatKg(totals.totalWeightKg)}
+          accent="#2563eb"
+          icon={BarChart3}
         />
       </div>
 
@@ -492,9 +611,11 @@ async function EsperadoTab(): Promise<React.JSX.Element> {
                 </TR>
               </THead>
               <TBody>
-                {byProvider.map((p) => (
+                {byProvider.map((p, idx) => (
                   <TR key={p.provider}>
-                    <TD className="font-medium">{p.provider}</TD>
+                    <TD>
+                      <ProviderBadge provider={p.provider} index={idx} />
+                    </TD>
                     <TD className="text-right">{p.currentCount}</TD>
                     <TD className="text-right">{p.transitCount}</TD>
                     <TD className="text-right">{p.purchasedCount}</TD>
@@ -507,6 +628,23 @@ async function EsperadoTab(): Promise<React.JSX.Element> {
           )}
         </CardContent>
       </Card>
+
+      {byProvider.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" /> Stock: Actual vs Tránsito vs
+              Comprado
+            </CardTitle>
+            <p className="text-xs text-[var(--color-muted)] mt-1">
+              Comparativa por proveedor de material (sacas)
+            </p>
+          </CardHeader>
+          <CardContent>
+            <StockComparisonChart data={byProvider} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -521,18 +659,21 @@ async function ConsumiblesTab(): Promise<React.JSX.Element> {
           value={stock.pales.current}
           hint={`Mín: ${stock.pales.minimum}`}
           accent="#f59e0b"
+          icon={Package}
         />
         <StatCard
           label="Capuchones"
           value={stock.capuchones.current}
           hint={`Mín: ${stock.capuchones.minimum}`}
           accent="#0ea5e9"
+          icon={Package}
         />
         <StatCard
           label="Sacas vacías"
           value={stock.sacas.current}
           hint={`Mín: ${stock.sacas.minimum}`}
           accent="#8b5cf6"
+          icon={Package}
         />
       </div>
 
@@ -564,7 +705,22 @@ async function ConsumiblesTab(): Promise<React.JSX.Element> {
                     w.isCurrent ? "bg-[var(--color-surface-hover)]" : ""
                   }
                 >
-                  <TD className="font-medium">{w.label}</TD>
+                  <TD className="font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      {w.label}
+                      {w.isCurrent && (
+                        <span
+                          className="rounded px-2 py-0.5 text-xs font-semibold text-[var(--color-primary)]"
+                          style={{
+                            backgroundColor:
+                              "color-mix(in srgb, var(--color-primary) 16%, transparent)",
+                          }}
+                        >
+                          Actual
+                        </span>
+                      )}
+                    </span>
+                  </TD>
                   <TD className="text-xs text-[var(--color-muted)]">
                     {w.range}
                   </TD>
@@ -575,6 +731,78 @@ async function ConsumiblesTab(): Promise<React.JSX.Element> {
               ))}
             </TBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Inventario Semanal (Viernes)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
+                <CheckCircle className="w-4 h-4 text-[var(--color-primary)]" />
+                Proceso de Inventario
+              </h4>
+              <ol className="list-decimal list-inside space-y-1 text-xs text-[var(--color-muted)]">
+                <li>Contar palés físicamente</li>
+                <li>Contar capuchones disponibles</li>
+                <li>Contar sacas vacías en stock</li>
+                <li>Comparar con el registro del sistema</li>
+                <li>Registrar diferencias</li>
+              </ol>
+            </div>
+            <div className="space-y-3">
+              <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
+                <AlertTriangle className="w-4 h-4 text-[#eab308]" />
+                Alertas de Stock Bajo
+              </h4>
+              <ul className="space-y-1.5 text-xs text-[var(--color-muted)]">
+                {[
+                  {
+                    name: "Palés",
+                    current: stock.pales.current,
+                    threshold: 50,
+                    dot: "#ef4444",
+                  },
+                  {
+                    name: "Capuchones",
+                    current: stock.capuchones.current,
+                    threshold: 100,
+                    dot: "#eab308",
+                  },
+                  {
+                    name: "Sacas",
+                    current: stock.sacas.current,
+                    threshold: 200,
+                    dot: "#3b82f6",
+                  },
+                ].map((a) => (
+                  <li key={a.name} className="flex items-center gap-2">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: a.dot }}
+                    />
+                    <span>
+                      {a.name}: Pedir cuando &lt; {a.threshold} unidades
+                    </span>
+                    {a.current < a.threshold && (
+                      <span
+                        className="rounded px-2 py-0.5 text-xs font-semibold text-[#ef4444]"
+                        style={{
+                          backgroundColor:
+                            "color-mix(in srgb, #ef4444 16%, transparent)",
+                        }}
+                      >
+                        Stock bajo ({a.current})
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

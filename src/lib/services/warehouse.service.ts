@@ -251,11 +251,11 @@ export interface SackFilters {
   search?: string;
 }
 
-/** Lista de sacas aplicando los filtros opcionales. */
-export function listSacks(
-  filters: SackFilters = {},
-  limit = 200,
-): Promise<SackWithRefs[]> {
+/** Límite por defecto de sacas devueltas por `listSacks`. */
+export const SACK_LIST_LIMIT = 200;
+
+/** Construye el `where` de Prisma compartido por `listSacks` y `countSacks`. */
+function buildSackWhere(filters: SackFilters): Prisma.SackWhereInput {
   const where: Prisma.SackWhereInput = {};
   if (filters.status) where.status = filters.status;
   if (filters.materialId) where.materialId = filters.materialId;
@@ -269,9 +269,16 @@ export function listSacks(
       { lot: { is: { lotNumber: { contains: q, mode: "insensitive" } } } },
     ];
   }
+  return where;
+}
 
+/** Lista de sacas aplicando los filtros opcionales. */
+export function listSacks(
+  filters: SackFilters = {},
+  limit = SACK_LIST_LIMIT,
+): Promise<SackWithRefs[]> {
   return prisma.sack.findMany({
-    where,
+    where: buildSackWhere(filters),
     include: {
       material: true,
       zone: { include: { warehouse: true } },
@@ -281,6 +288,14 @@ export function listSacks(
     orderBy: { createdAt: "desc" },
     take: limit,
   });
+}
+
+/**
+ * Cuenta el total de sacas que cumplen los filtros (sin aplicar el límite de
+ * `listSacks`). Sirve para avisar cuando la tabla está recortada por el límite.
+ */
+export function countSacks(filters: SackFilters = {}): Promise<number> {
+  return prisma.sack.count({ where: buildSackWhere(filters) });
 }
 
 // ─── 3. Detalle de una saca ─────────────────────────────────────────────────

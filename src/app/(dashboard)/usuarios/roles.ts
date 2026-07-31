@@ -17,12 +17,15 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   OPERARIO: "Operario",
   ADMINISTRACION: "Administración",
   MANAGER: "Manager",
-  ADMIN: "Admin",
+  ADMIN: "Administrador",
 };
 
+// Colores alineados con el prototipo Emergent: operario gris/slate,
+// administración azul, manager púrpura, admin verde. (No hay "slate" en el
+// Badge → se usa "gray" como neutro gris equivalente.)
 export const ROLE_TONES: Record<UserRole, Tone> = {
-  OPERARIO: "sky",
-  ADMINISTRACION: "amber",
+  OPERARIO: "gray",
+  ADMINISTRACION: "blue",
   MANAGER: "purple",
-  ADMIN: "red",
+  ADMIN: "green",
 };

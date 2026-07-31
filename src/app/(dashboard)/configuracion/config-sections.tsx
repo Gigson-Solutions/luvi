@@ -36,6 +36,7 @@ import {
   SAMPLE_MEASURE_KEYS,
   SAMPLE_MEASURE_LABELS,
   SAMPLE_MEASURE_UNITS,
+  SAMPLE_MEASURE_COLORS,
 } from "@/app/(dashboard)/calidad/quality-thresholds";
 import type { QualityRanges } from "@/app/(dashboard)/calidad/quality-thresholds";
 import {
@@ -1038,52 +1039,67 @@ export function QualitySection({
   const [state, action] = useActionState(saveQualityRangesAction, INITIAL);
   return (
     <section>
-      <SectionHeader title="Rangos de Calidad" action={null} />
-      <p className="mb-4 text-sm text-[var(--color-muted)]">
-        Rangos mínimo y máximo aceptables por parámetro. Los valores fuera de
-        rango se marcan como NOK en el control de calidad. Deja un campo vacío
-        para no aplicar límite en ese extremo.
-      </p>
       <form action={action}>
-        <Table>
-          <THead>
-            <TR>
-              <TH>Parámetro</TH>
-              <TH>Unidad</TH>
-              <TH>Mínimo</TH>
-              <TH>Máximo</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {SAMPLE_MEASURE_KEYS.map((key) => (
-              <TR key={key}>
-                <TD className="font-medium">{SAMPLE_MEASURE_LABELS[key]}</TD>
-                <TD>{SAMPLE_MEASURE_UNITS[key]}</TD>
-                <TD>
-                  <Input
-                    name={`${key}_min`}
-                    type="number"
-                    step="any"
-                    aria-label={`${SAMPLE_MEASURE_LABELS[key]} mínimo`}
-                    defaultValue={ranges[key].min ?? ""}
-                  />
-                </TD>
-                <TD>
-                  <Input
-                    name={`${key}_max`}
-                    type="number"
-                    step="any"
-                    aria-label={`${SAMPLE_MEASURE_LABELS[key]} máximo`}
-                    defaultValue={ranges[key].max ?? ""}
-                  />
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
-        <div className="mt-4 flex items-center justify-between gap-4">
+        <SectionHeader
+          title="Rangos de Calidad"
+          action={<SubmitButton>Guardar rangos</SubmitButton>}
+        />
+        <p className="mb-4 text-sm text-[var(--color-muted)]">
+          Rangos mínimo y máximo aceptables por parámetro. Los valores fuera de
+          rango se marcan como NOK en el control de calidad. Deja un campo vacío
+          para no aplicar límite en ese extremo.
+        </p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {SAMPLE_MEASURE_KEYS.map((key) => {
+            const color = SAMPLE_MEASURE_COLORS[key];
+            return (
+              <div
+                key={key}
+                className="rounded-xl border p-4"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+                  borderColor: `color-mix(in srgb, ${color} 32%, transparent)`,
+                }}
+              >
+                <h3 className="mb-3 text-sm font-semibold" style={{ color }}>
+                  {SAMPLE_MEASURE_LABELS[key]} ({SAMPLE_MEASURE_UNITS[key]})
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor={`${key}_min`} className="text-xs">
+                      Mínimo
+                    </Label>
+                    <Input
+                      id={`${key}_min`}
+                      name={`${key}_min`}
+                      type="number"
+                      step="any"
+                      className="mt-1 bg-[var(--color-surface)]"
+                      aria-label={`${SAMPLE_MEASURE_LABELS[key]} mínimo`}
+                      defaultValue={ranges[key].min ?? ""}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`${key}_max`} className="text-xs">
+                      Máximo
+                    </Label>
+                    <Input
+                      id={`${key}_max`}
+                      name={`${key}_max`}
+                      type="number"
+                      step="any"
+                      className="mt-1 bg-[var(--color-surface)]"
+                      aria-label={`${SAMPLE_MEASURE_LABELS[key]} máximo`}
+                      defaultValue={ranges[key].max ?? ""}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-4">
           <FormFeedback state={state} />
-          <SubmitButton>Guardar rangos</SubmitButton>
         </div>
       </form>
     </section>
@@ -1096,21 +1112,25 @@ const COST_FIELDS: {
   name: keyof CostsConfig;
   label: string;
   hint: string;
+  color: string;
 }[] = [
   {
     name: "processingPerSack",
-    label: "Coste procesado por saca (€)",
+    label: "Coste de Procesado por Saca (€)",
     hint: "Coste fijo aplicado a cada saca de producto terminado.",
+    color: "#f59e0b", // amber
   },
   {
     name: "palletCost",
     label: "Coste de palé (€)",
-    hint: "Coste imputado por palé en el cálculo de coste de lote.",
+    hint: "Se autocalcula con la última compra de palés en Consumibles.",
+    color: "#3b82f6", // blue
   },
   {
     name: "emptySackCost",
     label: "Coste de saca vacía (€)",
-    hint: "Coste imputado por saca vacía en el cálculo de coste de lote.",
+    hint: "Se autocalcula con la última compra de sacas vacías en Consumibles.",
+    color: "#8b5cf6", // purple
   },
 ];
 
@@ -1126,19 +1146,32 @@ export function CostsSection({
   const [state, action] = useActionState(saveCostsAction, INITIAL);
   return (
     <section>
-      <SectionHeader title="Sistema de Costes" action={null} />
-      <p className="mb-4 text-sm text-[var(--color-muted)]">
-        Costes de procesado y consumibles usados para calcular el coste total de
-        cada saca y de cada lote de salida.
-      </p>
       <form action={action}>
+        <SectionHeader
+          title="Sistema de Costes"
+          action={<SubmitButton>Guardar costes</SubmitButton>}
+        />
+        <p className="mb-4 text-sm text-[var(--color-muted)]">
+          Costes de procesado y consumibles usados para calcular el coste total
+          de cada saca y de cada lote de salida.
+        </p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {COST_FIELDS.map((c) => (
             <div
               key={c.name}
-              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+              className="rounded-xl border p-4"
+              style={{
+                backgroundColor: `color-mix(in srgb, ${c.color} 12%, transparent)`,
+                borderColor: `color-mix(in srgb, ${c.color} 32%, transparent)`,
+              }}
             >
-              <Label htmlFor={`cost-${c.name}`}>{c.label}</Label>
+              <Label
+                htmlFor={`cost-${c.name}`}
+                className="font-semibold"
+                style={{ color: c.color }}
+              >
+                {c.label}
+              </Label>
               <p className="mt-1 text-xs text-[var(--color-muted)]">{c.hint}</p>
               <Input
                 id={`cost-${c.name}`}
@@ -1147,15 +1180,14 @@ export function CostsSection({
                 step="0.01"
                 min={0}
                 required
-                className="mt-3"
+                className="mt-3 bg-[var(--color-surface)]"
                 defaultValue={costs[c.name]}
               />
             </div>
           ))}
         </div>
-        <div className="mt-4 flex items-center justify-between gap-4">
+        <div className="mt-4">
           <FormFeedback state={state} />
-          <SubmitButton>Guardar costes</SubmitButton>
         </div>
         <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <h3 className="mb-2 text-sm font-medium text-[var(--color-foreground)]">

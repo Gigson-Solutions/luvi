@@ -17,10 +17,18 @@ import { setConfig } from "@/lib/services/config.service";
 // ─── Etiquetas de tipos ────────────────────────────────────────────────────────
 
 export const CONSUMABLE_TYPE_LABELS: Record<ConsumableType, string> = {
-  PALLET: "Palé",
-  SACA_VACIA: "Saca vacía",
-  CAPUCHON: "Capuchón",
-  OTRO: "Otro",
+  PALLET: "Palés",
+  SACA_VACIA: "Sacas",
+  CAPUCHON: "Capuchones",
+  OTRO: "Otros",
+};
+
+/** Emoji identificativo por tipo, para acompañar el nombre en las tarjetas. */
+export const CONSUMABLE_TYPE_EMOJI: Record<ConsumableType, string> = {
+  PALLET: "🔲",
+  SACA_VACIA: "📦",
+  CAPUCHON: "🎩",
+  OTRO: "📦",
 };
 
 // ─── Stock de consumibles ──────────────────────────────────────────────────────
@@ -56,6 +64,35 @@ export async function getConsumableStats(): Promise<ConsumableStats> {
     totalUnits: consumables.reduce((sum, c) => sum + c.currentStock, 0),
     belowMinimum: consumables.filter((c) => c.currentStock < c.minStock).length,
   };
+}
+
+export interface LastPurchase {
+  date: Date;
+  quantity: number;
+}
+
+/**
+ * Última compra (entrada, quantity > 0) por consumible: fecha y cantidad del
+ * movimiento más reciente. Deriva la etiqueta «Última compra» de las tarjetas.
+ */
+export async function getLastPurchaseByConsumable(): Promise<
+  Map<string, LastPurchase>
+> {
+  const entries = await prisma.consumableMovement.findMany({
+    where: { quantity: { gt: 0 } },
+    orderBy: { createdAt: "desc" },
+    select: { consumableId: true, quantity: true, createdAt: true },
+  });
+  const byConsumable = new Map<string, LastPurchase>();
+  for (const m of entries) {
+    if (!byConsumable.has(m.consumableId)) {
+      byConsumable.set(m.consumableId, {
+        date: m.createdAt,
+        quantity: m.quantity,
+      });
+    }
+  }
+  return byConsumable;
 }
 
 /** Consumibles para los selects de los formularios. */

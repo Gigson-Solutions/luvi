@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { ArrowDownToLine, Package, PackageCheck, PackageX } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Package,
+  PackageCheck,
+  PackageX,
+  Scale,
+} from "lucide-react";
 import { LotType } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatCard } from "@/components/ui/card";
@@ -109,28 +115,35 @@ export default async function ProduccionPage({
           value={stats.inProduction}
           hint="En tolva ahora mismo"
           accent="#7c3aed"
+          icon={Package}
         />
         <StatCard
           label="PT del día"
           value={stats.ptToday}
           hint="Producto Terminado hoy"
           accent="#16a34a"
+          icon={PackageCheck}
         />
         <StatCard
           label="Subprod. del día"
           value={stats.subToday}
           hint="Subproductos hoy"
+          accent="#f59e0b"
+          icon={Package}
         />
         <StatCard
           label="Rechazos del día"
           value={stats.rechazoToday}
           hint="Rechazos hoy"
           accent="#dc2626"
+          icon={PackageX}
         />
         <StatCard
           label="Kg procesados"
           value={formatKg(stats.kgProcessed)}
           hint="Entradas a tolva hoy"
+          accent="#64748b"
+          icon={Scale}
         />
       </div>
 
