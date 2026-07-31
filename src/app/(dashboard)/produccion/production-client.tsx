@@ -25,6 +25,7 @@ import {
   enterHopperAction,
   createOutputSackAction,
   findSackByQrAction,
+  readPlatformWeightAction,
   type ActionState,
 } from "./actions";
 
@@ -186,6 +187,9 @@ export function OutputSackDialog({
   materials: Option[];
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [weight, setWeight] = useState("");
+  const [scaleMsg, setScaleMsg] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
   const [created, setCreated] = useState<{
     id: string;
     qrCode: string;
@@ -201,9 +205,29 @@ export function OutputSackDialog({
     INITIAL,
   );
 
+  async function readScale(): Promise<void> {
+    setReading(true);
+    setScaleMsg(null);
+    try {
+      const r = await readPlatformWeightAction();
+      if (r.ok && r.weight != null) {
+        setWeight(String(r.weight));
+        setScaleMsg("Peso leído de la báscula de plataforma.");
+      } else {
+        setScaleMsg(r.reason ?? "Introduce el peso a mano.");
+      }
+    } finally {
+      setReading(false);
+    }
+  }
+
   function handleOpenChange(next: boolean): void {
     setOpen(next);
-    if (!next) setCreated(null);
+    if (!next) {
+      setCreated(null);
+      setWeight("");
+      setScaleMsg(null);
+    }
   }
 
   return (
@@ -304,18 +328,27 @@ export function OutputSackDialog({
                     required
                     placeholder="0.00"
                     className="flex-1"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
                   />
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
                     className="h-9.5 w-9.5 shrink-0"
-                    title="Leer peso de báscula"
-                    aria-label="Leer peso de báscula"
+                    title="Leer peso de la báscula de plataforma"
+                    aria-label="Leer peso de la báscula de plataforma"
+                    onClick={readScale}
+                    disabled={reading}
                   >
                     <Scale className="w-4 h-4" />
                   </Button>
                 </div>
+                {scaleMsg && (
+                  <p className="text-xs text-[var(--color-muted)] mt-1">
+                    {scaleMsg}
+                  </p>
+                )}
               </div>
             </div>
 

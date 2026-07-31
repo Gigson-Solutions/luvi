@@ -20,7 +20,12 @@
  * REGLA DE ORO: si Gestruck no está configurado o falla, SIEMPRE devolvemos
  * `{ manual: true }` para que el operario introduzca el peso a mano. La báscula
  * nunca debe bloquear la operativa.
+ *
+ * FUENTES (GL báscula): camión (BASCULA) por API, y si la API no responde →
+ * BBDD (fallback). Plataforma (sacas de salida) → BBDD directa (la API no la
+ * expone). Ver `gestruck-db.ts`.
  */
+import { readTruckWeightFromDb, readPlatformWeightFromDb } from "./gestruck-db";
 
 export interface WeightReading {
   manual: boolean;
@@ -164,12 +169,60 @@ export async function readWeight(params: {
       scaleId: params.scaleId,
     };
   } catch (err) {
-    // Detalle técnico solo en el log del servidor; al operario, mensaje claro.
-    console.error("[gestruck] fallo al leer la báscula:", err);
+    // La API no responde → FALLBACK a la BBDD de Gestruck (mismo camión).
+    console.error("[gestruck] API no disponible, pruebo BBDD:", err);
+    try {
+      if (params.vehicle) {
+        const db = await readTruckWeightFromDb(params.vehicle);
+        if (db && db.weight != null) {
+          return {
+            manual: false,
+            weight: db.weight,
+            tare: db.tare,
+            net: db.net,
+            weighedAt: db.weighedAt,
+            scaleId: params.scaleId,
+          };
+        }
+      }
+    } catch (dbErr) {
+      console.error("[gestruck] BBDD tampoco disponible:", dbErr);
+    }
     return {
       manual: true,
       reason:
         "No se pudo conectar con la báscula. Introduce el peso a mano y vuelve a intentarlo en un momento.",
+    };
+  }
+}
+
+/**
+ * Peso de la PLATAFORMA (sacas de salida). Se lee de la BBDD de Gestruck: la
+ * última pesada de big bag (IdDeviceSystem=2). Fallback a manual si no hay dato
+ * o la BBDD no está disponible.
+ */
+export async function readPlatformWeight(): Promise<WeightReading> {
+  try {
+    const db = await readPlatformWeightFromDb();
+    if (db && db.net != null) {
+      return {
+        manual: false,
+        weight: db.net,
+        net: db.net,
+        weighedAt: db.weighedAt,
+      };
+    }
+    return {
+      manual: true,
+      reason:
+        "No hay ninguna saca pesada en la plataforma. Pesa el big bag en Gestruck (o introduce el peso a mano).",
+    };
+  } catch (err) {
+    console.error("[gestruck] fallo al leer la plataforma:", err);
+    return {
+      manual: true,
+      reason:
+        "No se pudo leer la báscula de plataforma. Introduce el peso a mano.",
     };
   }
 }
