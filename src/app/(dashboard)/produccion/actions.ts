@@ -12,6 +12,7 @@ import {
   MAX_SACKS_PER_LOT,
   type SackWithMaterialZone,
 } from "@/lib/services/production.service";
+import { readPlatformWeight } from "@/lib/integrations/gestruck";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = {
@@ -61,6 +62,21 @@ export async function enterHopperAction(
       ok: false,
       error: e instanceof Error ? e.message : "Error al entrar a tolva",
     };
+  }
+}
+
+/** Lee el peso de la báscula de PLATAFORMA (sacas de salida) desde Gestruck. */
+export async function readPlatformWeightAction(): Promise<{
+  ok: boolean;
+  weight?: number;
+  reason?: string;
+}> {
+  try {
+    await requireOperator();
+    const r = await readPlatformWeight();
+    return { ok: !r.manual, weight: r.net ?? r.weight, reason: r.reason };
+  } catch {
+    return { ok: false, reason: "No se pudo leer la báscula de plataforma." };
   }
 }
 
