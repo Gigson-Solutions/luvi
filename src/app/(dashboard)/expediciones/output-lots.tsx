@@ -23,7 +23,10 @@ import {
 /** Lotes abiertos (con hueco) de un conjunto, para «Añadir a lote». */
 function openLotOptions(lots: AvailableOutputLot[]): OpenLotOption[] {
   return lots
-    .filter((l) => l.isOpen && l.sackCount < MAX_SACKS_PER_LOT)
+    .filter(
+      (l) =>
+        l.isOpen && l.state !== "asignado" && l.sackCount < MAX_SACKS_PER_LOT,
+    )
     .map((l) => ({
       id: l.id,
       lotNumber: l.lotNumber,
@@ -88,12 +91,19 @@ function OpenLotCard({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
   );
 }
 
-/** Badge de estado del lote (Abierto / Listo para enviar). */
+/** Badge de estado del lote (Abierto / Listo para enviar / Asignado). */
 function LotStateBadge({
   lot,
 }: {
   lot: AvailableOutputLot;
 }): React.JSX.Element {
+  if (lot.state === "asignado") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-700">
+        Asignado{lot.shipmentRef ? ` · ${lot.shipmentRef}` : ""}
+      </span>
+    );
+  }
   if (lot.isOpen) {
     return (
       <span className="inline-flex items-center rounded-md bg-yellow-100 px-1.5 py-0.5 text-[11px] font-medium text-yellow-700">
@@ -110,9 +120,12 @@ function LotStateBadge({
 
 /** Un lote de salida como fila colapsable (native <details>, sin JS). */
 function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
-  const borderClass = lot.isOpen
-    ? "border-yellow-300 bg-yellow-50/40"
-    : "border-blue-200 bg-blue-50/40";
+  const assigned = lot.state === "asignado";
+  const borderClass = assigned
+    ? "border-green-200 bg-green-50/40"
+    : lot.isOpen
+      ? "border-yellow-300 bg-yellow-50/40"
+      : "border-blue-200 bg-blue-50/40";
   return (
     <details className={`group rounded-xl border ${borderClass}`}>
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 list-none">
@@ -141,14 +154,19 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
       </summary>
       <div className="border-t border-[var(--color-border)] p-3">
         {lot.costs.total > 0 && <CostBoxes costs={lot.costs} />}
-        {/* GL-39: mientras el lote no esté asignado se pueden sacar sacas. */}
+        {assigned && (
+          <p className="text-xs text-green-700 mb-2">
+            Lote asignado al envío {lot.shipmentRef ?? ""} · en modo lectura.
+          </p>
+        )}
+        {/* GL-39: solo se pueden sacar sacas si el lote NO está asignado. */}
         <Table>
           <THead>
             <TR>
               <TH>QR</TH>
               <TH>Material</TH>
               <TH className="text-right">Peso</TH>
-              <TH className="text-right">Acción</TH>
+              {!assigned && <TH className="text-right">Acción</TH>}
             </TR>
           </THead>
           <TBody>
@@ -157,9 +175,11 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
                 <TD className="font-mono text-xs">{s.qrCode}</TD>
                 <TD>{s.materialName}</TD>
                 <TD className="text-right">{formatKg(s.weight)}</TD>
-                <TD className="text-right">
-                  <RemoveSackButton sackId={s.id} />
-                </TD>
+                {!assigned && (
+                  <TD className="text-right">
+                    <RemoveSackButton sackId={s.id} />
+                  </TD>
+                )}
               </TR>
             ))}
           </TBody>
@@ -292,7 +312,9 @@ export function OutputLotsPanel({
   loose: LooseOutputSacks;
 }): React.JSX.Element {
   const { productoTerminado, subproducto, rechazo } = lots;
-  const openLot = productoTerminado.find((l) => l.isOpen);
+  const openLot = productoTerminado.find(
+    (l) => l.isOpen && l.state !== "asignado",
+  );
 
   return (
     <div className="space-y-8">

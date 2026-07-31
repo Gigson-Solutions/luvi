@@ -168,6 +168,9 @@ export interface LotCosts {
   inputSacks: number;
 }
 
+/** Estado del lote en Expediciones: acumulando / cerrado listo / asignado a envío. */
+export type LotState = "abierto" | "listo" | "asignado";
+
 export interface AvailableOutputLot {
   id: string;
   lotNumber: string;
@@ -177,6 +180,10 @@ export interface AvailableOutputLot {
   producedAt: Date;
   /** GL-36: false = cerrado (22 sacas, listo para enviar); true = acumulando. */
   isOpen: boolean;
+  /** Estado derivado para el badge (abierto/listo/asignado). */
+  state: LotState;
+  /** Referencia del envío si el lote está asignado. */
+  shipmentRef: string | null;
   /** Nº de sacas de salida en el lote (para el contador n/22). */
   sackCount: number;
   availableKg: number;
@@ -256,21 +263,23 @@ const lotCostSackSelect = {
   },
 } satisfies Prisma.SackSelect;
 
-/** Lotes de un tipo con sus sacas todavía disponibles (no expedidas). */
+/** Lotes de un tipo con sacas disponibles. Incluye los ya asignados a un envío
+ * (con estado "asignado") para que NO desaparezcan de la lista. */
 async function availableLotsByType(
   type: LotType,
   costs: CostsConfig,
 ): Promise<AvailableOutputLot[]> {
   const sackStatus = LOT_TYPE_TO_SACK_STATUS[type];
   const lots = await prisma.productionLot.findMany({
-    // Lotes con sacas disponibles y NO asignados aún a ningún envío (GL-42).
     where: {
       type,
       sacks: { some: { status: sackStatus } },
-      shipmentLots: { none: {} },
     },
     include: {
       material: { select: { name: true } },
+      shipmentLots: {
+        select: { shipment: { select: { reference: true } } },
+      },
       sacks: {
         where: { status: sackStatus },
         select: {
@@ -287,26 +296,36 @@ async function availableLotsByType(
     orderBy: [{ isOpen: "desc" }, { producedAt: "desc" }],
   });
 
-  return lots.map((l) => ({
-    id: l.id,
-    lotNumber: l.lotNumber,
-    type: l.type,
-    materialId: l.materialId,
-    materialName: l.material.name,
-    producedAt: l.producedAt,
-    isOpen: l.isOpen,
-    sackCount: l.sacks.length,
-    availableKg:
-      Math.round(l.sacks.reduce((sum, s) => sum + s.weight, 0) * 100) / 100,
-    availableSacks: l.sacks.length,
-    costs: computeLotCosts(l.sacks, l.sacks.length, costs),
-    sacks: l.sacks.map((s) => ({
-      id: s.id,
-      qrCode: s.qrCode,
-      materialName: s.material.name,
-      weight: s.weight,
-    })),
-  }));
+  return lots.map((l) => {
+    const assigned = l.shipmentLots.length > 0;
+    const state: LotState = assigned
+      ? "asignado"
+      : l.isOpen
+        ? "abierto"
+        : "listo";
+    return {
+      id: l.id,
+      lotNumber: l.lotNumber,
+      type: l.type,
+      materialId: l.materialId,
+      materialName: l.material.name,
+      producedAt: l.producedAt,
+      isOpen: l.isOpen,
+      state,
+      shipmentRef: l.shipmentLots[0]?.shipment.reference ?? null,
+      sackCount: l.sacks.length,
+      availableKg:
+        Math.round(l.sacks.reduce((sum, s) => sum + s.weight, 0) * 100) / 100,
+      availableSacks: l.sacks.length,
+      costs: computeLotCosts(l.sacks, l.sacks.length, costs),
+      sacks: l.sacks.map((s) => ({
+        id: s.id,
+        qrCode: s.qrCode,
+        materialName: s.material.name,
+        weight: s.weight,
+      })),
+    };
+  });
 }
 
 /**
