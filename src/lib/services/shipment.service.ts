@@ -232,7 +232,9 @@ function computeLotCosts(
       material += pricePerTon * (c.inputSack.weight / 1000);
     }
   }
-  const processing = inputSacks * costs.processingPerSack;
+  // GL-55: el procesado es el coste por SACA DE SALIDA (nº sacas del lote ×
+  // coste/saca), no por sacas de entrada procesadas. Ej: 22 sacas × 31 €.
+  const processing = sackCount * costs.processingPerSack;
   const consumable = sackCount * (costs.palletCost + costs.emptySackCost);
   const round = (n: number): number => Math.round(n * 100) / 100;
   return {

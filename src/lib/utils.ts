@@ -26,9 +26,10 @@ export function formatDate(date: Date | string, includeTime = false): string {
 }
 
 /** Genera número de lote en formato DDMMYY-nºcamión */
-export function generateLotNumber(date: Date, containerNumber: number): string {
-  const dd = String(date.getDate()).padStart(2, "0");
+export function generateLotNumber(date: Date, seq: number): string {
+  // GL-55: formato YYYYMMDD-X (X = correlativo diario creciente).
+  const yyyy = String(date.getFullYear());
   const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const yy = String(date.getFullYear()).slice(-2);
-  return `${dd}${mm}${yy}-${containerNumber}`;
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}-${seq}`;
 }

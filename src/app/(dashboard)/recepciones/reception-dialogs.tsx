@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Plus, Scale, Loader2 } from "lucide-react";
+import { Plus, Scale, Loader2, Keyboard, AlertTriangle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,10 @@ import {
 import { SACK_TYPE_OPTIONS } from "@/lib/reception-sack-types";
 
 const INITIAL: ActionState = { ok: false };
+
+/** Estilo de los campos de pesaje cuando están bloqueados por lectura de báscula. */
+const LOCKED_INPUT =
+  "bg-[var(--color-surface-hover)] text-[var(--color-muted)] cursor-not-allowed";
 
 interface Option {
   id: string;
@@ -231,9 +236,21 @@ export function ReceiveDialog({
     estimatedTare != null ? String(estimatedTare) : "",
   );
   const [net, setNet] = useState("");
-  const [source, setSource] = useState<"gestruck" | "manual">("manual");
+  // Modo del pesaje: "scale" = leer de la báscula Gestruck, "manual" = a mano.
+  const [mode, setMode] = useState<"scale" | "manual">("manual");
+  // true cuando los pesos vienen de la báscula → campos en solo-lectura.
+  const [scaleLocked, setScaleLocked] = useState(false);
   const [reading, setReading] = useState(false);
-  const [readMsg, setReadMsg] = useState<string | null>(null);
+  // Aviso bajo el pesaje: "warning" (amarillo, p.ej. pesaje a medias) o "info".
+  const [notice, setNotice] = useState<{
+    tone: "warning" | "info";
+    text: string;
+  } | null>(null);
+
+  // weightSource enviado a la server action: "gestruck" solo si los pesos
+  // están bloqueados por lectura de báscula; en cualquier otro caso, "manual".
+  const source: "gestruck" | "manual" =
+    mode === "scale" && scaleLocked ? "gestruck" : "manual";
 
   /** Neto = Bruto − Tara cuando ambos son números válidos. */
   function computeNet(grossStr: string, tareStr: string): string {
@@ -247,24 +264,31 @@ export function ReceiveDialog({
 
   function onGrossChange(value: string): void {
     setGross(value);
-    setSource("manual");
     const auto = computeNet(value, tare);
     if (auto !== "") setNet(auto);
   }
 
   function onTareChange(value: string): void {
     setTare(value);
-    setSource("manual");
     const auto = computeNet(gross, value);
     if (auto !== "") setNet(auto);
   }
 
-  async function readFromScale(): Promise<void> {
+  /** Activa el modo manual: campos editables, sin bloqueo de báscula. */
+  function goManual(): void {
+    setMode("manual");
+    setScaleLocked(false);
+    setNotice(null);
+  }
+
+  /** Activa el modo báscula e intenta leer de Gestruck. */
+  async function goScale(): Promise<void> {
+    setMode("scale");
     setReading(true);
-    setReadMsg(null);
+    setNotice(null);
     try {
       const r = await fetchGestruckWeightAction(reference);
-      // La lectura de Gestruck devuelve { weight (bruto), tare, net }.
+      // Lectura correcta: Gestruck devuelve { weight (bruto), tare, net }.
       if (!r.manual && (r.net != null || r.weight != null)) {
         if (r.weight != null) setGross(String(r.weight));
         if (r.tare != null) setTare(String(r.tare));
@@ -272,8 +296,8 @@ export function ReceiveDialog({
           r.net ??
           (r.weight != null && r.tare != null ? r.weight - r.tare : undefined);
         if (netValue != null) setNet(String(netValue));
-        setSource("gestruck");
-        // Hora del pesaje leído, para que el operario verifique que es el de este camión.
+        setScaleLocked(true);
+        // Hora del pesaje leído, para verificar que es el de este camión.
         const when = r.weighedAt
           ? new Date(r.weighedAt).toLocaleString("es-ES", {
               timeZone: "Europe/Madrid",
@@ -283,14 +307,30 @@ export function ReceiveDialog({
               minute: "2-digit",
             })
           : null;
-        setReadMsg(
-          when
+        setNotice({
+          tone: "info",
+          text: when
             ? `Pesos leídos de la báscula · pesado ${when}. Verifica que es este camión.`
             : "Pesos leídos de la báscula.",
-        );
+        });
+      } else if (r.inProgress) {
+        // Pesaje a medias: solo la 1ª pesada → aún no hay neto. Pasamos a manual.
+        setScaleLocked(false);
+        setMode("manual");
+        setNotice({
+          tone: "warning",
+          text:
+            r.reason ??
+            "Aún falta la segunda pesada del camión para obtener todos los datos (neto). Espera a que terminen de pesar o introduce el peso a mano.",
+        });
       } else {
-        setSource("manual");
-        setReadMsg(r.reason ?? "Introduce los pesos manualmente.");
+        // Báscula no disponible/otra causa → manual.
+        setScaleLocked(false);
+        setMode("manual");
+        setNotice({
+          tone: "info",
+          text: r.reason ?? "Introduce los pesos manualmente.",
+        });
       }
     } finally {
       setReading(false);
@@ -313,24 +353,38 @@ export function ReceiveDialog({
           <input type="hidden" name="weightSource" value={source} />
 
           <div>
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-1.5">
               <Label htmlFor="actualWeight" className="mb-0">
                 Pesaje (kg) — Bruto · Tara · Neto
               </Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={readFromScale}
-                disabled={reading}
-              >
-                {reading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Scale className="w-4 h-4" />
-                )}
-                Báscula
-              </Button>
+              {/* Toggle de modo: Báscula (lee de Gestruck) / Manual (a mano). */}
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mode === "scale" ? "primary" : "outline"}
+                  onClick={goScale}
+                  disabled={reading}
+                  aria-pressed={mode === "scale"}
+                >
+                  {reading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Scale className="w-4 h-4" />
+                  )}
+                  Báscula
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mode === "manual" ? "primary" : "outline"}
+                  onClick={goManual}
+                  disabled={reading}
+                  aria-pressed={mode === "manual"}
+                >
+                  <Keyboard className="w-4 h-4" /> Manual
+                </Button>
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
@@ -344,6 +398,8 @@ export function ReceiveDialog({
                   step="0.01"
                   value={gross}
                   onChange={(e) => onGrossChange(e.target.value)}
+                  readOnly={scaleLocked}
+                  className={scaleLocked ? LOCKED_INPUT : undefined}
                   placeholder="0.00"
                 />
               </div>
@@ -358,6 +414,8 @@ export function ReceiveDialog({
                   step="0.01"
                   value={tare}
                   onChange={(e) => onTareChange(e.target.value)}
+                  readOnly={scaleLocked}
+                  className={scaleLocked ? LOCKED_INPUT : undefined}
                   placeholder="0.00"
                 />
                 {estimatedTare != null && (
@@ -377,18 +435,34 @@ export function ReceiveDialog({
                   step="0.01"
                   required
                   value={net}
-                  onChange={(e) => {
-                    setNet(e.target.value);
-                    setSource("manual");
-                  }}
+                  onChange={(e) => setNet(e.target.value)}
+                  readOnly={scaleLocked}
+                  className={scaleLocked ? LOCKED_INPUT : undefined}
                   placeholder="0.00"
                 />
               </div>
             </div>
-            {readMsg && (
-              <p className="text-xs text-[var(--color-muted)] mt-1">
-                {readMsg}
+            {scaleLocked && (
+              <p className="text-[11px] text-[var(--color-muted)] mt-1">
+                Pesos leídos de la báscula (solo lectura). Cambia a{" "}
+                <span className="font-medium">Manual</span> para editarlos.
               </p>
+            )}
+            {notice && (
+              <div
+                className={cn(
+                  "flex items-start gap-2 mt-2 rounded-lg border px-3 py-2 text-xs",
+                  notice.tone === "warning"
+                    ? "border-[var(--color-warning)] bg-[var(--color-warning)]/10 text-[var(--color-foreground)]"
+                    : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)]",
+                )}
+                role={notice.tone === "warning" ? "alert" : "status"}
+              >
+                {notice.tone === "warning" && (
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-px text-[var(--color-warning)]" />
+                )}
+                <span>{notice.text}</span>
+              </div>
             )}
           </div>
 

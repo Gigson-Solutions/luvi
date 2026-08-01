@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { IncidentStatus, type Prisma } from "@prisma/client";
+import { IncidentStatus, type Incident, type Prisma } from "@prisma/client";
 
 /**
  * Servicio de Incidencias — lógica de negocio sobre el modelo Incident.
@@ -7,14 +7,120 @@ import { IncidentStatus, type Prisma } from "@prisma/client";
  * Lifecycle de estados (validado con schema):
  *   ABIERTA → EN_REVISION → EN_PROCESO → RESUELTA → CERRADA
  * Al pasar a RESUELTA se sella `resolvedAt`; al pasar a CERRADA, `closedAt`.
+ * Cada cambio de estado (setIncidentStatus / reopen / advance) deja un
+ * `IncidentNote` con el actor, la nota y la transición (fromStatus → toStatus).
  *
  * Nota: `warehouseId` es un campo plano (sin relación en el schema), por lo que
- * los nombres de almacén se resuelven aparte vía getIncidentFormData().
+ * los nombres de almacén se resuelven aparte vía getIncidentFormData(). Igual
+ * ocurre con `IncidentNote.userId`: se resuelve el nombre del actor por separado.
  */
 
-export type IncidentWithReporter = Prisma.IncidentGetPayload<{
+/** Nota de historial ya enriquecida con el nombre del actor (serializable). */
+export interface IncidentNoteView {
+  id: string;
+  note: string;
+  fromStatus: IncidentStatus | null;
+  toStatus: IncidentStatus | null;
+  createdAt: Date;
+  actorName: string | null;
+}
+
+type IncidentBase = Prisma.IncidentGetPayload<{
   include: { reportedBy: { select: { id: true; name: true } } };
 }>;
+
+/** Incidencia con su autor y el historial cronológico de notas. */
+export interface IncidentWithReporter extends IncidentBase {
+  notes: IncidentNoteView[];
+}
+
+type RawIncident = Prisma.IncidentGetPayload<{
+  include: {
+    reportedBy: { select: { id: true; name: true } };
+    notes: true;
+  };
+}>;
+
+/**
+ * Resuelve los nombres de los actores de las notas (userId → name) y devuelve
+ * las incidencias con el historial ya enriquecido y listo para el cliente.
+ */
+async function enrichIncidents(
+  incidents: RawIncident[],
+): Promise<IncidentWithReporter[]> {
+  const userIds = [
+    ...new Set(
+      incidents
+        .flatMap((i) => i.notes)
+        .map((n) => n.userId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const nameById = new Map(users.map((u) => [u.id, u.name]));
+
+  return incidents.map((incident) => ({
+    ...incident,
+    notes: incident.notes.map((n) => ({
+      id: n.id,
+      note: n.note,
+      fromStatus: n.fromStatus,
+      toStatus: n.toStatus,
+      createdAt: n.createdAt,
+      actorName: n.userId ? (nameById.get(n.userId) ?? null) : null,
+    })),
+  }));
+}
+
+/** Opciones comunes a los cambios de estado: nota y actor que la registra. */
+export interface StatusChangeOptions {
+  note?: string;
+  actorId?: string;
+}
+
+/**
+ * Aplica un cambio de estado y registra la IncidentNote correspondiente en una
+ * única transacción. Sella `resolvedAt`/`closedAt` según el destino, o los
+ * limpia si `clearTimestamps` (reapertura). Los sellos previos se conservan.
+ */
+async function applyStatusChange(
+  incident: Incident,
+  status: IncidentStatus,
+  opts: StatusChangeOptions & { clearTimestamps?: boolean } = {},
+): Promise<void> {
+  const data: Prisma.IncidentUpdateInput = { status };
+  if (opts.clearTimestamps) {
+    data.resolvedAt = null;
+    data.closedAt = null;
+  } else {
+    data.resolvedAt =
+      status === IncidentStatus.RESUELTA
+        ? (incident.resolvedAt ?? new Date())
+        : incident.resolvedAt;
+    data.closedAt =
+      status === IncidentStatus.CERRADA
+        ? (incident.closedAt ?? new Date())
+        : incident.closedAt;
+  }
+
+  await prisma.$transaction([
+    prisma.incident.update({ where: { id: incident.id }, data }),
+    prisma.incidentNote.create({
+      data: {
+        incidentId: incident.id,
+        userId: opts.actorId ?? null,
+        note: opts.note ?? "",
+        fromStatus: incident.status,
+        toStatus: status,
+      },
+    }),
+  ]);
+}
 
 /** Orden del lifecycle. La transición avanza al siguiente estado. */
 const STATUS_FLOW: IncidentStatus[] = [
@@ -31,17 +137,35 @@ export interface ListIncidentsFilter {
 }
 
 /** Lista incidencias con filtro opcional por estado y por almacén. */
-export function listIncidents(
+export async function listIncidents(
   filter: ListIncidentsFilter = {},
 ): Promise<IncidentWithReporter[]> {
-  return prisma.incident.findMany({
+  const incidents = await prisma.incident.findMany({
     where: {
       status: filter.status,
       warehouseId: filter.warehouseId,
     },
-    include: { reportedBy: { select: { id: true, name: true } } },
+    include: {
+      reportedBy: { select: { id: true, name: true } },
+      notes: { orderBy: { createdAt: "asc" } },
+    },
     orderBy: { createdAt: "desc" },
   });
+  return enrichIncidents(incidents);
+}
+
+/** Recupera una incidencia con su historial de notas, o lanza si no existe. */
+export async function getIncidentById(
+  id: string,
+): Promise<IncidentWithReporter> {
+  const incident = await prisma.incident.findUniqueOrThrow({
+    where: { id },
+    include: {
+      reportedBy: { select: { id: true, name: true } },
+      notes: { orderBy: { createdAt: "asc" } },
+    },
+  });
+  return (await enrichIncidents([incident]))[0];
 }
 
 export type IncidentStats = Record<IncidentStatus, number>;
@@ -168,11 +292,11 @@ export interface CreateIncidentInput {
   reportedById: string;
 }
 
-/** Crea una incidencia en estado inicial ABIERTA. */
-export function createIncident(
+/** Crea una incidencia en estado inicial ABIERTA (sin historial todavía). */
+export async function createIncident(
   input: CreateIncidentInput,
 ): Promise<IncidentWithReporter> {
-  return prisma.incident.create({
+  const created = await prisma.incident.create({
     data: {
       title: input.title,
       description: input.description ?? null,
@@ -184,64 +308,65 @@ export function createIncident(
     },
     include: { reportedBy: { select: { id: true, name: true } } },
   });
+  return { ...created, notes: [] };
 }
 
 /**
- * Avanza la incidencia al siguiente estado del lifecycle.
+ * Avanza la incidencia al siguiente estado del lifecycle y registra la nota.
  * Sella `resolvedAt` al llegar a RESUELTA y `closedAt` al llegar a CERRADA.
  */
 export async function advanceIncidentStatus(
   id: string,
+  opts: StatusChangeOptions = {},
 ): Promise<IncidentWithReporter> {
   const incident = await prisma.incident.findUniqueOrThrow({ where: { id } });
 
-  const currentIndex = STATUS_FLOW.indexOf(incident.status);
-  const nextStatus = STATUS_FLOW[currentIndex + 1];
+  const nextStatus = STATUS_FLOW[STATUS_FLOW.indexOf(incident.status) + 1];
   if (!nextStatus) {
     throw new Error("La incidencia ya está cerrada.");
   }
 
-  return prisma.incident.update({
-    where: { id },
-    data: {
-      status: nextStatus,
-      resolvedAt:
-        nextStatus === IncidentStatus.RESUELTA
-          ? new Date()
-          : incident.resolvedAt,
-      closedAt:
-        nextStatus === IncidentStatus.CERRADA ? new Date() : incident.closedAt,
-    },
-    include: { reportedBy: { select: { id: true, name: true } } },
-  });
+  await applyStatusChange(incident, nextStatus, opts);
+  return getIncidentById(id);
 }
 
 /**
- * Cambia la incidencia a cualquier estado destino (no solo el siguiente).
- * Sella `resolvedAt` al pasar a RESUELTA y `closedAt` al pasar a CERRADA,
- * conservando los sellos previos si ya existían.
+ * Cambia la incidencia a cualquier estado destino (no solo el siguiente) y
+ * registra una IncidentNote con la transición. Sella `resolvedAt`/`closedAt`
+ * según el destino, conservando los sellos previos si ya existían.
  */
 export async function setIncidentStatus(
   id: string,
   status: IncidentStatus,
+  opts: StatusChangeOptions = {},
 ): Promise<IncidentWithReporter> {
   const incident = await prisma.incident.findUniqueOrThrow({ where: { id } });
+  await applyStatusChange(incident, status, opts);
+  return getIncidentById(id);
+}
 
-  return prisma.incident.update({
-    where: { id },
-    data: {
-      status,
-      resolvedAt:
-        status === IncidentStatus.RESUELTA
-          ? (incident.resolvedAt ?? new Date())
-          : incident.resolvedAt,
-      closedAt:
-        status === IncidentStatus.CERRADA
-          ? (incident.closedAt ?? new Date())
-          : incident.closedAt,
-    },
-    include: { reportedBy: { select: { id: true, name: true } } },
-  });
+/** Estados válidos de reapertura: la incidencia vuelve a estar activa. */
+export const REOPEN_STATUSES: IncidentStatus[] = [
+  IncidentStatus.ABIERTA,
+  IncidentStatus.EN_PROCESO,
+];
+
+/**
+ * Reabre una incidencia resuelta o cerrada, devolviéndola a ABIERTA o
+ * EN_PROCESO. Limpia `resolvedAt`/`closedAt` y registra la IncidentNote.
+ * La comprobación de rol (ADMIN/MANAGER) es responsabilidad de la action.
+ */
+export async function reopenIncident(
+  id: string,
+  status: IncidentStatus,
+  opts: StatusChangeOptions = {},
+): Promise<IncidentWithReporter> {
+  if (!REOPEN_STATUSES.includes(status)) {
+    throw new Error("Solo se puede reabrir a Abierta o En proceso.");
+  }
+  const incident = await prisma.incident.findUniqueOrThrow({ where: { id } });
+  await applyStatusChange(incident, status, { ...opts, clearTimestamps: true });
+  return getIncidentById(id);
 }
 
 /** Datos auxiliares para formularios y filtros de incidencias. */

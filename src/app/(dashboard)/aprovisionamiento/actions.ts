@@ -76,14 +76,23 @@ export async function createPurchaseOrderAction(
 const shipmentContainerSchema = z.object({
   billOfLading: z.string().trim().min(1, "El BL es obligatorio"),
   reference: z.string().trim().min(1, "El nº de contenedor es obligatorio"),
+  // Peso individual del contenedor en kg (GL-57). Opcional.
+  weight: z.coerce
+    .number()
+    .nonnegative("El peso no puede ser negativo")
+    .optional(),
 });
 
 const createShipmentSchema = z.object({
   purchaseOrderId: z.string().min(1, "Selecciona una orden de compra"),
-  departureDate: z.string().min(1, "La fecha de salida es obligatoria"),
-  maritimeDays: z.coerce.number().int().min(0).optional(),
-  terrestrialDays: z.coerce.number().int().min(0).optional(),
-  // Pares BL ↔ Contenedor serializados como JSON desde el formulario dinámico.
+  // Fecha de salida (opcional, informativa) — GL-50.
+  departureDate: z.string().optional(),
+  // ETAs elegidas directamente como fechas (GL-50).
+  etaValencia: z
+    .string()
+    .min(1, "La fecha de llegada a Valencia es obligatoria"),
+  etaPlanta: z.string().min(1, "La fecha de llegada a planta es obligatoria"),
+  // Pares BL ↔ Contenedor (con peso) serializados como JSON desde el formulario.
   containers: z
     .string()
     .min(1, "Añade al menos un contenedor")
@@ -110,7 +119,6 @@ const createShipmentSchema = z.object({
       }
       return result.data;
     }),
-  weightKg: z.coerce.number().positive().optional(),
   notes: z.string().optional(),
 });
 
@@ -127,10 +135,12 @@ export async function createShipmentAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { departureDate, ...rest } = parsed.data;
+    const { departureDate, etaValencia, etaPlanta, ...rest } = parsed.data;
     const shipment = await createProviderShipment({
       ...rest,
-      departureDate: new Date(departureDate),
+      departureDate: departureDate ? new Date(departureDate) : undefined,
+      etaValencia: new Date(etaValencia),
+      etaPlanta: new Date(etaPlanta),
     });
     await logAudit({
       userId: actor.id,

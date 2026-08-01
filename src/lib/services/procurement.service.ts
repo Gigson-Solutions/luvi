@@ -251,57 +251,58 @@ export async function createPurchaseOrder(
   });
 }
 
-/** Milisegundos en un día, para el cálculo de ETAs. */
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/** Días de tránsito marítimo/terrestre por defecto (naming del negocio). */
+/**
+ * Días de tránsito marítimo/terrestre por defecto (naming del negocio).
+ * Conservados como referencia informativa; las ETAs ya se introducen como
+ * fechas directas (GL-50).
+ */
 export const DEFAULT_MARITIME_DAYS = 30;
 export const DEFAULT_TERRESTRIAL_DAYS = 7;
 
-function addDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * MS_PER_DAY);
-}
-
-/** Par contenedor: bill of lading + nº de contenedor tecleado por el usuario. */
+/**
+ * Par contenedor: bill of lading + nº de contenedor tecleado por el usuario,
+ * con su peso individual estimado en kg (GL-57).
+ */
 export interface ShipmentContainerInput {
   billOfLading: string;
   reference: string;
+  /** Peso estimado del contenedor en kg. */
+  weight?: number;
 }
 
 export interface CreateShipmentInput {
   purchaseOrderId: string;
-  /** Fecha de salida de origen — base del cálculo de ETAs. */
-  departureDate: Date;
-  /** Días de tránsito marítimo (default 30). */
-  maritimeDays?: number;
-  /** Días de tránsito terrestre Valencia → planta (default 7). */
-  terrestrialDays?: number;
-  /** Pares BL ↔ nº de contenedor. Mínimo 1. */
+  /** Fecha de salida de origen (opcional, informativa). */
+  departureDate?: Date;
+  /** Fecha de llegada a Valencia elegida por el usuario (GL-50). */
+  etaValencia: Date;
+  /** Fecha de llegada a planta elegida por el usuario (GL-50). */
+  etaPlanta: Date;
+  /** Pares BL ↔ nº de contenedor, cada uno con su peso. Mínimo 1. */
   containers: ShipmentContainerInput[];
-  weightKg?: number;
   notes?: string;
 }
 
 /**
- * Crea un envío de proveedor asociado a una PO. Flujo GL-45:
- *  - ETAs derivadas de la fecha de salida:
- *      etaValencia = salida + díasMarítimos
- *      etaPlanta   = salida + díasMarítimos + díasTerrestres
+ * Crea un envío de proveedor asociado a una PO. Flujo GL-45 / GL-50 / GL-57:
+ *  - Las ETAs (Valencia y planta) las introduce el usuario directamente como
+ *    fechas (GL-50), ya no se derivan de días de tránsito.
  *  - Un Container por cada par {billOfLading, reference}, con supplier/material
- *    heredados de la PO y estimatedArrival = etaPlanta → aparecen en Recepciones
- *    como pendientes de recibir con su fecha prevista.
+ *    heredados de la PO, su peso individual (expectedWeight, GL-57) y
+ *    estimatedArrival = etaPlanta → aparecen en Recepciones como pendientes de
+ *    recibir con su fecha prevista.
+ *  - weightKg del envío = suma de los pesos de sus contenedores (GL-57).
  * Transaccional. Al crear un envío, la PO pasa a EN_TRANSITO si seguía ABIERTA.
  */
 export async function createProviderShipment(
   input: CreateShipmentInput,
 ): Promise<ShipmentWithOrder> {
-  const maritimeDays = input.maritimeDays ?? DEFAULT_MARITIME_DAYS;
-  const terrestrialDays = input.terrestrialDays ?? DEFAULT_TERRESTRIAL_DAYS;
-  const etaValencia = addDays(input.departureDate, maritimeDays);
-  const etaPlanta = addDays(
-    input.departureDate,
-    maritimeDays + terrestrialDays,
+  const { etaValencia, etaPlanta } = input;
+  const totalWeightKg = input.containers.reduce(
+    (acc, c) => acc + (c.weight ?? 0),
+    0,
   );
+  const hasWeights = input.containers.some((c) => c.weight != null);
 
   const shipment = await prisma.$transaction(async (tx) => {
     const order = await tx.purchaseOrder.findUniqueOrThrow({
@@ -313,12 +314,10 @@ export async function createProviderShipment(
       data: {
         purchaseOrderId: input.purchaseOrderId,
         billOfLading: input.containers[0]?.billOfLading ?? null,
-        departureDate: input.departureDate,
-        maritimeDays,
-        terrestrialDays,
+        departureDate: input.departureDate ?? null,
         etaValencia,
         etaPlanta,
-        weightKg: input.weightKg ?? null,
+        weightKg: hasWeights ? totalWeightKg : null,
         notes: input.notes ?? null,
       },
     });
@@ -332,6 +331,7 @@ export async function createProviderShipment(
           materialId: order.materialId,
           providerShipmentId: created.id,
           estimatedArrival: etaPlanta,
+          expectedWeight: c.weight ?? null,
         },
       });
     }

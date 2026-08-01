@@ -45,6 +45,17 @@ interface WarehouseSack {
   status: import("@prisma/client").SackStatus;
   material: { name: string };
   zone: { name: string } | null;
+  /** GL-47: hora de entrada a la tolva (ISO), null si no consta. */
+  enteredHopperAt?: string | null;
+}
+
+/** Hora HH:MM de una fecha ISO (para la columna "Hora" de la tolva). */
+function hopperTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 // ─── Entrada a tolva ────────────────────────────────────────────────────────────
@@ -148,6 +159,7 @@ export function HopperEntry({
         <Table>
           <THead>
             <TR>
+              <TH>Hora</TH>
               <TH>QR</TH>
               <TH>Material</TH>
               <TH>Zona</TH>
@@ -158,6 +170,9 @@ export function HopperEntry({
           <TBody>
             {sacks.map((s) => (
               <TR key={s.id}>
+                <TD className="tabular-nums text-[var(--color-muted)]">
+                  {hopperTime(s.enteredHopperAt)}
+                </TD>
                 <TD className="font-medium">{s.qrCode}</TD>
                 <TD>{s.material.name}</TD>
                 <TD>{s.zone?.name ?? "—"}</TD>
@@ -181,12 +196,16 @@ const TYPE_LABELS: { value: string; label: string }[] = [
   { value: "RECHAZO", label: "Rechazo" },
 ];
 
+type OutputType = "PRODUCTO_TERMINADO" | "SUBPRODUCTO" | "RECHAZO";
+
 export function OutputSackDialog({
-  materials,
+  materialsByType,
 }: {
-  materials: Option[];
+  materialsByType: Record<OutputType, Option[]>;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [outputType, setOutputType] =
+    useState<OutputType>("PRODUCTO_TERMINADO");
   const [weight, setWeight] = useState("");
   const [scaleMsg, setScaleMsg] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
@@ -288,7 +307,8 @@ export function OutputSackDialog({
                 id="type"
                 name="type"
                 required
-                defaultValue="PRODUCTO_TERMINADO"
+                value={outputType}
+                onChange={(e) => setOutputType(e.target.value as OutputType)}
               >
                 {TYPE_LABELS.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -301,16 +321,18 @@ export function OutputSackDialog({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="materialId">Material</Label>
+                {/* GL-53: solo materiales del tipo seleccionado */}
                 <Select
                   id="materialId"
                   name="materialId"
                   required
                   defaultValue=""
+                  key={outputType}
                 >
                   <option value="" disabled>
                     Selecciona…
                   </option>
-                  {materials.map((m) => (
+                  {materialsByType[outputType].map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>

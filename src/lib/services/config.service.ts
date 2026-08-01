@@ -34,10 +34,13 @@ export async function setConfig(
 
 // ─── Materiales ────────────────────────────────────────────────────────────────
 
-export function listMaterials(): Promise<
-  Prisma.MaterialGetPayload<Record<string, never>>[]
-> {
+export type MaterialWithCategory = Prisma.MaterialGetPayload<{
+  include: { category: true };
+}>;
+
+export function listMaterials(): Promise<MaterialWithCategory[]> {
   return prisma.material.findMany({
+    include: { category: true },
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
 }
@@ -47,6 +50,7 @@ export interface MaterialInput {
   code: string;
   type: MaterialType;
   description?: string;
+  categoryId?: string;
 }
 
 export function createMaterial(input: MaterialInput): Promise<{ id: string }> {
@@ -56,6 +60,7 @@ export function createMaterial(input: MaterialInput): Promise<{ id: string }> {
       code: input.code,
       type: input.type,
       description: input.description ?? null,
+      categoryId: input.categoryId ?? null,
     },
     select: { id: true },
   });
@@ -72,6 +77,7 @@ export function updateMaterial(
       code: input.code,
       type: input.type,
       description: input.description ?? null,
+      categoryId: input.categoryId ?? null,
     },
     select: { id: true },
   });
@@ -213,22 +219,25 @@ export function listCarriers(): Promise<
   });
 }
 
-export function createCarrier(input: {
+export interface CarrierInput {
   name: string;
-}): Promise<{ id: string }> {
+  holdedId?: string;
+}
+
+export function createCarrier(input: CarrierInput): Promise<{ id: string }> {
   return prisma.carrier.create({
-    data: { name: input.name },
+    data: { name: input.name, holdedId: input.holdedId ?? null },
     select: { id: true },
   });
 }
 
 export function updateCarrier(
   id: string,
-  input: { name: string },
+  input: CarrierInput,
 ): Promise<{ id: string }> {
   return prisma.carrier.update({
     where: { id },
-    data: { name: input.name },
+    data: { name: input.name, holdedId: input.holdedId ?? null },
     select: { id: true },
   });
 }

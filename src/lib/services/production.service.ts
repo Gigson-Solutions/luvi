@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { SackStatus, LotType, type Prisma } from "@prisma/client";
+import { SackStatus, LotType, MaterialKind, type Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { generateLotNumber } from "@/lib/utils";
+import { getMaterialsByKind } from "@/lib/services/material.service";
 
 /**
  * Servicio de Producción — lógica de negocio sobre Sack + ProductionLot +
@@ -67,13 +68,51 @@ export function listWarehouseSacks(
 
 /** Sacas EN_PRODUCCION actualmente dentro de la tolva (mismo shape que
  * listWarehouseSacks: material + zona). */
-export function listHopperSacks(limit = 100): Promise<SackWithMaterialZone[]> {
-  return prisma.sack.findMany({
+/** Saca en la tolva con su hora de entrada (GL-47). */
+export interface HopperSack {
+  id: string;
+  qrCode: string;
+  weight: number;
+  status: SackStatus;
+  material: { name: string };
+  zone: { name: string } | null;
+  /** Hora en que la saca entró a la tolva (última entrada). */
+  enteredHopperAt: Date | null;
+}
+
+/**
+ * Sacas en la tolva (EN_PRODUCCION). GL-47: la última en entrar se muestra
+ * ARRIBA (orden por hora de entrada descendente) y se registra esa hora.
+ */
+export async function listHopperSacks(limit = 100): Promise<HopperSack[]> {
+  const sacks = await prisma.sack.findMany({
     where: { status: SackStatus.EN_PRODUCCION },
-    include: { material: true, zone: true },
-    orderBy: { createdAt: "asc" },
+    include: {
+      material: { select: { name: true } },
+      zone: { select: { name: true } },
+      transformationInputs: {
+        orderBy: { enteredAt: "desc" },
+        take: 1,
+        select: { enteredAt: true },
+      },
+    },
     take: limit,
   });
+  return sacks
+    .map((s) => ({
+      id: s.id,
+      qrCode: s.qrCode,
+      weight: s.weight,
+      status: s.status,
+      material: { name: s.material.name },
+      zone: s.zone ? { name: s.zone.name } : null,
+      enteredHopperAt: s.transformationInputs[0]?.enteredAt ?? null,
+    }))
+    .sort(
+      (a, b) =>
+        (b.enteredHopperAt?.getTime() ?? 0) -
+        (a.enteredHopperAt?.getTime() ?? 0),
+    );
 }
 
 /** Busca una saca por su QR (para el escáner). Solo sacas EN_ALMACEN. */
@@ -178,11 +217,22 @@ export async function getProductionStats(): Promise<ProductionStats> {
 }
 
 /** Datos auxiliares para los formularios de producción. */
-export function getProductionFormData(): Promise<{
-  materials: { id: string; name: string; code: string }[];
+export type MaterialOption = { id: string; name: string; code: string };
+
+/** GL-53: materiales de salida por tipo (PT/Subproducto/Rechazo). Si un tipo no
+ * tiene materiales asignados a su categoría, se cae a TODOS (para no bloquear). */
+export interface MaterialsByOutputType {
+  PRODUCTO_TERMINADO: MaterialOption[];
+  SUBPRODUCTO: MaterialOption[];
+  RECHAZO: MaterialOption[];
+}
+
+export async function getProductionFormData(): Promise<{
+  materials: MaterialOption[];
+  materialsByType: MaterialsByOutputType;
   zones: { id: string; name: string; code: string; warehouseName: string }[];
 }> {
-  return Promise.all([
+  const [materials, zones, pt, sub, rechazo] = await Promise.all([
     prisma.material.findMany({
       where: { active: true },
       select: { id: true, name: true, code: true },
@@ -197,15 +247,26 @@ export function getProductionFormData(): Promise<{
       },
       orderBy: { code: "asc" },
     }),
-  ]).then(([materials, zones]) => ({
+    getMaterialsByKind(MaterialKind.PRODUCTO_TERMINADO),
+    getMaterialsByKind(MaterialKind.SUBPRODUCTO),
+    getMaterialsByKind(MaterialKind.RECHAZO),
+  ]);
+  const orAll = (list: MaterialOption[]): MaterialOption[] =>
+    list.length > 0 ? list : materials;
+  return {
     materials,
+    materialsByType: {
+      PRODUCTO_TERMINADO: orAll(pt),
+      SUBPRODUCTO: orAll(sub),
+      RECHAZO: orAll(rechazo),
+    },
     zones: zones.map((z) => ({
       id: z.id,
       name: z.name,
       code: z.code,
       warehouseName: z.warehouse.name,
     })),
-  }));
+  };
 }
 
 // ─── Helpers transaccionales ─────────────────────────────────────────────────────
@@ -221,13 +282,12 @@ async function getOrCreateDailyLot(
   type: LotType,
   materialId: string,
 ): Promise<Prisma.ProductionLotGetPayload<Record<string, never>>> {
-  // GL-36: reutiliza el lote ABIERTO del mismo tipo+material (aunque sea de un
-  // día anterior si todavía no ha llegado a 22 sacas). Un lote ya comprometido a
+  // GL-55: una saca de PT nueva entra en el ÚNICO lote abierto, INDEPENDIENTE del
+  // material (no habrá 4-5 lotes abiertos por material). Un lote ya comprometido a
   // un envío (con ShipmentLot) NO acumula: las nuevas sacas arrancan lote nuevo.
   const existing = await tx.productionLot.findFirst({
     where: {
       type,
-      materialId,
       isOpen: true,
       shipmentLots: { none: {} },
     },

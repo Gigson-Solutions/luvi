@@ -10,7 +10,7 @@ import { formatDate } from "@/lib/utils";
 import { listUsers } from "@/lib/services/user.service";
 import {
   NewUserDialog,
-  EditableRole,
+  RoleSelect,
   RoleBadge,
   ToggleActiveButton,
   ResetPasswordDialog,
@@ -117,7 +117,7 @@ export default async function UsuariosPage(): Promise<React.JSX.Element> {
                       </TD>
                       <TD>{u.email}</TD>
                       <TD>
-                        <EditableRole userId={u.id} role={u.role} />
+                        <RoleSelect userId={u.id} role={u.role} />
                       </TD>
                       <TD>
                         <Badge tone={u.active ? "green" : "neutral"}>
