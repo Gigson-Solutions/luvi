@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   Building,
   Boxes,
+  Tags,
   ShoppingCart,
   Truck,
   Warehouse as WarehouseIcon,
@@ -22,8 +23,10 @@ import {
 import { getQualityRanges } from "@/lib/services/quality.service";
 import { getCostsConfig } from "@/lib/services/cost.service";
 import { listUsers } from "@/lib/services/user.service";
+import { listMaterialCategories } from "@/lib/services/material.service";
 import {
   MaterialsSection,
+  MaterialTypesSection,
   SuppliersSection,
   BuyersSection,
   CarriersSection,
@@ -36,6 +39,7 @@ import {
 type TabKey =
   | "proveedores"
   | "materiales"
+  | "tipos-material"
   | "compradores"
   | "transportistas"
   | "almacenes"
@@ -46,6 +50,7 @@ type TabKey =
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "proveedores", label: "Proveedores", icon: Building },
   { key: "materiales", label: "Materiales", icon: Boxes },
+  { key: "tipos-material", label: "Tipos de material", icon: Tags },
   { key: "compradores", label: "Compradores", icon: ShoppingCart },
   { key: "transportistas", label: "Transportistas", icon: Truck },
   { key: "almacenes", label: "Almacenes y Zonas", icon: WarehouseIcon },
@@ -68,6 +73,7 @@ export default async function ConfiguracionPage({
 
   const [
     materials,
+    materialCategories,
     suppliers,
     buyers,
     carriers,
@@ -78,6 +84,7 @@ export default async function ConfiguracionPage({
     session,
   ] = await Promise.all([
     listMaterials(),
+    listMaterialCategories(),
     listSuppliers(),
     listBuyers(),
     listCarriers(),
@@ -122,7 +129,15 @@ export default async function ConfiguracionPage({
       {activeTab === "proveedores" && (
         <SuppliersSection suppliers={suppliers} />
       )}
-      {activeTab === "materiales" && <MaterialsSection materials={materials} />}
+      {activeTab === "materiales" && (
+        <MaterialsSection
+          materials={materials}
+          categories={materialCategories}
+        />
+      )}
+      {activeTab === "tipos-material" && (
+        <MaterialTypesSection categories={materialCategories} />
+      )}
       {activeTab === "compradores" && <BuyersSection buyers={buyers} />}
       {activeTab === "transportistas" && (
         <CarriersSection carriers={carriers} />

@@ -19,7 +19,7 @@ import {
   getProductionStats,
   getProductionFormData,
   type OutputSack,
-  type SackWithMaterialZone,
+  type HopperSack,
 } from "@/lib/services/production.service";
 import { HopperEntry, OutputSackDialog } from "./production-client";
 
@@ -74,7 +74,7 @@ export default async function ProduccionPage({
       getOutputCounts(),
       activeTab === "entrada"
         ? listHopperSacks()
-        : Promise.resolve<SackWithMaterialZone[]>([]),
+        : Promise.resolve<HopperSack[]>([]),
       activeTab === "entrada"
         ? Promise.resolve<OutputSack[]>([])
         : listOutputSacksByType(TAB_TYPE[activeTab]),
@@ -105,7 +105,9 @@ export default async function ProduccionPage({
       <PageHeader
         title="Producción"
         description="Entrada a tolva, sacas de salida y lotes autogenerados."
-        actions={<OutputSackDialog materials={formData.materials} />}
+        actions={
+          <OutputSackDialog materialsByType={formData.materialsByType} />
+        }
       />
 
       {/* KPIs */}
@@ -183,6 +185,9 @@ export default async function ProduccionPage({
               status: s.status,
               material: { name: s.material.name },
               zone: s.zone ? { name: s.zone.name } : null,
+              enteredHopperAt: s.enteredHopperAt
+                ? s.enteredHopperAt.toISOString()
+                : null,
             }))}
           />
         </section>

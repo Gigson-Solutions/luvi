@@ -4,11 +4,12 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
-import { IncidentStatus } from "@prisma/client";
+import { IncidentStatus, UserRole } from "@prisma/client";
 import {
   createIncident,
   advanceIncidentStatus,
   setIncidentStatus,
+  reopenIncident,
 } from "@/lib/services/incident.service";
 import { saveImage } from "@/lib/storage";
 
@@ -90,7 +91,9 @@ export async function advanceIncidentStatusAction(
       return { ok: false, error: "Incidencia inválida" };
     }
 
-    const updated = await advanceIncidentStatus(parsed.data.id);
+    const updated = await advanceIncidentStatus(parsed.data.id, {
+      actorId: actor.id,
+    });
 
     // Traza de auditoría: cambio de estado de la incidencia.
     await logAudit({
@@ -114,12 +117,14 @@ export async function advanceIncidentStatusAction(
 const setStatusSchema = z.object({
   id: z.string().min(1),
   status: z.nativeEnum(IncidentStatus),
+  note: z.string().optional(),
 });
 
 /**
  * Cambia la incidencia a cualquier estado destino (diálogo "Gestionar").
  * A diferencia de advanceIncidentStatusAction, permite saltar a cualquiera
- * de los 5 estados. Sella `resolvedAt` al pasar a RESUELTA.
+ * de los 5 estados. Registra una nota (opcional) del actor con la transición
+ * y sella `resolvedAt`/`closedAt` según el destino.
  */
 export async function setIncidentStatusAction(
   _prev: ActionState,
@@ -133,7 +138,14 @@ export async function setIncidentStatusAction(
       return { ok: false, error: "Estado inválido" };
     }
 
-    const updated = await setIncidentStatus(parsed.data.id, parsed.data.status);
+    const updated = await setIncidentStatus(
+      parsed.data.id,
+      parsed.data.status,
+      {
+        note: parsed.data.note?.trim() || undefined,
+        actorId: actor.id,
+      },
+    );
 
     // Traza de auditoría: cambio de estado de la incidencia.
     await logAudit({
@@ -150,6 +162,64 @@ export async function setIncidentStatusAction(
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Error al actualizar el estado",
+    };
+  }
+}
+
+const reopenSchema = z.object({
+  id: z.string().min(1),
+  status: z
+    .nativeEnum(IncidentStatus)
+    .refine(
+      (s) => s === IncidentStatus.ABIERTA || s === IncidentStatus.EN_PROCESO,
+      "Solo se puede reabrir a Abierta o En proceso",
+    ),
+  note: z.string().optional(),
+});
+
+/**
+ * Reabre una incidencia cerrada/resuelta (vuelve a ABIERTA o EN_PROCESO).
+ * Solo ADMIN y MANAGER pueden hacerlo. Limpia los sellos de resolución/cierre
+ * y registra una IncidentNote con la reapertura.
+ */
+export async function reopenIncidentAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireModule("incidencias");
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.MANAGER) {
+      return { ok: false, error: "No autorizado para reabrir incidencias" };
+    }
+
+    const parsed = reopenSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+
+    const updated = await reopenIncident(parsed.data.id, parsed.data.status, {
+      note: parsed.data.note?.trim() || undefined,
+      actorId: actor.id,
+    });
+
+    // Traza de auditoría: reapertura de la incidencia.
+    await logAudit({
+      userId: actor.id,
+      action: "REOPEN_INCIDENT",
+      entity: "Incident",
+      entityId: updated.id,
+      payload: { status: updated.status },
+    });
+
+    revalidatePath("/incidencias");
+    return { ok: true, message: `Incidencia reabierta (${updated.status})` };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al reabrir la incidencia",
     };
   }
 }

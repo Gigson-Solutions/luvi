@@ -91,6 +91,8 @@ export async function registerContainerAction(
 /** Lee el peso de Gestruck (o indica manual). Se llama desde el cliente. */
 export async function fetchGestruckWeightAction(vehicle: string): Promise<{
   manual: boolean;
+  /** true = pesaje a medias (solo la 1ª pesada hecha, falta la 2ª → sin neto). */
+  inProgress?: boolean;
   weight?: number; // bruto
   tare?: number;
   net?: number;
@@ -101,6 +103,7 @@ export async function fetchGestruckWeightAction(vehicle: string): Promise<{
   const r = await readWeight({ vehicle });
   return {
     manual: r.manual,
+    inProgress: r.inProgress,
     weight: r.weight,
     tare: r.tare,
     net: r.net,

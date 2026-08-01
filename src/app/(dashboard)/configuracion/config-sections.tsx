@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -8,11 +8,17 @@ import {
   Power,
   Trash2,
   ExternalLink,
+  Tags,
   Warehouse as WarehouseIcon,
   Users as UsersIcon,
 } from "lucide-react";
-import { MaterialType, UserRole } from "@prisma/client";
-import type { Material, Supplier, Buyer, Carrier } from "@prisma/client";
+import { MaterialType, MaterialKind, UserRole } from "@prisma/client";
+import type {
+  Supplier,
+  Buyer,
+  Carrier,
+  MaterialCategory,
+} from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +35,10 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { formatDate } from "@/lib/utils";
-import type { WarehouseWithZones } from "@/lib/services/config.service";
+import type {
+  WarehouseWithZones,
+  MaterialWithCategory,
+} from "@/lib/services/config.service";
 import type { UserListItem } from "@/lib/services/user.service";
 import type { CostsConfig } from "@/lib/services/cost.service";
 import {
@@ -41,6 +50,8 @@ import {
 import type { QualityRanges } from "@/app/(dashboard)/calidad/quality-thresholds";
 import {
   saveMaterialAction,
+  saveMaterialCategoryAction,
+  seedMaterialCategoriesAction,
   saveSupplierAction,
   saveBuyerAction,
   saveCarrierAction,
@@ -62,6 +73,14 @@ const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
   FILM_PE: "Film PE",
   FILM_PP: "Film PP",
   RIGIDO_MIXTO: "Rígido mixto",
+  OTRO: "Otro",
+};
+
+const MATERIAL_KIND_LABELS: Record<MaterialKind, string> = {
+  MATERIA_PRIMA: "Materia Prima",
+  PRODUCTO_TERMINADO: "Producto Terminado",
+  SUBPRODUCTO: "Subproducto",
+  RECHAZO: "Rechazo",
   OTRO: "Otro",
 };
 
@@ -98,7 +117,13 @@ function ToggleActiveButton({
   id,
   active,
 }: {
-  entity: "material" | "supplier" | "buyer" | "carrier" | "warehouse";
+  entity:
+    | "material"
+    | "materialCategory"
+    | "supplier"
+    | "buyer"
+    | "carrier"
+    | "warehouse";
   id: string;
   active: boolean;
 }): React.JSX.Element {
@@ -172,9 +197,14 @@ function EntityDialog({
 
 function MaterialFields({
   material,
+  categories,
 }: {
-  material?: Material;
+  material?: MaterialWithCategory;
+  categories: MaterialCategory[];
 }): React.JSX.Element {
+  const activeCategories = categories.filter(
+    (c) => c.active || c.id === material?.categoryId,
+  );
   return (
     <>
       {material && <input type="hidden" name="id" value={material.id} />}
@@ -198,23 +228,40 @@ function MaterialFields({
           />
         </div>
       </div>
-      <div>
-        <Label htmlFor="mat-type">Tipo</Label>
-        <Select
-          id="mat-type"
-          name="type"
-          required
-          defaultValue={material?.type ?? ""}
-        >
-          <option value="" disabled>
-            Selecciona…
-          </option>
-          {Object.values(MaterialType).map((t) => (
-            <option key={t} value={t}>
-              {MATERIAL_TYPE_LABELS[t]}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="mat-type">Tipo (físico)</Label>
+          <Select
+            id="mat-type"
+            name="type"
+            required
+            defaultValue={material?.type ?? ""}
+          >
+            <option value="" disabled>
+              Selecciona…
             </option>
-          ))}
-        </Select>
+            {Object.values(MaterialType).map((t) => (
+              <option key={t} value={t}>
+                {MATERIAL_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="mat-category">Categoría</Label>
+          <Select
+            id="mat-category"
+            name="categoryId"
+            defaultValue={material?.categoryId ?? ""}
+          >
+            <option value="">Sin categoría</option>
+            {activeCategories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {MATERIAL_KIND_LABELS[c.kind]}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
       <div>
         <Label htmlFor="mat-description">Descripción</Label>
@@ -230,13 +277,23 @@ function MaterialFields({
 
 export function MaterialsSection({
   materials,
+  categories,
 }: {
-  materials: Material[];
+  materials: MaterialWithCategory[];
+  categories: MaterialCategory[];
 }): React.JSX.Element {
+  // Filtro por categoría (client-side). "" = todas, "none" = sin categoría.
+  const [filter, setFilter] = useState<string>("");
+  const filtered = useMemo(() => {
+    if (filter === "") return materials;
+    if (filter === "none") return materials.filter((m) => !m.categoryId);
+    return materials.filter((m) => m.categoryId === filter);
+  }, [materials, filter]);
+
   return (
     <section>
       <SectionHeader
-        title={`Materiales (${materials.length})`}
+        title={`Materiales (${filtered.length})`}
         action={
           <EntityDialog
             trigger={
@@ -248,14 +305,36 @@ export function MaterialsSection({
             action={saveMaterialAction}
             submitLabel="Crear"
           >
-            {() => <MaterialFields />}
+            {() => <MaterialFields categories={categories} />}
           </EntityDialog>
         }
       />
-      {materials.length === 0 ? (
+      <div className="mb-3 flex items-center gap-2">
+        <Label
+          htmlFor="mat-filter"
+          className="text-xs text-[var(--color-muted)]"
+        >
+          Filtrar por categoría
+        </Label>
+        <Select
+          id="mat-filter"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-auto min-w-48"
+        >
+          <option value="">Todas</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+          <option value="none">Sin categoría</option>
+        </Select>
+      </div>
+      {filtered.length === 0 ? (
         <EmptyState
           title="No hay materiales"
-          description="Crea el primer material del catálogo."
+          description="Crea el primer material del catálogo o ajusta el filtro."
         />
       ) : (
         <Table>
@@ -264,16 +343,24 @@ export function MaterialsSection({
               <TH>Nombre</TH>
               <TH>Código</TH>
               <TH>Tipo</TH>
+              <TH>Categoría</TH>
               <TH>Estado</TH>
               <TH className="text-right">Acciones</TH>
             </TR>
           </THead>
           <TBody>
-            {materials.map((m) => (
+            {filtered.map((m) => (
               <TR key={m.id}>
                 <TD className="font-medium">{m.name}</TD>
                 <TD>{m.code}</TD>
                 <TD>{MATERIAL_TYPE_LABELS[m.type]}</TD>
+                <TD>
+                  {m.category ? (
+                    <Badge tone="blue">{m.category.name}</Badge>
+                  ) : (
+                    <span className="text-[var(--color-muted)]">—</span>
+                  )}
+                </TD>
                 <TD>
                   <ActiveBadge active={m.active} />
                 </TD>
@@ -289,12 +376,130 @@ export function MaterialsSection({
                       action={saveMaterialAction}
                       submitLabel="Guardar"
                     >
-                      {() => <MaterialFields material={m} />}
+                      {() => (
+                        <MaterialFields material={m} categories={categories} />
+                      )}
                     </EntityDialog>
                     <ToggleActiveButton
                       entity="material"
                       id={m.id}
                       active={m.active}
+                    />
+                  </div>
+                </TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
+    </section>
+  );
+}
+
+// ─── Tipos de material (MaterialCategory) ────────────────────────────────────────
+
+function MaterialCategoryFields(): React.JSX.Element {
+  return (
+    <>
+      <div>
+        <Label htmlFor="cat-name">Nombre</Label>
+        <Input id="cat-name" name="name" required />
+      </div>
+      <div>
+        <Label htmlFor="cat-kind">Naturaleza</Label>
+        <Select id="cat-kind" name="kind" required defaultValue="">
+          <option value="" disabled>
+            Selecciona…
+          </option>
+          {Object.values(MaterialKind).map((k) => (
+            <option key={k} value={k}>
+              {MATERIAL_KIND_LABELS[k]}
+            </option>
+          ))}
+        </Select>
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          Determina en qué parte del flujo se usa: Materia Prima en recepción;
+          Producto Terminado / Subproducto / Rechazo en producción.
+        </p>
+      </div>
+    </>
+  );
+}
+
+/** Botón para cargar los tipos de material por defecto (catálogo vacío). */
+function SeedCategoriesButton(): React.JSX.Element {
+  const [state, action] = useActionState(seedMaterialCategoriesAction, INITIAL);
+  return (
+    <form action={action} className="inline">
+      <Button type="submit" size="sm" variant="secondary">
+        <Plus className="w-4 h-4" /> Cargar por defecto
+      </Button>
+      {state.error && (
+        <span className="ml-2 text-xs text-red-600">{state.error}</span>
+      )}
+    </form>
+  );
+}
+
+export function MaterialTypesSection({
+  categories,
+}: {
+  categories: MaterialCategory[];
+}): React.JSX.Element {
+  return (
+    <section>
+      <SectionHeader
+        title={`Tipos de material (${categories.length})`}
+        action={
+          <div className="flex items-center gap-2">
+            {categories.length === 0 && <SeedCategoriesButton />}
+            <EntityDialog
+              trigger={
+                <Button size="sm">
+                  <Plus className="w-4 h-4" /> Nuevo tipo
+                </Button>
+              }
+              title="Nuevo tipo de material"
+              action={saveMaterialCategoryAction}
+              submitLabel="Crear"
+            >
+              {() => <MaterialCategoryFields />}
+            </EntityDialog>
+          </div>
+        }
+      />
+      {categories.length === 0 ? (
+        <EmptyState
+          icon={Tags}
+          title="No hay tipos de material"
+          description="Crea el primer tipo o carga los tipos por defecto."
+        />
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>Nombre</TH>
+              <TH>Naturaleza</TH>
+              <TH>Estado</TH>
+              <TH className="text-right">Acciones</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {categories.map((c) => (
+              <TR key={c.id}>
+                <TD className="font-medium">{c.name}</TD>
+                <TD>
+                  <Badge tone="neutral">{MATERIAL_KIND_LABELS[c.kind]}</Badge>
+                </TD>
+                <TD>
+                  <ActiveBadge active={c.active} />
+                </TD>
+                <TD className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <ToggleActiveButton
+                      entity="materialCategory"
+                      id={c.id}
+                      active={c.active}
                     />
                   </div>
                 </TD>
@@ -590,6 +795,14 @@ function CarrierFields({ carrier }: { carrier?: Carrier }): React.JSX.Element {
           defaultValue={carrier?.name}
         />
       </div>
+      <div>
+        <Label htmlFor="car-holdedId">ID Holded (opcional)</Label>
+        <Input
+          id="car-holdedId"
+          name="holdedId"
+          defaultValue={carrier?.holdedId ?? ""}
+        />
+      </div>
     </>
   );
 }
@@ -628,6 +841,7 @@ export function CarriersSection({
           <THead>
             <TR>
               <TH>Nombre</TH>
+              <TH>Holded</TH>
               <TH>Estado</TH>
               <TH className="text-right">Acciones</TH>
             </TR>
@@ -636,6 +850,13 @@ export function CarriersSection({
             {carriers.map((c) => (
               <TR key={c.id}>
                 <TD className="font-medium">{c.name}</TD>
+                <TD>
+                  {c.holdedId ? (
+                    <Badge tone="blue">{c.holdedId}</Badge>
+                  ) : (
+                    <span className="text-[var(--color-muted)]">—</span>
+                  )}
+                </TD>
                 <TD>
                   <ActiveBadge active={c.active} />
                 </TD>

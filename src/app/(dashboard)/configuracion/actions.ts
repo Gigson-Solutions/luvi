@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { MaterialType } from "@prisma/client";
+import { MaterialType, MaterialKind } from "@prisma/client";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import type { CurrentUser } from "@/lib/rbac";
@@ -32,6 +32,11 @@ import {
   deleteZone,
   setConfig,
 } from "@/lib/services/config.service";
+import {
+  createMaterialCategory,
+  setMaterialCategoryActive,
+  seedDefaultMaterialCategories,
+} from "@/lib/services/material.service";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
@@ -53,6 +58,7 @@ const materialSchema = z.object({
   code: z.string().min(1, "El código es obligatorio"),
   type: z.nativeEnum(MaterialType),
   description: z.string().optional(),
+  categoryId: z.string().optional(),
 });
 
 export async function saveMaterialAction(
@@ -68,8 +74,12 @@ export async function saveMaterialAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { id, description, ...rest } = parsed.data;
-    const input = { ...rest, description: description || undefined };
+    const { id, description, categoryId, ...rest } = parsed.data;
+    const input = {
+      ...rest,
+      description: description || undefined,
+      categoryId: categoryId || undefined,
+    };
     // Crea o actualiza según venga id, y usa el id resultante para la traza.
     const result = id
       ? await updateMaterial(id, input)
@@ -88,6 +98,65 @@ export async function saveMaterialAction(
     };
   } catch (e) {
     return fail(e, "Error al guardar el material");
+  }
+}
+
+// ─── Tipos de material (MaterialCategory) ────────────────────────────────────────
+
+const materialCategorySchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio"),
+  kind: z.nativeEnum(MaterialKind),
+});
+
+export async function saveMaterialCategoryAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = materialCategorySchema.safeParse(
+      Object.fromEntries(formData),
+    );
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    const result = await createMaterialCategory(parsed.data);
+    await logAudit({
+      userId: actor.id,
+      action: "CREATE_MATERIAL_CATEGORY",
+      entity: "MaterialCategory",
+      entityId: result.id,
+      payload: { name: parsed.data.name, kind: parsed.data.kind },
+    });
+    revalidatePath(REVALIDATE);
+    return { ok: true, message: "Tipo de material creado" };
+  } catch (e) {
+    return fail(e, "Error al guardar el tipo de material");
+  }
+}
+
+/** Carga los tipos de material por defecto si el catálogo está vacío. */
+export async function seedMaterialCategoriesAction(): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const count = await seedDefaultMaterialCategories();
+    if (count === 0) {
+      return { ok: false, error: "Ya existen tipos de material" };
+    }
+    await logAudit({
+      userId: actor.id,
+      action: "SEED_MATERIAL_CATEGORIES",
+      entity: "MaterialCategory",
+      entityId: "default",
+      payload: { count },
+    });
+    revalidatePath(REVALIDATE);
+    return { ok: true, message: `${count} tipos de material cargados` };
+  } catch (e) {
+    return fail(e, "Error al cargar los tipos por defecto");
   }
 }
 
@@ -191,6 +260,7 @@ export async function saveBuyerAction(
 const carrierSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, "El nombre es obligatorio"),
+  holdedId: z.string().optional(),
 });
 
 export async function saveCarrierAction(
@@ -206,11 +276,12 @@ export async function saveCarrierAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { id, name } = parsed.data;
+    const { id, name, holdedId } = parsed.data;
+    const input = { name, holdedId: holdedId || undefined };
     // Crea o actualiza según venga id, y usa el id resultante para la traza.
     const result = id
-      ? await updateCarrier(id, { name })
-      : await createCarrier({ name });
+      ? await updateCarrier(id, input)
+      : await createCarrier(input);
     await logAudit({
       userId: actor.id,
       action: id ? "UPDATE_CARRIER" : "CREATE_CARRIER",
@@ -342,7 +413,14 @@ export async function deleteZoneAction(
 // ─── Activar / desactivar (soft-delete genérico) ────────────────────────────────
 
 const toggleSchema = z.object({
-  entity: z.enum(["material", "supplier", "buyer", "carrier", "warehouse"]),
+  entity: z.enum([
+    "material",
+    "materialCategory",
+    "supplier",
+    "buyer",
+    "carrier",
+    "warehouse",
+  ]),
   id: z.string().min(1),
   active: z.enum(["true", "false"]),
 });
@@ -360,6 +438,7 @@ export async function toggleActiveAction(
     // Nombre de entidad para la traza según el tipo alternado.
     const auditEntity = {
       material: "Material",
+      materialCategory: "MaterialCategory",
       supplier: "Supplier",
       buyer: "Buyer",
       carrier: "Carrier",
@@ -368,6 +447,9 @@ export async function toggleActiveAction(
     switch (entity) {
       case "material":
         await setMaterialActive(id, active);
+        break;
+      case "materialCategory":
+        await setMaterialCategoryActive(id, active);
         break;
       case "supplier":
         await setSupplierActive(id, active);

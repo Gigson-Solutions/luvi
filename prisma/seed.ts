@@ -192,6 +192,19 @@ async function main() {
 
   console.log("✅ Consumibles creados");
 
+  // ─── Tipos de material (GL-53) ────────────────────────────────────────────
+  if ((await prisma.materialCategory.count()) === 0) {
+    await prisma.materialCategory.createMany({
+      data: [
+        { name: "Materia Prima", kind: "MATERIA_PRIMA" },
+        { name: "Producto Terminado", kind: "PRODUCTO_TERMINADO" },
+        { name: "Subproducto", kind: "SUBPRODUCTO" },
+        { name: "Rechazo", kind: "RECHAZO" },
+      ],
+    });
+    console.log("✅ Tipos de material creados");
+  }
+
   console.log(
     "\n✅ Seed completado. Usuarios de prueba (uno por rol):\n" +
       "   ADMIN          → admin@luvi2000.es   / admin123\n" +

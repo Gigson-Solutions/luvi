@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/status-badge";
 import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { getCurrentUser } from "@/lib/rbac";
+import { UserRole } from "@prisma/client";
 import {
   listIncidents,
   getIncidentStats,
@@ -24,7 +26,11 @@ import {
   getMonthlyIncidentsByWarehouse,
   type IncidentWithReporter,
 } from "@/lib/services/incident.service";
-import { NewIncidentDialog, ManageIncidentButton } from "./incident-dialogs";
+import {
+  NewIncidentDialog,
+  ManageIncidentButton,
+  ClosedIncidentDialog,
+} from "./incident-dialogs";
 
 const MONTH_ABBR = [
   "ene",
@@ -73,12 +79,18 @@ export default async function IncidenciasPage({
     : undefined;
   const warehouseFilter = params.warehouse || undefined;
 
-  const [incidents, stats, formData, monthly] = await Promise.all([
+  const [incidents, stats, formData, monthly, currentUser] = await Promise.all([
     listIncidents({ status: statusFilter, warehouseId: warehouseFilter }),
     getIncidentStats(),
     getIncidentFormData(),
     getMonthlyIncidentsByWarehouse(),
+    getCurrentUser(),
   ]);
+
+  // Solo ADMIN y MANAGER pueden reabrir incidencias cerradas/resueltas.
+  const canReopen =
+    currentUser?.role === UserRole.ADMIN ||
+    currentUser?.role === UserRole.MANAGER;
 
   const warehouseName = new Map(formData.warehouses.map((w) => [w.id, w.name]));
   const total = STATUS_VALUES.reduce((acc, s) => acc + stats[s], 0);
@@ -225,6 +237,7 @@ export default async function IncidenciasPage({
                       inc={inc}
                       warehouseName={warehouseName}
                       variant="activas"
+                      canReopen={canReopen}
                     />
                   ))}
                 </TBody>
@@ -233,8 +246,6 @@ export default async function IncidenciasPage({
           </section>
 
           {/* Incidencias cerradas (resueltas o cerradas). */}
-          {/* TODO: el modelo Incident no tiene campo de notas de resolución;
-              la columna "Notas" del prototipo se omite hasta que exista. */}
           <section>
             <div className="mb-3 flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-[var(--color-muted)]" />
@@ -261,6 +272,7 @@ export default async function IncidenciasPage({
                     <TH>Autor</TH>
                     <TH>Fecha</TH>
                     <TH>Resuelta</TH>
+                    <TH className="text-right">Acción</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -270,6 +282,7 @@ export default async function IncidenciasPage({
                       inc={inc}
                       warehouseName={warehouseName}
                       variant="cerradas"
+                      canReopen={canReopen}
                     />
                   ))}
                 </TBody>
@@ -352,16 +365,19 @@ export default async function IncidenciasPage({
   );
 }
 
-/** Fila de incidencia. En "activas" muestra la acción de avanzar estado;
- *  en "cerradas" muestra la fecha de resolución en su lugar. */
+/** Fila de incidencia. En "activas" muestra el diálogo de gestión de estado;
+ *  en "cerradas" muestra la fecha de resolución y el detalle (con reapertura
+ *  si el usuario es ADMIN/MANAGER). */
 function IncidentRow({
   inc,
   warehouseName,
   variant,
+  canReopen,
 }: {
   inc: IncidentWithReporter;
   warehouseName: Map<string, string>;
   variant: "activas" | "cerradas";
+  canReopen: boolean;
 }): React.JSX.Element {
   return (
     <TR>
@@ -396,13 +412,25 @@ function IncidentRow({
       <TD>{inc.reportedBy.name}</TD>
       <TD>{formatDate(inc.createdAt, true)}</TD>
       {variant === "cerradas" ? (
-        <TD>{inc.resolvedAt ? formatDate(inc.resolvedAt, true) : "—"}</TD>
+        <>
+          <TD>{inc.resolvedAt ? formatDate(inc.resolvedAt, true) : "—"}</TD>
+          <TD className="text-right">
+            <ClosedIncidentDialog
+              id={inc.id}
+              title={inc.title}
+              status={inc.status}
+              notes={inc.notes}
+              canReopen={canReopen}
+            />
+          </TD>
+        </>
       ) : (
         <TD className="text-right">
           <ManageIncidentButton
             id={inc.id}
             title={inc.title}
             status={inc.status}
+            notes={inc.notes}
           />
         </TD>
       )}

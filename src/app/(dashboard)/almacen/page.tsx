@@ -6,6 +6,8 @@ import {
   Scale,
   AlertTriangle,
   Filter,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { SackStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
@@ -26,9 +28,9 @@ import { formatKg } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
   getWarehouseOverview,
-  listSacks,
-  countSacks,
+  listSacksPage,
   getWarehouseFilterData,
+  SACK_PAGE_SIZE,
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
 
@@ -38,18 +40,24 @@ function isSackStatus(value: string | undefined): value is SackStatus {
   return value !== undefined && (STATUS_VALUES as string[]).includes(value);
 }
 
-/** Construye una query string preservando los filtros no modificados. */
+/**
+ * Construye una query string preservando los filtros no modificados. `page` solo
+ * se serializa a partir de la 2 (la 1 es el estado por defecto, sin parámetro).
+ * Los chips de filtro no la pasan, de modo que cambiar un filtro vuelve a page 1.
+ */
 function buildQuery(params: {
   status?: string;
   material?: string;
   zone?: string;
   q?: string;
+  page?: number;
 }): string {
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
   if (params.material) qs.set("material", params.material);
   if (params.zone) qs.set("zone", params.zone);
   if (params.q) qs.set("q", params.q);
+  if (params.page && params.page > 1) qs.set("page", String(params.page));
   const s = qs.toString();
   return s ? `?${s}` : "";
 }
@@ -62,6 +70,7 @@ export default async function AlmacenPage({
     material?: string;
     zone?: string;
     q?: string;
+    page?: string;
   }>;
 }): Promise<React.JSX.Element> {
   const params = await searchParams;
@@ -75,6 +84,10 @@ export default async function AlmacenPage({
   const zoneFilter = params.zone || undefined;
   const searchQuery = params.q?.trim() || undefined;
 
+  const parsedPage = Number.parseInt(params.page ?? "", 10);
+  const requestedPage =
+    Number.isFinite(parsedPage) && parsedPage >= 1 ? parsedPage : 1;
+
   const sackFilters = {
     status: statusFilter,
     materialId: materialFilter,
@@ -82,15 +95,19 @@ export default async function AlmacenPage({
     search: searchQuery,
   };
 
-  const [overview, sacks, totalMatching, filterData] = await Promise.all([
-    getWarehouseOverview(),
-    listSacks(sackFilters),
-    countSacks(sackFilters),
-    getWarehouseFilterData(),
-  ]);
+  const [overview, { items: sacks, total: totalMatching }, filterData] =
+    await Promise.all([
+      getWarehouseOverview(),
+      listSacksPage(sackFilters, requestedPage),
+      getWarehouseFilterData(),
+    ]);
 
-  // La tabla está recortada si hay más coincidencias que sacas devueltas.
-  const truncated = totalMatching > sacks.length;
+  const totalPages = Math.max(1, Math.ceil(totalMatching / SACK_PAGE_SIZE));
+  // Si la página pedida se sale del rango (p.ej. tras filtrar), la acotamos.
+  const currentPage = Math.min(requestedPage, totalPages);
+  const rangeFrom =
+    totalMatching === 0 ? 0 : (currentPage - 1) * SACK_PAGE_SIZE + 1;
+  const rangeTo = (currentPage - 1) * SACK_PAGE_SIZE + sacks.length;
 
   const movableSacks = sacks
     .filter((s) => s.status === SackStatus.EN_ALMACEN)
@@ -135,7 +152,7 @@ export default async function AlmacenPage({
         />
         <StatCard
           label="Filtradas"
-          value={sacks.length}
+          value={totalMatching}
           icon={Filter}
           hint={
             statusFilter !== SackStatus.EN_ALMACEN ||
@@ -190,6 +207,7 @@ export default async function AlmacenPage({
                         <div className="flex items-center justify-between text-sm mb-1">
                           <Link
                             href={`/almacen${buildQuery({ zone: z.id })}`}
+                            scroll={false}
                             className="font-medium text-[var(--color-foreground)] hover:underline"
                           >
                             {z.name}
@@ -287,7 +305,7 @@ export default async function AlmacenPage({
           <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
             Inventario de sacas
             <span className="ml-2 font-normal text-[var(--color-muted)]">
-              {sacks.length}
+              {totalMatching}
             </span>
           </h2>
           {movableSacks.length > 0 && (
@@ -326,6 +344,7 @@ export default async function AlmacenPage({
                 material: materialFilter,
                 zone: zoneFilter,
               })}`}
+              scroll={false}
               className="inline-flex items-center rounded-lg px-3 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
             >
               Limpiar
@@ -492,11 +511,23 @@ export default async function AlmacenPage({
           </Table>
         )}
 
-        {truncated && (
-          <p className="mt-3 text-center text-xs text-[var(--color-muted)]">
-            Mostrando {sacks.length} de {totalMatching} sacas. Afina los filtros
-            para ver el resto.
-          </p>
+        {totalMatching > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            rangeFrom={rangeFrom}
+            rangeTo={rangeTo}
+            total={totalMatching}
+            hrefFor={(p) =>
+              `/almacen${buildQuery({
+                status: statusFilter,
+                material: materialFilter,
+                zone: zoneFilter,
+                q: searchQuery,
+                page: p,
+              })}`
+            }
+          />
         )}
       </section>
     </div>
@@ -622,6 +653,81 @@ function materialTone(name: string): Tone {
   return MATERIAL_TONES[Math.abs(hash) % MATERIAL_TONES.length];
 }
 
+/**
+ * Navegador de paginación del inventario (50 por página). Flechas ‹/› e
+ * indicador "Página X de Y". Los enlaces usan `scroll={false}` para no perder la
+ * posición de scroll al cambiar de página.
+ */
+function Pagination({
+  currentPage,
+  totalPages,
+  rangeFrom,
+  rangeTo,
+  total,
+  hrefFor,
+}: {
+  currentPage: number;
+  totalPages: number;
+  rangeFrom: number;
+  rangeTo: number;
+  total: number;
+  hrefFor: (page: number) => string;
+}): React.JSX.Element {
+  const hasPrev = currentPage > 1;
+  const hasNext = currentPage < totalPages;
+
+  const arrowClass =
+    "inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium transition-colors";
+  const enabledClass =
+    "text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]";
+  const disabledClass =
+    "cursor-not-allowed text-[var(--color-muted)] opacity-50";
+
+  return (
+    <nav
+      aria-label="Paginación de sacas"
+      className="mt-4 flex items-center justify-between gap-3"
+    >
+      {hasPrev ? (
+        <Link
+          href={hrefFor(currentPage - 1)}
+          scroll={false}
+          className={cn(arrowClass, enabledClass)}
+        >
+          <ChevronLeft className="h-4 w-4" /> Anterior
+        </Link>
+      ) : (
+        <span aria-disabled className={cn(arrowClass, disabledClass)}>
+          <ChevronLeft className="h-4 w-4" /> Anterior
+        </span>
+      )}
+
+      <div className="text-center text-xs text-[var(--color-muted)]">
+        <div className="font-medium text-[var(--color-foreground)]">
+          Página {currentPage} de {totalPages}
+        </div>
+        <div className="tabular-nums">
+          {rangeFrom}–{rangeTo} de {total}
+        </div>
+      </div>
+
+      {hasNext ? (
+        <Link
+          href={hrefFor(currentPage + 1)}
+          scroll={false}
+          className={cn(arrowClass, enabledClass)}
+        >
+          Siguiente <ChevronRight className="h-4 w-4" />
+        </Link>
+      ) : (
+        <span aria-disabled className={cn(arrowClass, disabledClass)}>
+          Siguiente <ChevronRight className="h-4 w-4" />
+        </span>
+      )}
+    </nav>
+  );
+}
+
 function FilterChip({
   href,
   active,
@@ -634,6 +740,7 @@ function FilterChip({
   return (
     <Link
       href={`/almacen${href}`}
+      scroll={false}
       className={cn(
         "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
         active

@@ -38,6 +38,16 @@ enum MaterialType {
   OTRO
 }
 
+// GL-53: naturaleza de un tipo de material — determina en qué parte del flujo
+// se usa (materia prima en recepción; PT/Subproducto/Rechazo en producción).
+enum MaterialKind {
+  MATERIA_PRIMA
+  PRODUCTO_TERMINADO
+  SUBPRODUCTO
+  RECHAZO
+  OTRO
+}
+
 enum LotType {
   PRODUCTO_TERMINADO
   SUBPRODUCTO
@@ -180,9 +190,10 @@ model Buyer {
 }
 
 model Carrier {
-  id     String  @id @default(cuid())
-  name   String
-  active Boolean @default(true)
+  id       String  @id @default(cuid())
+  name     String
+  holdedId String? // GL-54: ID del transportista en Holded
+  active   Boolean @default(true)
 
   shipments Shipment[]
 
@@ -238,6 +249,10 @@ model Material {
   description String?
   active      Boolean      @default(true)
 
+  // GL-53: tipo/categoría configurable (Materia Prima, PT, Subproducto, Rechazo…).
+  categoryId String?
+  category   MaterialCategory? @relation(fields: [categoryId], references: [id])
+
   sacks          Sack[]
   productionLots ProductionLot[]
   qualityRecords QualityRecord[]
@@ -245,7 +260,23 @@ model Material {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([categoryId])
   @@map("materials")
+}
+
+// GL-53: tipos de material configurables (se pueden crear/desactivar).
+model MaterialCategory {
+  id     String       @id @default(cuid())
+  name   String
+  kind   MaterialKind @default(OTRO)
+  active Boolean      @default(true)
+
+  materials Material[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("material_categories")
 }
 
 // ─── Contenedores / Camiones ───────────────────────────────────────────────────
@@ -665,11 +696,29 @@ model Incident {
   resolvedAt DateTime?
   closedAt   DateTime?
 
+  notes IncidentNote[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@map("incidents")
+}
+
+// GL-56: nota/comentario en cada cambio de estado de una incidencia.
+model IncidentNote {
+  id         String          @id @default(cuid())
+  incidentId String
+  incident   Incident        @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String?
+  note       String
+  fromStatus IncidentStatus?
+  toStatus   IncidentStatus?
+
+  createdAt DateTime @default(now())
+
+  @@index([incidentId])
+  @@map("incident_notes")
 }
 
 // ─── Configuración (clave/valor) ───────────────────────────────────────────────

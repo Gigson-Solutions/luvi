@@ -254,6 +254,15 @@ export interface SackFilters {
 /** Límite por defecto de sacas devueltas por `listSacks`. */
 export const SACK_LIST_LIMIT = 200;
 
+/** Nº de sacas por página en el inventario del almacén (paginación GL-52). */
+export const SACK_PAGE_SIZE = 50;
+
+/** Página de sacas: filas de la página pedida + total de coincidencias. */
+export interface SacksPage {
+  items: SackWithRefs[];
+  total: number;
+}
+
 /** Construye el `where` de Prisma compartido por `listSacks` y `countSacks`. */
 function buildSackWhere(filters: SackFilters): Prisma.SackWhereInput {
   const where: Prisma.SackWhereInput = {};
@@ -296,6 +305,36 @@ export function listSacks(
  */
 export function countSacks(filters: SackFilters = {}): Promise<number> {
   return prisma.sack.count({ where: buildSackWhere(filters) });
+}
+
+/**
+ * Página de sacas (50 por defecto) aplicando los filtros. Devuelve las filas de
+ * la página `page` (1-indexado) y el total de coincidencias, para el navegador
+ * de paginación del inventario. `skip = (page - 1) * pageSize`, `take = pageSize`.
+ */
+export async function listSacksPage(
+  filters: SackFilters = {},
+  page = 1,
+  pageSize = SACK_PAGE_SIZE,
+): Promise<SacksPage> {
+  const where = buildSackWhere(filters);
+  const safePage = Math.max(1, Math.trunc(page));
+  const [items, total] = await Promise.all([
+    prisma.sack.findMany({
+      where,
+      include: {
+        material: true,
+        zone: { include: { warehouse: true } },
+        container: true,
+        lot: true,
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.sack.count({ where }),
+  ]);
+  return { items, total };
 }
 
 // ─── 3. Detalle de una saca ─────────────────────────────────────────────────

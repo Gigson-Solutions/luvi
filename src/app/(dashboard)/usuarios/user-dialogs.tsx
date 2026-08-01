@@ -155,58 +155,6 @@ export function RoleSelect({
   );
 }
 
-// ─── Rol editable: badge clicable que revela el Select (UX Emergent) ───────────
-export function EditableRole({
-  userId,
-  role,
-}: {
-  userId: string;
-  role: UserRole;
-}): React.JSX.Element {
-  const [editing, setEditing] = useState(false);
-  const [state, action, pending] = useActionState(updateRoleAction, INITIAL);
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="cursor-pointer transition-opacity hover:opacity-80"
-        title="Clic para cambiar rol"
-      >
-        <RoleBadge role={role} />
-      </button>
-    );
-  }
-
-  return (
-    <form action={action} className="inline-flex items-center gap-2">
-      <input type="hidden" name="userId" value={userId} />
-      <Select
-        name="role"
-        defaultValue={role}
-        disabled={pending}
-        autoFocus
-        className="h-8 w-40 text-xs"
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}
-        onBlur={() => setEditing(false)}
-      >
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
-          </option>
-        ))}
-      </Select>
-      {pending && (
-        <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted)]" />
-      )}
-      {state.error && (
-        <span className="text-xs text-red-600">{state.error}</span>
-      )}
-    </form>
-  );
-}
-
 // ─── Botón activar / desactivar ────────────────────────────────────────────────
 export function ToggleActiveButton({
   userId,

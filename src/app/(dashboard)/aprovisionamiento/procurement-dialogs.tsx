@@ -14,7 +14,6 @@ import {
   DialogContent,
   DialogClose,
 } from "@/components/ui/dialog";
-import { formatDate } from "@/lib/utils";
 import {
   createPurchaseOrderAction,
   createShipmentAction,
@@ -25,10 +24,6 @@ import {
 
 const INITIAL: ActionState = { ok: false };
 
-const DEFAULT_MARITIME_DAYS = 30;
-const DEFAULT_TERRESTRIAL_DAYS = 7;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 interface Supplier {
   id: string;
   name: string;
@@ -36,14 +31,6 @@ interface Supplier {
 interface Material {
   id: string;
   name: string;
-}
-
-/** Suma días a una fecha ISO (yyyy-mm-dd); null si la fecha no es válida. */
-function addDaysToIso(iso: string, days: number): Date | null {
-  if (!iso) return null;
-  const base = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(base.getTime())) return null;
-  return new Date(base.getTime() + days * MS_PER_DAY);
 }
 
 // ─── Diálogo: nueva orden de compra (GL-44) ────────────────────────────────────
@@ -185,11 +172,19 @@ export function NewPurchaseOrderDialog({
   );
 }
 
-// ─── Diálogo: nuevo envío dentro de una orden de compra (GL-45) ─────────────────
+// ─── Diálogo: nuevo envío dentro de una orden de compra (GL-45 / GL-50 / GL-57) ──
 interface ContainerPair {
   billOfLading: string;
   reference: string;
+  /** Peso individual del contenedor en kg (GL-57). */
+  weight: string;
 }
+
+const EMPTY_PAIR: ContainerPair = {
+  billOfLading: "",
+  reference: "",
+  weight: "",
+};
 
 export function NewShipmentDialog({
   purchaseOrderId,
@@ -200,46 +195,50 @@ export function NewShipmentDialog({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [departureDate, setDepartureDate] = useState("");
-  const [maritimeDays, setMaritimeDays] = useState(
-    String(DEFAULT_MARITIME_DAYS),
-  );
-  const [terrestrialDays, setTerrestrialDays] = useState(
-    String(DEFAULT_TERRESTRIAL_DAYS),
-  );
-  const [pairs, setPairs] = useState<ContainerPair[]>([
-    { billOfLading: "", reference: "" },
-  ]);
+  const [etaValencia, setEtaValencia] = useState("");
+  const [etaPlanta, setEtaPlanta] = useState("");
+  const [pairs, setPairs] = useState<ContainerPair[]>([{ ...EMPTY_PAIR }]);
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const result = await createShipmentAction(prev, formData);
       if (result.ok) {
         setOpen(false);
         setDepartureDate("");
-        setMaritimeDays(String(DEFAULT_MARITIME_DAYS));
-        setTerrestrialDays(String(DEFAULT_TERRESTRIAL_DAYS));
-        setPairs([{ billOfLading: "", reference: "" }]);
+        setEtaValencia("");
+        setEtaPlanta("");
+        setPairs([{ ...EMPTY_PAIR }]);
       }
       return result;
     },
     INITIAL,
   );
 
-  // Fecha prevista de llegada a planta = salida + marítimo + terrestre.
-  const etaPlanta = useMemo(() => {
-    const days = Number(maritimeDays) + Number(terrestrialDays);
-    if (!Number.isFinite(days)) return null;
-    return addDaysToIso(departureDate, days);
-  }, [departureDate, maritimeDays, terrestrialDays]);
+  // Suma total del peso del envío = Σ pesos de contenedores (GL-57).
+  const totalWeight = useMemo(
+    () =>
+      pairs.reduce((acc, p) => {
+        const w = Number(p.weight);
+        return acc + (Number.isFinite(w) && p.weight.trim() !== "" ? w : 0);
+      }, 0),
+    [pairs],
+  );
 
-  // Pares serializados para el Server Action (solo filas con ambos campos).
+  // Pares serializados para el Server Action (solo filas con BL y contenedor).
   const containersJson = useMemo(
     () =>
       JSON.stringify(
         pairs
-          .map((p) => ({
-            billOfLading: p.billOfLading.trim(),
-            reference: p.reference.trim(),
-          }))
+          .map((p) => {
+            const weight = Number(p.weight);
+            return {
+              billOfLading: p.billOfLading.trim(),
+              reference: p.reference.trim(),
+              weight:
+                p.weight.trim() !== "" && Number.isFinite(weight)
+                  ? weight
+                  : undefined,
+            };
+          })
           .filter((p) => p.billOfLading !== "" && p.reference !== ""),
       ),
     [pairs],
@@ -251,7 +250,7 @@ export function NewShipmentDialog({
     );
   }
   function addPair(): void {
-    setPairs((prev) => [...prev, { billOfLading: "", reference: "" }]);
+    setPairs((prev) => [...prev, { ...EMPTY_PAIR }]);
   }
   function removePair(index: number): void {
     setPairs((prev) =>
@@ -292,43 +291,34 @@ export function NewShipmentDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label htmlFor="sh-maritimeDays">Días transporte marítimo</Label>
+              <Label htmlFor="sh-etaValencia">ETA Valencia</Label>
               <Input
-                id="sh-maritimeDays"
-                name="maritimeDays"
-                type="number"
-                min={0}
-                value={maritimeDays}
-                onChange={(e) => setMaritimeDays(e.target.value)}
+                id="sh-etaValencia"
+                name="etaValencia"
+                type="date"
+                required
+                value={etaValencia}
+                onChange={(e) => setEtaValencia(e.target.value)}
               />
             </div>
             <div>
-              <Label htmlFor="sh-terrestrialDays">
-                Días transporte terrestre
-              </Label>
+              <Label htmlFor="sh-etaPlanta">Fecha de llegada a planta</Label>
               <Input
-                id="sh-terrestrialDays"
-                name="terrestrialDays"
-                type="number"
-                min={0}
-                value={terrestrialDays}
-                onChange={(e) => setTerrestrialDays(e.target.value)}
+                id="sh-etaPlanta"
+                name="etaPlanta"
+                type="date"
+                required
+                value={etaPlanta}
+                onChange={(e) => setEtaPlanta(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-hover)] px-3 py-2 text-sm">
-            <span className="text-[var(--color-muted)]">
-              Llegada prevista a planta:{" "}
-            </span>
-            <span className="font-medium text-[var(--color-foreground)]">
-              {etaPlanta ? formatDate(etaPlanta) : "—"}
-            </span>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <Label className="mb-0">Contenedores (BL ↔ Contenedor)</Label>
+              <Label className="mb-0">
+                Contenedores (BL ↔ Contenedor · Peso)
+              </Label>
               <Button
                 type="button"
                 variant="outline"
@@ -358,6 +348,16 @@ export function NewShipmentDialog({
                       updatePair(i, { reference: e.target.value })
                     }
                   />
+                  <Input
+                    aria-label={`Peso contenedor ${i + 1} (kg)`}
+                    placeholder="Peso (kg)"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className="w-28 shrink-0"
+                    value={pair.weight}
+                    onChange={(e) => updatePair(i, { weight: e.target.value })}
+                  />
                   <Button
                     type="button"
                     variant="ghost"
@@ -372,18 +372,19 @@ export function NewShipmentDialog({
                 </div>
               ))}
             </div>
+            <div className="mt-2 flex items-center justify-between rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-hover)] px-3 py-2 text-sm">
+              <span className="text-[var(--color-muted)]">
+                Peso total del envío
+              </span>
+              <span className="font-medium text-[var(--color-foreground)]">
+                {totalWeight.toLocaleString("es-ES", {
+                  maximumFractionDigits: 2,
+                })}{" "}
+                kg
+              </span>
+            </div>
           </div>
 
-          <div>
-            <Label htmlFor="sh-weightKg">Peso (kg) · opcional</Label>
-            <Input
-              id="sh-weightKg"
-              name="weightKg"
-              type="number"
-              step="0.01"
-              placeholder="0.00"
-            />
-          </div>
           <div>
             <Label htmlFor="sh-notes">Notas</Label>
             <Textarea id="sh-notes" name="notes" />
