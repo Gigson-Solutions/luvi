@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { Plus, KeyRound, Loader2 } from "lucide-react";
+import { useActionState, useRef, useState } from "react";
+import { Plus, KeyRound, Loader2, Check } from "lucide-react";
 import { UserRole } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,6 +120,14 @@ export function NewUserDialog(): React.JSX.Element {
 }
 
 // ─── Select de rol inline (envía al cambiar) ───────────────────────────────────
+/**
+ * Selector de rol en línea. Llama al Server Action directamente (no vía
+ * `form action`) para poder capturar fallos de red transitorios (503 en la
+ * caja autohospedada bajo ráfagas de RSC) y reintentar una vez de forma
+ * automática, en lugar de fallar en silencio. Da feedback visible: spinner
+ * mientras guarda, ✓ al confirmar y un mensaje de error si de verdad no se
+ * pudo (revirtiendo el select a su valor anterior).
+ */
 export function RoleSelect({
   userId,
   role,
@@ -127,17 +135,67 @@ export function RoleSelect({
   userId: string;
   role: UserRole;
 }): React.JSX.Element {
-  const [state, action, pending] = useActionState(updateRoleAction, INITIAL);
+  const [value, setValue] = useState<UserRole>(role);
+  const [status, setStatus] = useState<"idle" | "saving" | "ok" | "error">(
+    "idle",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const okTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function callWithRetry(fd: FormData): Promise<ActionState> {
+    let lastErr: unknown;
+    // 2 intentos: un 503 transitorio suele resolverse al reintentar.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await updateRoleAction(INITIAL, fd);
+      } catch (e) {
+        lastErr = e;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+    throw lastErr;
+  }
+
+  async function handleChange(
+    e: React.ChangeEvent<HTMLSelectElement>,
+  ): Promise<void> {
+    const next = e.currentTarget.value as UserRole;
+    const prev = value;
+    if (next === prev) return;
+    if (okTimer.current) clearTimeout(okTimer.current);
+    setValue(next); // optimista
+    setStatus("saving");
+    setError(null);
+
+    const fd = new FormData();
+    fd.set("userId", userId);
+    fd.set("role", next);
+
+    try {
+      const result = await callWithRetry(fd);
+      if (result.ok) {
+        setStatus("ok");
+        okTimer.current = setTimeout(() => setStatus("idle"), 2000);
+      } else {
+        setValue(prev); // revertir
+        setStatus("error");
+        setError(result.error ?? "No se pudo cambiar el rol");
+      }
+    } catch {
+      setValue(prev); // revertir
+      setStatus("error");
+      setError("No se pudo cambiar el rol. Reinténtalo.");
+    }
+  }
 
   return (
-    <form action={action} className="inline-flex items-center gap-2">
-      <input type="hidden" name="userId" value={userId} />
+    <div className="inline-flex items-center gap-2">
       <Select
         name="role"
-        defaultValue={role}
-        disabled={pending}
+        value={value}
+        disabled={status === "saving"}
         className="h-8 w-40 text-xs"
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}
+        onChange={handleChange}
       >
         {ROLES.map((r) => (
           <option key={r} value={r}>
@@ -145,13 +203,16 @@ export function RoleSelect({
           </option>
         ))}
       </Select>
-      {pending && (
+      {status === "saving" && (
         <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted)]" />
       )}
-      {state.error && (
-        <span className="text-xs text-red-600">{state.error}</span>
+      {status === "ok" && (
+        <Check className="w-3.5 h-3.5 text-[var(--color-primary)]" />
       )}
-    </form>
+      {status === "error" && error && (
+        <span className="text-xs text-red-600">{error}</span>
+      )}
+    </div>
   );
 }
 
