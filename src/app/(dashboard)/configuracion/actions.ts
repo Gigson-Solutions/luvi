@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { MaterialType, MaterialKind } from "@prisma/client";
+import { MaterialType } from "@prisma/client";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import type { CurrentUser } from "@/lib/rbac";
@@ -36,6 +36,7 @@ import {
   createMaterialCategory,
   setMaterialCategoryActive,
   seedDefaultMaterialCategories,
+  deriveMaterialKind,
 } from "@/lib/services/material.service";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
@@ -105,7 +106,6 @@ export async function saveMaterialAction(
 
 const materialCategorySchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio"),
-  kind: z.nativeEnum(MaterialKind),
 });
 
 export async function saveMaterialCategoryAction(
@@ -123,13 +123,19 @@ export async function saveMaterialCategoryAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const result = await createMaterialCategory(parsed.data);
+    // El "kind" (papel en el flujo) se deduce del nombre: ya no es un campo
+    // del formulario (GL-53, "la info va en el nombre").
+    const kind = deriveMaterialKind(parsed.data.name);
+    const result = await createMaterialCategory({
+      name: parsed.data.name,
+      kind,
+    });
     await logAudit({
       userId: actor.id,
       action: "CREATE_MATERIAL_CATEGORY",
       entity: "MaterialCategory",
       entityId: result.id,
-      payload: { name: parsed.data.name, kind: parsed.data.kind },
+      payload: { name: parsed.data.name, kind },
     });
     revalidatePath(REVALIDATE);
     return { ok: true, message: "Tipo de material creado" };

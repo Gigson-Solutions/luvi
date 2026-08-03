@@ -12,7 +12,7 @@ import {
   Warehouse as WarehouseIcon,
   Users as UsersIcon,
 } from "lucide-react";
-import { MaterialType, MaterialKind, UserRole } from "@prisma/client";
+import { MaterialType, UserRole } from "@prisma/client";
 import type {
   Supplier,
   Buyer,
@@ -73,14 +73,6 @@ const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
   FILM_PE: "Film PE",
   FILM_PP: "Film PP",
   RIGIDO_MIXTO: "Rígido mixto",
-  OTRO: "Otro",
-};
-
-const MATERIAL_KIND_LABELS: Record<MaterialKind, string> = {
-  MATERIA_PRIMA: "Materia Prima",
-  PRODUCTO_TERMINADO: "Producto Terminado",
-  SUBPRODUCTO: "Subproducto",
-  RECHAZO: "Rechazo",
   OTRO: "Otro",
 };
 
@@ -257,7 +249,7 @@ function MaterialFields({
             <option value="">Sin categoría</option>
             {activeCategories.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} · {MATERIAL_KIND_LABELS[c.kind]}
+                {c.name}
               </option>
             ))}
           </Select>
@@ -400,29 +392,14 @@ export function MaterialsSection({
 
 function MaterialCategoryFields(): React.JSX.Element {
   return (
-    <>
-      <div>
-        <Label htmlFor="cat-name">Nombre</Label>
-        <Input id="cat-name" name="name" required />
-      </div>
-      <div>
-        <Label htmlFor="cat-kind">Naturaleza</Label>
-        <Select id="cat-kind" name="kind" required defaultValue="">
-          <option value="" disabled>
-            Selecciona…
-          </option>
-          {Object.values(MaterialKind).map((k) => (
-            <option key={k} value={k}>
-              {MATERIAL_KIND_LABELS[k]}
-            </option>
-          ))}
-        </Select>
-        <p className="mt-1 text-xs text-[var(--color-muted)]">
-          Determina en qué parte del flujo se usa: Materia Prima en recepción;
-          Producto Terminado / Subproducto / Rechazo en producción.
-        </p>
-      </div>
-    </>
+    <div>
+      <Label htmlFor="cat-name">Nombre</Label>
+      <Input id="cat-name" name="name" required />
+      <p className="mt-1 text-xs text-[var(--color-muted)]">
+        Usa los nombres estándar (Materia Prima, Producto Terminado,
+        Subproducto, Rechazo) para que el tipo se clasifique solo en el flujo.
+      </p>
+    </div>
   );
 }
 
@@ -479,7 +456,6 @@ export function MaterialTypesSection({
           <THead>
             <TR>
               <TH>Nombre</TH>
-              <TH>Naturaleza</TH>
               <TH>Estado</TH>
               <TH className="text-right">Acciones</TH>
             </TR>
@@ -488,9 +464,6 @@ export function MaterialTypesSection({
             {categories.map((c) => (
               <TR key={c.id}>
                 <TD className="font-medium">{c.name}</TD>
-                <TD>
-                  <Badge tone="neutral">{MATERIAL_KIND_LABELS[c.kind]}</Badge>
-                </TD>
                 <TD>
                   <ActiveBadge active={c.active} />
                 </TD>

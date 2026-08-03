@@ -44,6 +44,20 @@ export interface MaterialCategoryInput {
   kind: MaterialKind;
 }
 
+/**
+ * Deduce el papel en el flujo (kind) a partir del nombre del tipo, para no
+ * pedirle al usuario un campo redundante (GL-53: "la info va en el nombre").
+ * Los 4 nombres estándar se mapean a su kind; cualquier nombre libre cae en OTRO.
+ */
+export function deriveMaterialKind(name: string): MaterialKind {
+  const n = name.trim().toLowerCase();
+  if (n === "materia prima") return MaterialKind.MATERIA_PRIMA;
+  if (n === "producto terminado") return MaterialKind.PRODUCTO_TERMINADO;
+  if (n === "subproducto") return MaterialKind.SUBPRODUCTO;
+  if (n === "rechazo") return MaterialKind.RECHAZO;
+  return MaterialKind.OTRO;
+}
+
 export function createMaterialCategory(
   input: MaterialCategoryInput,
 ): Promise<{ id: string }> {
