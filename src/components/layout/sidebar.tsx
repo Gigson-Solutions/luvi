@@ -178,6 +178,11 @@ function NavLinks({
             key={item.href}
             href={item.href}
             onClick={onNavigate}
+            // Sin prefetch: en la caja autohospedada (2 vCPU) prefetchear los
+            // ~14 destinos a la vez satura el server y provoca 503 puntuales
+            // en peticiones concurrentes (p.ej. el cambio de rol). Se navega
+            // igual, solo se pierde la precarga en segundo plano.
+            prefetch={false}
             className={cn(
               "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-colors group",
               active
