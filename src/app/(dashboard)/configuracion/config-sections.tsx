@@ -12,7 +12,7 @@ import {
   Warehouse as WarehouseIcon,
   Users as UsersIcon,
 } from "lucide-react";
-import { MaterialType, UserRole } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import type {
   Supplier,
   Buyer,
@@ -65,16 +65,6 @@ import {
 } from "./actions";
 
 const INITIAL: ActionState = { ok: false };
-
-const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
-  PELLET_PE: "Pellet PE",
-  PELLET_PP: "Pellet PP",
-  PELLET_PET: "Pellet PET",
-  FILM_PE: "Film PE",
-  FILM_PP: "Film PP",
-  RIGIDO_MIXTO: "Rígido mixto",
-  OTRO: "Otro",
-};
 
 // ─── Piezas reutilizables ───────────────────────────────────────────────────────
 
@@ -220,40 +210,20 @@ function MaterialFields({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="mat-type">Tipo (físico)</Label>
-          <Select
-            id="mat-type"
-            name="type"
-            required
-            defaultValue={material?.type ?? ""}
-          >
-            <option value="" disabled>
-              Selecciona…
+      <div>
+        <Label htmlFor="mat-category">Categoría</Label>
+        <Select
+          id="mat-category"
+          name="categoryId"
+          defaultValue={material?.categoryId ?? ""}
+        >
+          <option value="">Sin categoría</option>
+          {activeCategories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
             </option>
-            {Object.values(MaterialType).map((t) => (
-              <option key={t} value={t}>
-                {MATERIAL_TYPE_LABELS[t]}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="mat-category">Categoría</Label>
-          <Select
-            id="mat-category"
-            name="categoryId"
-            defaultValue={material?.categoryId ?? ""}
-          >
-            <option value="">Sin categoría</option>
-            {activeCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+          ))}
+        </Select>
       </div>
       <div>
         <Label htmlFor="mat-description">Descripción</Label>
@@ -334,7 +304,6 @@ export function MaterialsSection({
             <TR>
               <TH>Nombre</TH>
               <TH>Código</TH>
-              <TH>Tipo</TH>
               <TH>Categoría</TH>
               <TH>Estado</TH>
               <TH className="text-right">Acciones</TH>
@@ -345,7 +314,6 @@ export function MaterialsSection({
               <TR key={m.id}>
                 <TD className="font-medium">{m.name}</TD>
                 <TD>{m.code}</TD>
-                <TD>{MATERIAL_TYPE_LABELS[m.type]}</TD>
                 <TD>
                   {m.category ? (
                     <Badge tone="blue">{m.category.name}</Badge>
