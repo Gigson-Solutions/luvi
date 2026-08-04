@@ -2,7 +2,6 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { MaterialType } from "@prisma/client";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import type { CurrentUser } from "@/lib/rbac";
@@ -57,7 +56,6 @@ const materialSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, "El nombre es obligatorio"),
   code: z.string().min(1, "El código es obligatorio"),
-  type: z.nativeEnum(MaterialType),
   description: z.string().optional(),
   categoryId: z.string().optional(),
 });

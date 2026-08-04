@@ -48,7 +48,10 @@ export function listMaterials(): Promise<MaterialWithCategory[]> {
 export interface MaterialInput {
   name: string;
   code: string;
-  type: MaterialType;
+  // El "tipo físico" ya no se pide en el formulario (GL-53): la clasificación
+  // va en la categoría. Opcional; en alta se guarda como OTRO y en edición se
+  // conserva el valor existente.
+  type?: MaterialType;
   description?: string;
   categoryId?: string;
 }
@@ -58,7 +61,7 @@ export function createMaterial(input: MaterialInput): Promise<{ id: string }> {
     data: {
       name: input.name,
       code: input.code,
-      type: input.type,
+      type: input.type ?? MaterialType.OTRO,
       description: input.description ?? null,
       categoryId: input.categoryId ?? null,
     },
@@ -75,7 +78,8 @@ export function updateMaterial(
     data: {
       name: input.name,
       code: input.code,
-      type: input.type,
+      // Solo se toca el tipo si viene explícito; si no, se preserva.
+      ...(input.type ? { type: input.type } : {}),
       description: input.description ?? null,
       categoryId: input.categoryId ?? null,
     },
