@@ -136,8 +136,12 @@ export async function readWeight(params: {
 
     // Pesaje a medias: solo se ha hecho una pesada (falta la segunda) → aún no
     // hay neto. Avisamos en vez de dar un peso incompleto.
-    const hasFirst = line.FirstWeighing != null;
-    const hasSecond = line.SecondWeighing != null;
+    // OJO: la API devuelve SecondWeighing = 0 (no null) mientras falta la 2ª
+    // pesada, así que NO sirve como señal. La 2ª pesada solo "existe" cuando
+    // tiene fecha (SecondWeighingDate), y la API marca el pesaje como
+    // "Completed" al cerrarlo.
+    const hasFirst = line.FirstWeighingDate != null;
+    const hasSecond = line.SecondWeighingDate != null;
     const completed = item.Status === "Completed" || (hasFirst && hasSecond);
     if (!completed) {
       return {
