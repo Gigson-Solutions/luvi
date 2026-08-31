@@ -108,21 +108,189 @@ export function buildZpl(label: LabelData): string {
   return lines.join("\n");
 }
 
-/** Envía etiquetas a la cola de impresión (stub hasta confirmar impresora). */
+const PRINT_TIMEOUT_MS = 15000;
+
+/* -------------------------------------------------------------------------
+ * IPP / IPPS  —  transporte principal contra la Zebra ZT421 de planta.
+ *
+ * La ZT421 tiene el perfil de seguridad restrictivo del firmware Link-OS: NO
+ * escucha en el 9100 (raw), ni 515 (LPD), ni 80 (web). Solo expone IPP sobre
+ * TLS en el 631. Verificado en planta el 31-ago-2026: Print-Job → `job-state-
+ * reasons: job-completed-successfully`.
+ *
+ * El certificado es autofirmado y, al ir por el túnel, el host que marcamos no
+ * coincide con el del certificado → `rejectUnauthorized: false` a propósito.
+ * Es una impresora en LAN privada al otro lado de una VPN, no un servicio
+ * público: no hay nada que validar contra una CA.
+ * ------------------------------------------------------------------------- */
+
+/** Serializa un atributo IPP: tag + nombre + valor, longitudes big-endian. */
+function ippAttr(tag: number, name: string, value: string): Buffer {
+  const n = Buffer.from(name, "ascii");
+  const v = Buffer.from(value, "utf8");
+  const buf = Buffer.alloc(1 + 2 + n.length + 2 + v.length);
+  let o = 0;
+  buf.writeUInt8(tag, o);
+  o += 1;
+  buf.writeUInt16BE(n.length, o);
+  o += 2;
+  n.copy(buf, o);
+  o += n.length;
+  buf.writeUInt16BE(v.length, o);
+  o += 2;
+  v.copy(buf, o);
+  return buf;
+}
+
+/** Petición IPP `Print-Job` (0x0002) con el ZPL como cuerpo del documento. */
+function buildIppPrintJob(printerUri: string, zpl: string): Buffer {
+  const header = Buffer.alloc(8);
+  header.writeUInt8(0x01, 0); // versión IPP 1.1
+  header.writeUInt8(0x01, 1);
+  header.writeUInt16BE(0x0002, 2); // operation-id: Print-Job
+  header.writeUInt32BE(1, 4); // request-id
+  return Buffer.concat([
+    header,
+    Buffer.from([0x01]), // operation-attributes-tag
+    ippAttr(0x47, "attributes-charset", "utf-8"),
+    ippAttr(0x48, "attributes-natural-language", "en"),
+    ippAttr(0x45, "printer-uri", printerUri),
+    ippAttr(0x42, "requesting-user-name", "luvi"),
+    // La ZT421 declara soportar octet-stream y vnd.zebra; usamos el probado.
+    ippAttr(0x49, "document-format", "application/octet-stream"),
+    Buffer.from([0x03]), // end-of-attributes-tag
+    Buffer.from(zpl, "utf8"),
+  ]);
+}
+
+/**
+ * Envía ZPL por IPP/IPPS. `url` es el endpoint al que conectamos (puede ser el
+ * `portproxy` del túnel); `printerUri` es la URI que la impresora se anuncia a
+ * sí misma, que no tiene por qué coincidir con el host de conexión.
+ * Nunca lanza: devuelve si el trabajo se aceptó.
+ */
+async function sendIpp(
+  url: string,
+  printerUri: string,
+  zpl: string,
+): Promise<boolean> {
+  const target = new URL(url);
+  const body = buildIppPrintJob(printerUri, zpl);
+  const isTls = target.protocol === "https:";
+  const { request } = isTls
+    ? await import("node:https")
+    : await import("node:http");
+
+  return new Promise<boolean>((resolve) => {
+    const req = request(
+      {
+        hostname: target.hostname,
+        port: target.port || (isTls ? 443 : 80),
+        path: target.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/ipp",
+          "Content-Length": body.length,
+        },
+        timeout: PRINT_TIMEOUT_MS,
+        ...(isTls ? { rejectUnauthorized: false } : {}),
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          const out = Buffer.concat(chunks);
+          // status-code IPP en los bytes 2-3; < 0x0100 = éxito.
+          const ok =
+            res.statusCode === 200 &&
+            out.length >= 4 &&
+            out.readUInt16BE(2) < 0x0100;
+          resolve(ok);
+        });
+      },
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end(body);
+  });
+}
+
+/**
+ * Envía ZPL crudo por socket TCP (puerto 9100, "raw"/JetDirect). Es como habla
+ * una Zebra de red: NO entiende HTTP. Nunca lanza; devuelve si pudo o no.
+ */
+async function sendRawZpl(
+  host: string,
+  port: number,
+  payload: string,
+): Promise<boolean> {
+  const { connect } = await import("node:net");
+  return new Promise<boolean>((resolve) => {
+    const socket = connect({ host, port });
+    const finish = (ok: boolean): void => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(PRINT_TIMEOUT_MS);
+    socket.on("timeout", () => finish(false));
+    socket.on("error", () => finish(false));
+    socket.on("connect", () => {
+      // ^CI28 en la etiqueta ⇒ la Zebra espera UTF-8.
+      socket.end(payload, "utf8", () => finish(true));
+    });
+  });
+}
+
+/**
+ * Envía etiquetas a la impresora. Dos transportes, por orden de preferencia:
+ *
+ *   1. `QR_PRINTER_IPP_URL` → IPP/IPPS. Es el que usa la Zebra ZT421 de planta,
+ *      que solo admite IPP sobre TLS en el 631. Opcionalmente
+ *      `QR_PRINTER_IPP_URI` fuerza el `printer-uri` anunciado, para cuando
+ *      conectamos por el túnel y el host no coincide con el de la impresora.
+ *      Ej.: URL `https://10.8.0.2:631/ipp/print`
+ *           URI `ipps://192.168.1.212:631/ipp/print`
+ *   2. `QR_PRINTER_HOST` (+ `QR_PRINTER_PORT`, 9100) → ZPL crudo por TCP, para
+ *      una Zebra con el puerto raw abierto.
+ *
+ * Sin nada configurado, el QR se genera igual pero no se imprime.
+ *
+ * Regla de oro: imprimir nunca bloquea la operativa. Si falla, se informa
+ * (`error`) pero no se lanza.
+ */
 export async function enqueueLabels(labels: LabelData[]): Promise<{
   queued: number;
   simulated: boolean;
+  error?: string;
 }> {
-  const endpoint = process.env.QR_PRINTER_URL;
-  if (!endpoint) {
-    // Sin impresora configurada: el QR se genera igual, solo no se imprime físicamente.
-    return { queued: labels.length, simulated: true };
+  const payload = labels.map(buildZpl).join("\n");
+  const ippUrl = process.env.QR_PRINTER_IPP_URL;
+  const host = process.env.QR_PRINTER_HOST;
+
+  if (ippUrl) {
+    const printerUri =
+      process.env.QR_PRINTER_IPP_URI ?? ippUrl.replace(/^https:/, "ipps:");
+    const ok = await sendIpp(ippUrl, printerUri, payload);
+    return {
+      queued: labels.length,
+      simulated: false,
+      error: ok ? undefined : "La impresora rechazó el trabajo o no responde",
+    };
   }
-  await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: labels.map(buildZpl).join("\n"),
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => undefined);
-  return { queued: labels.length, simulated: false };
+
+  if (host) {
+    const port = Number(process.env.QR_PRINTER_PORT ?? 9100);
+    const ok = await sendRawZpl(host, port, payload);
+    return {
+      queued: labels.length,
+      simulated: false,
+      error: ok ? undefined : `Sin respuesta de la impresora (${host}:${port})`,
+    };
+  }
+
+  // Sin impresora configurada: el QR se genera igual, solo no se imprime físicamente.
+  return { queued: labels.length, simulated: true };
 }

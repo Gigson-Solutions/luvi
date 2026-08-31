@@ -49,11 +49,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const result = await enqueueLabels(jobs.map(toLabel));
 
+  if (result.simulated) {
+    return NextResponse.json({
+      queued: result.queued,
+      status: "simulated",
+      message:
+        "Impresora no configurada — etiqueta generada, sin impresión física",
+    });
+  }
+
+  if (result.error) {
+    // La etiqueta existe y el QR es válido: solo ha fallado la impresión.
+    return NextResponse.json({
+      queued: result.queued,
+      status: "error",
+      message: `${result.error}. Comprueba que la Zebra esté encendida y con papel; el QR se ha generado igualmente.`,
+    });
+  }
+
   return NextResponse.json({
     queued: result.queued,
-    status: result.simulated ? "simulated" : "queued",
-    message: result.simulated
-      ? "Impresora no configurada — etiqueta generada, sin impresión física"
-      : "Etiquetas enviadas a la cola de impresión",
+    status: "queued",
+    message: "Etiquetas enviadas a la cola de impresión",
   });
 }
