@@ -106,7 +106,10 @@ export default async function ProduccionPage({
         title="Producción"
         description="Entrada a tolva, sacas de salida y lotes autogenerados."
         actions={
-          <OutputSackDialog materialsByType={formData.materialsByType} />
+          <OutputSackDialog
+            materialsByType={formData.materialsByType}
+            consumablesByMaterial={formData.consumablesByMaterial}
+          />
         }
       />
 

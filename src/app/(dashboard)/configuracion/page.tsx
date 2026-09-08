@@ -20,10 +20,14 @@ import {
   listCarriers,
   listWarehouses,
 } from "@/lib/services/config.service";
-import { getQualityRanges } from "@/lib/services/quality.service";
+import {
+  getQualityRanges,
+  listQualityRangeSets,
+} from "@/lib/services/quality.service";
 import { getCostsConfig } from "@/lib/services/cost.service";
 import { listUsers } from "@/lib/services/user.service";
 import { listMaterialCategories } from "@/lib/services/material.service";
+import { listConsumables } from "@/lib/services/consumable.service";
 import {
   MaterialsSection,
   MaterialTypesSection,
@@ -80,6 +84,8 @@ export default async function ConfiguracionPage({
     warehouses,
     users,
     qualityRanges,
+    qualityRangeSets,
+    consumables,
     costs,
     session,
   ] = await Promise.all([
@@ -91,10 +97,18 @@ export default async function ConfiguracionPage({
     listWarehouses(),
     listUsers(),
     getQualityRanges(),
+    listQualityRangeSets(),
+    listConsumables(),
     getCostsConfig(),
     auth(),
   ]);
   const currentUserId = session?.user?.id ?? "";
+  const consumableOptions = consumables.map((c) => ({
+    id: c.id,
+    name: c.name,
+    unit: c.unit,
+    unitCost: c.unitCost,
+  }));
 
   return (
     <div>
@@ -133,10 +147,15 @@ export default async function ConfiguracionPage({
         <MaterialsSection
           materials={materials}
           categories={materialCategories}
+          consumables={consumableOptions}
+          rangeSets={qualityRangeSets}
         />
       )}
       {activeTab === "tipos-material" && (
-        <MaterialTypesSection categories={materialCategories} />
+        <MaterialTypesSection
+          categories={materialCategories}
+          rangeSets={qualityRangeSets}
+        />
       )}
       {activeTab === "compradores" && <BuyersSection buyers={buyers} />}
       {activeTab === "transportistas" && (
@@ -148,7 +167,9 @@ export default async function ConfiguracionPage({
       {activeTab === "usuarios" && (
         <UsersSection users={users} currentUserId={currentUserId} />
       )}
-      {activeTab === "calidad" && <QualitySection ranges={qualityRanges} />}
+      {activeTab === "calidad" && (
+        <QualitySection ranges={qualityRanges} rangeSets={qualityRangeSets} />
+      )}
       {activeTab === "costes" && <CostsSection costs={costs} />}
     </div>
   );

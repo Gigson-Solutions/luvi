@@ -27,6 +27,7 @@ const createSchema = z.object({
   shift: shiftSchema,
   client: z.string().optional(),
   notes: z.string().optional(),
+  materialId: z.string().optional(),
 });
 
 export async function createRecordAction(
@@ -53,6 +54,7 @@ export async function createRecordAction(
       shift: d.shift || undefined,
       client: d.client?.trim() || undefined,
       notes: d.notes?.trim() || undefined,
+      materialId: d.materialId || undefined,
     });
     await logAudit({
       userId: actor.id,
@@ -91,6 +93,7 @@ const saveSchema = z.object({
   shift: shiftSchema,
   client: z.string().optional(),
   notes: z.string().optional(),
+  materialId: z.string().optional(),
   samples: z.array(sampleSchema).max(20),
 });
 
@@ -105,6 +108,7 @@ export async function saveRecordAction(
       shift: formData.get("shift") ?? "",
       client: formData.get("client") ?? "",
       notes: formData.get("notes") ?? "",
+      materialId: formData.get("materialId") ?? "",
       samples: JSON.parse(String(formData.get("samples") ?? "[]")),
     };
     const parsed = saveSchema.safeParse(raw);
@@ -120,6 +124,7 @@ export async function saveRecordAction(
       shift: d.shift || undefined,
       client: d.client?.trim() || undefined,
       notes: d.notes?.trim() || undefined,
+      materialId: d.materialId || undefined,
       samples: d.samples,
     });
     await logAudit({

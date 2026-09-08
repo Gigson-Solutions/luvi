@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Truck, Package } from "lucide-react";
+import { Truck, Package, FileText } from "lucide-react";
 import { ShipmentStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/card";
@@ -209,6 +210,15 @@ export default async function ExpedicionesPage({
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
+                        {/* Packing list: disponible desde que el envío tiene
+                            lotes, tanto en carga como ya expedido. */}
+                        {s.lots.length > 0 && (
+                          <Link href={`/expediciones/${s.id}/packing-list`}>
+                            <Button variant="outline" size="sm">
+                              <FileText className="w-3.5 h-3.5" /> Packing list
+                            </Button>
+                          </Link>
+                        )}
                         {isDraft && (
                           <AssignLotButton
                             shipmentId={s.id}

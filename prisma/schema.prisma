@@ -106,6 +106,7 @@ model User {
   sessions      Session[]
   incidents     Incident[]
   auditLogs     AuditLog[]
+  inventoryCounts InventoryCount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -214,6 +215,7 @@ model Warehouse {
 
   zones      Zone[]
   containers Container[] // contenedores con este almacén como destino declarado
+  inventoryCounts InventoryCount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -253,14 +255,23 @@ model Material {
   categoryId String?
   category   MaterialCategory? @relation(fields: [categoryId], references: [id])
 
+  // Conjunto de rangos de calidad propio del producto. Si es null se hereda el
+  // de su categoría y, en última instancia, los rangos generales.
+  qualityRangeSetId String?
+  qualityRangeSet   QualityRangeSet? @relation(fields: [qualityRangeSetId], references: [id])
+
   sacks          Sack[]
   productionLots ProductionLot[]
   qualityRecords QualityRecord[]
+  // Consumibles (sacas, capuchones…) que se cargan por defecto al producir
+  // una saca de este producto.
+  defaultConsumables MaterialConsumable[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([categoryId])
+  @@index([qualityRangeSetId])
   @@map("materials")
 }
 
@@ -271,12 +282,40 @@ model MaterialCategory {
   kind   MaterialKind @default(OTRO)
   active Boolean      @default(true)
 
+  // Rangos de calidad de toda la categoría; los productos sin conjunto propio
+  // usan este.
+  qualityRangeSetId String?
+  qualityRangeSet   QualityRangeSet? @relation(fields: [qualityRangeSetId], references: [id])
+
   materials Material[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([qualityRangeSetId])
   @@map("material_categories")
+}
+
+/**
+ * Conjunto de rangos de calidad (min/max por parámetro) reutilizable, que se
+ * asocia a productos o a categorías. En un análisis se resuelve por orden:
+ * producto → categoría del producto → rangos generales de `config.quality_ranges`.
+ * `ranges` guarda el mismo shape que esa clave de config:
+ *   { density: { min, max }, pvc: { min, max }, … }
+ */
+model QualityRangeSet {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  active Boolean @default(true)
+  ranges Json
+
+  materials  Material[]
+  categories MaterialCategory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("quality_range_sets")
 }
 
 // ─── Contenedores / Camiones ───────────────────────────────────────────────────
@@ -353,8 +392,18 @@ model Sack {
   composedOf OutputSackInput[] @relation("SackComposition")
   consumedBy OutputSackInput[] @relation("SackConsumedBy")
 
+  // Consumibles realmente aplicados a la saca (los predeterminados del producto
+  // que el operario dejó marcados). Solo estos suman al coste del lote.
+  consumables SackConsumable[]
+  inventoryScans InventoryScan[]
+
   notes       String?
   batchNumber String? // nº saca dentro del contenedor (ej: 1/50)
+
+  // Nº correlativo de la saca DENTRO de su lote (1..N). Se reinicia en cada
+  // lote nuevo y se muestra como `NUMERO_SACA/LOTE` (ej: `1/190726-1`).
+  // Null mientras la saca no pertenece a ningún lote.
+  lotSequence Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -461,6 +510,9 @@ model Shipment {
   driverName  String?
   notes       String?
 
+  /// Nº de pedido del comprador; sale impreso en el packing list.
+  orderNumber String?
+
   scheduledAt     DateTime? // GL-42: fecha programada de expedición
   holdedAlbaranId String? // ID albarán en Holded (generado al confirmar)
   expeditedAt     DateTime?
@@ -515,11 +567,25 @@ model PurchaseOrder {
   supplierId String
   materialId String?
   status     PurchaseOrderStatus @default(ABIERTA)
+  // Si el administrador corrige el estado a mano, deja de recalcularse solo a
+  // partir de las toneladas enviadas/recibidas.
+  statusManual Boolean @default(false)
+
   orderedTons Float
   originPort  String? // puerto o país de origen del pedido
   totalPrice  Float?  // precio total del pedido (€)
-  pricePerTon Float?  // €/tonelada de compra — base del coste por tonelada del lote final (= totalPrice / orderedTons)
+  pricePerTon Float?  // PRECIO DE LA MERCANCÍA (€/tonelada) — base del coste por tonelada del lote final (= totalPrice / orderedTons)
   notes      String?
+
+  // Costes del pedido, cada uno en su unidad natural. Todos editables después
+  // de guardar el pedido. El reparto automático entre embarques/contenedores y
+  // el soporte multi-divisa quedan fuera de alcance (CR pendiente).
+  oceanFreightPerContainer      Float? // FLETE MARÍTIMO (€/contenedor)
+  arrivalCostsPerContainer      Float? // GASTOS DE LLEGADA (€/contenedor)
+  arrivalCostsPerShipment       Float? // GASTOS DE LLEGADA (€/embarque)
+  deliveryTransportPerContainer Float? // TRANSPORTE DE ENTREGA (€/contenedor)
+  additionalCostsPerShipment    Float? // GASTOS ADICIONALES (€/embarque)
+  customsDuties                 Float? // GASTOS ARANCELARIOS (€ del pedido)
 
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
   providerShipments ProviderShipment[]
@@ -636,12 +702,63 @@ model Consumable {
   minStock     Int            @default(0) // umbral de alerta
   unit         String         @default("ud")
 
+  // Coste unitario vigente (€/ud), actualizado con la última compra con precio.
+  // 0 € es un valor válido: hay consumibles que el cliente no repercute.
+  unitCost Float @default(0)
+
   movements ConsumableMovement[]
+  // Productos que lo llevan por defecto y sacas en las que se aplicó.
+  materialDefaults MaterialConsumable[]
+  sackUses         SackConsumable[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("consumables")
+}
+
+/**
+ * Consumible predeterminado de un producto (ej. «PT PE Natural» lleva 1 saca
+ * + 1 capuchón). Se cargan marcados al registrar la saca de salida y el
+ * operario puede desmarcarlos como excepción.
+ */
+model MaterialConsumable {
+  id           String @id @default(cuid())
+  materialId   String
+  consumableId String
+  quantity     Int    @default(1)
+
+  material   Material   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  consumable Consumable @relation(fields: [consumableId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([materialId, consumableId])
+  @@index([consumableId])
+  @@map("material_consumables")
+}
+
+/**
+ * Consumible efectivamente aplicado a una saca de salida, con el coste unitario
+ * congelado en el momento de crearla (para que un cambio de precio posterior no
+ * altere el coste ya calculado del lote).
+ */
+model SackConsumable {
+  id           String @id @default(cuid())
+  sackId       String
+  consumableId String
+  quantity     Int    @default(1)
+  unitCost     Float  @default(0)
+
+  sack       Sack       @relation(fields: [sackId], references: [id], onDelete: Cascade)
+  consumable Consumable @relation(fields: [consumableId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([sackId])
+  @@index([consumableId])
+  @@map("sack_consumables")
 }
 
 model ConsumableMovement {
@@ -678,6 +795,58 @@ model PalletMovement {
   @@index([buyerId])
   @@index([shipmentId])
   @@map("pallet_movements")
+}
+
+// ─── Inventario por escaneo de sacas ──────────────────────────────────────────
+
+/**
+ * Sesión de inventario: el operario va escaneando sacas y, al finalizar, la app
+ * compara lo escaneado con el stock teórico (sacas EN_ALMACEN, opcionalmente de
+ * un solo almacén) y guarda fecha y resultado. `missingSackIds` congela qué
+ * sacas faltaron en ese momento, porque el stock teórico cambia con el tiempo.
+ */
+model InventoryCount {
+  id          String    @id @default(cuid())
+  warehouseId String?
+  userId      String?
+  notes       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime? // null mientras la sesión sigue abierta
+
+  expectedCount Int? // sacas en stock teórico al cerrar
+  scannedCount  Int? // sacas escaneadas que estaban en el stock teórico
+  missingCount  Int? // teóricas que no se escanearon
+  unknownCount  Int? // escaneos que no correspondían al stock teórico
+  missingSackIds Json?
+
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
+  user      User?      @relation(fields: [userId], references: [id])
+  scans     InventoryScan[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([warehouseId])
+  @@index([startedAt])
+  @@map("inventory_counts")
+}
+
+/** Un escaneo dentro de una sesión. El único por QR: el segundo se rechaza. */
+model InventoryScan {
+  id       String  @id @default(cuid())
+  countId  String
+  sackId   String?
+  qrCode   String
+
+  count InventoryCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  sack  Sack?          @relation(fields: [sackId], references: [id])
+
+  scannedAt DateTime @default(now())
+
+  @@unique([countId, qrCode])
+  @@index([countId])
+  @@index([sackId])
+  @@map("inventory_scans")
 }
 
 // ─── Incidencias ──────────────────────────────────────────────────────────────

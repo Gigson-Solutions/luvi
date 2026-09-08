@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { createAlbaran } from "@/lib/integrations/holded";
-import { generateLotNumber } from "@/lib/utils";
-import { MAX_SACKS_PER_LOT } from "@/lib/services/production.service";
+import { generateLotNumber, formatSackNumber } from "@/lib/utils";
+import {
+  MAX_SACKS_PER_LOT,
+  nextLotSequence,
+} from "@/lib/services/production.service";
 import { getCostsConfig, type CostsConfig } from "@/lib/services/cost.service";
 import {
   LotType,
@@ -217,6 +220,7 @@ function computeLotCosts(
         } | null;
       };
     }[];
+    consumables: { quantity: number; unitCost: number }[];
   }[],
   sackCount: number,
   costs: CostsConfig,
@@ -235,7 +239,18 @@ function computeLotCosts(
   // GL-55: el procesado es el coste por SACA DE SALIDA (nº sacas del lote ×
   // coste/saca), no por sacas de entrada procesadas. Ej: 22 sacas × 31 €.
   const processing = sackCount * costs.processingPerSack;
-  const consumable = sackCount * (costs.palletCost + costs.emptySackCost);
+  // Consumibles: solo los que el operario dejó marcados en cada saca. Las sacas
+  // anteriores a los consumibles por producto no tienen ninguno registrado, así
+  // que siguen valorándose con los costes fijos de configuración.
+  const withConsumables = outputSacks.filter((s) => s.consumables.length > 0);
+  const consumable =
+    withConsumables.reduce(
+      (sum, s) =>
+        sum + s.consumables.reduce((n, c) => n + c.quantity * c.unitCost, 0),
+      0,
+    ) +
+    (sackCount - withConsumables.length) *
+      (costs.palletCost + costs.emptySackCost);
   const round = (n: number): number => Math.round(n * 100) / 100;
   return {
     material: round(material),
@@ -247,6 +262,7 @@ function computeLotCosts(
 }
 
 const lotCostSackSelect = {
+  consumables: { select: { quantity: true, unitCost: true } },
   composedOf: {
     select: {
       inputSack: {
@@ -456,10 +472,14 @@ export async function createManualLot(
         closedAt: sackIds.length >= MAX_SACKS_PER_LOT ? new Date() : null,
       },
     });
-    await tx.sack.updateMany({
-      where: { id: { in: sackIds } },
-      data: { lotId: lot.id },
-    });
+    // Lote recién creado: las sacas se numeran 1..N en el orden recibido.
+    let seq = 1;
+    for (const sackId of sackIds) {
+      await tx.sack.update({
+        where: { id: sackId },
+        data: { lotId: lot.id, lotSequence: seq++ },
+      });
+    }
     return { id: lot.id, lotNumber: lot.lotNumber, sackCount: sackIds.length };
   });
 }
@@ -501,10 +521,15 @@ export async function addSacksToLot(
         `El lote quedaría con ${nextCount} sacas (máximo ${MAX_SACKS_PER_LOT}).`,
       );
     }
-    await tx.sack.updateMany({
-      where: { id: { in: sackIds } },
-      data: { lotId: lot.id },
-    });
+    // Numeramos una a una: cada saca recibe su correlativo dentro del lote, así
+    // que no sirve un updateMany con un valor único para todas.
+    let seq = await nextLotSequence(tx, lot.id);
+    for (const sackId of sackIds) {
+      await tx.sack.update({
+        where: { id: sackId },
+        data: { lotId: lot.id, lotSequence: seq++ },
+      });
+    }
     if (nextCount >= MAX_SACKS_PER_LOT) {
       await tx.productionLot.update({
         where: { id: lot.id },
@@ -538,7 +563,25 @@ export async function removeSackFromLot(sackId: string): Promise<void> {
     }
 
     const lotId = sack.lotId;
-    await tx.sack.update({ where: { id: sackId }, data: { lotId: null } });
+    await tx.sack.update({
+      where: { id: sackId },
+      data: { lotId: null, lotSequence: null },
+    });
+
+    // Renumeramos las que quedan para que el lote conserve un 1..N contiguo:
+    // un hueco en la numeración del packing list confundiría en planta.
+    const rest = await tx.sack.findMany({
+      where: { lotId },
+      orderBy: [{ lotSequence: "asc" }, { createdAt: "asc" }],
+      select: { id: true },
+    });
+    let seq = 1;
+    for (const s of rest) {
+      await tx.sack.update({
+        where: { id: s.id },
+        data: { lotSequence: seq++ },
+      });
+    }
 
     // Si el lote se queda sin sacas, lo eliminamos; si no, lo reabrimos para
     // poder seguir añadiendo sacas.
@@ -559,6 +602,8 @@ export interface CreateShipmentInput {
   carrierId?: string;
   vehiclePlate?: string;
   notes?: string;
+  /** Nº de pedido del comprador (aparece en el packing list). */
+  orderNumber?: string;
   /** GL-42: fecha programada de expedición. */
   scheduledAt?: Date;
   /** GL-42: opcional. El envío puede crearse vacío y asignarle lotes después. */
@@ -600,6 +645,7 @@ export async function createShipment(
         carrierId: input.carrierId ?? null,
         vehiclePlate: input.vehiclePlate ?? null,
         notes: input.notes ?? null,
+        orderNumber: input.orderNumber ?? null,
         scheduledAt: input.scheduledAt ?? null,
         lots: {
           create: lots.map((l) => ({ lotId: l.lotId, weightKg: l.weightKg })),
@@ -821,4 +867,87 @@ export async function deliverShipment(
       include: shipmentInclude,
     });
   });
+}
+
+// ─── Packing list ────────────────────────────────────────────────────────────────
+
+/** Fila del packing list: una saca del envío. */
+export interface PackingListRow {
+  lotNumber: string;
+  /** Identificador BIG BAG: nº de saca dentro del lote + código QR. */
+  sackNumber: string;
+  qrCode: string;
+  materialName: string;
+  weightKg: number;
+}
+
+export interface PackingList {
+  shipmentId: string;
+  /** Nº de pedido del comprador. */
+  orderNumber: string | null;
+  /** Nº de albarán LUVI: el de Holded si existe, si no la referencia del envío. */
+  albaranNumber: string;
+  reference: string;
+  buyerName: string;
+  carrierName: string | null;
+  vehiclePlate: string | null;
+  /** Fecha de carga: expedición, o la programada si aún no se ha expedido. */
+  loadDate: Date;
+  rows: PackingListRow[];
+  totalWeightKg: number;
+}
+
+/**
+ * Packing list de un envío: cabecera (pedido, albarán LUVI, fecha de carga) y
+ * una fila por saca con su lote, identificador BIG BAG y peso, más el total.
+ */
+export async function getPackingList(
+  shipmentId: string,
+): Promise<PackingList | null> {
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    include: {
+      buyer: { select: { name: true } },
+      carrier: { select: { name: true } },
+      lots: { select: { lotId: true } },
+    },
+  });
+  if (!shipment) return null;
+
+  const lotIds = shipment.lots.map((l) => l.lotId);
+  const sacks =
+    lotIds.length === 0
+      ? []
+      : await prisma.sack.findMany({
+          where: { lotId: { in: lotIds } },
+          select: {
+            qrCode: true,
+            weight: true,
+            lotSequence: true,
+            material: { select: { name: true } },
+            lot: { select: { lotNumber: true } },
+          },
+          orderBy: [{ lotId: "asc" }, { lotSequence: "asc" }],
+        });
+
+  const rows: PackingListRow[] = sacks.map((s) => ({
+    lotNumber: s.lot?.lotNumber ?? "—",
+    sackNumber: formatSackNumber(s.lotSequence, s.lot?.lotNumber ?? null),
+    qrCode: s.qrCode,
+    materialName: s.material.name,
+    weightKg: s.weight,
+  }));
+
+  return {
+    shipmentId: shipment.id,
+    orderNumber: shipment.orderNumber,
+    albaranNumber: shipment.holdedAlbaranId ?? shipment.reference,
+    reference: shipment.reference,
+    buyerName: shipment.buyer.name,
+    carrierName: shipment.carrier?.name ?? null,
+    vehiclePlate: shipment.vehiclePlate,
+    loadDate: shipment.expeditedAt ?? shipment.scheduledAt ?? shipment.createdAt,
+    rows,
+    totalWeightKg: rows.reduce((sum, r) => sum + r.weightKg, 0),
+  };
 }

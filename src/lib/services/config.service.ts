@@ -35,14 +35,26 @@ export async function setConfig(
 // ─── Materiales ────────────────────────────────────────────────────────────────
 
 export type MaterialWithCategory = Prisma.MaterialGetPayload<{
-  include: { category: true };
+  include: {
+    category: true;
+    defaultConsumables: { include: { consumable: true } };
+  };
 }>;
 
 export function listMaterials(): Promise<MaterialWithCategory[]> {
   return prisma.material.findMany({
-    include: { category: true },
+    include: {
+      category: true,
+      defaultConsumables: { include: { consumable: true } },
+    },
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
+}
+
+/** Consumible predeterminado de un producto tal como llega del formulario. */
+export interface DefaultConsumableInput {
+  consumableId: string;
+  quantity: number;
 }
 
 export interface MaterialInput {
@@ -54,26 +66,58 @@ export interface MaterialInput {
   type?: MaterialType;
   description?: string;
   categoryId?: string;
+  /** Conjunto de rangos de calidad propio (null/undefined = hereda categoría). */
+  qualityRangeSetId?: string;
+  /** Si viene, reemplaza la lista de consumibles predeterminados del producto. */
+  defaultConsumables?: DefaultConsumableInput[];
 }
 
-export function createMaterial(input: MaterialInput): Promise<{ id: string }> {
-  return prisma.material.create({
+/** Reescribe los consumibles predeterminados de un producto. */
+async function replaceDefaultConsumables(
+  materialId: string,
+  items: DefaultConsumableInput[],
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.materialConsumable.deleteMany({ where: { materialId } }),
+    ...(items.length > 0
+      ? [
+          prisma.materialConsumable.createMany({
+            data: items.map((i) => ({
+              materialId,
+              consumableId: i.consumableId,
+              quantity: i.quantity,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+}
+
+export async function createMaterial(
+  input: MaterialInput,
+): Promise<{ id: string }> {
+  const material = await prisma.material.create({
     data: {
       name: input.name,
       code: input.code,
       type: input.type ?? MaterialType.OTRO,
       description: input.description ?? null,
       categoryId: input.categoryId ?? null,
+      qualityRangeSetId: input.qualityRangeSetId ?? null,
     },
     select: { id: true },
   });
+  if (input.defaultConsumables) {
+    await replaceDefaultConsumables(material.id, input.defaultConsumables);
+  }
+  return material;
 }
 
-export function updateMaterial(
+export async function updateMaterial(
   id: string,
   input: MaterialInput,
 ): Promise<{ id: string }> {
-  return prisma.material.update({
+  const material = await prisma.material.update({
     where: { id },
     data: {
       name: input.name,
@@ -82,9 +126,14 @@ export function updateMaterial(
       ...(input.type ? { type: input.type } : {}),
       description: input.description ?? null,
       categoryId: input.categoryId ?? null,
+      qualityRangeSetId: input.qualityRangeSetId ?? null,
     },
     select: { id: true },
   });
+  if (input.defaultConsumables) {
+    await replaceDefaultConsumables(id, input.defaultConsumables);
+  }
+  return material;
 }
 
 export function setMaterialActive(

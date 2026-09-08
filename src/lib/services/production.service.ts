@@ -231,8 +231,9 @@ export async function getProductionFormData(): Promise<{
   materials: MaterialOption[];
   materialsByType: MaterialsByOutputType;
   zones: { id: string; name: string; code: string; warehouseName: string }[];
+  consumablesByMaterial: Record<string, DefaultConsumable[]>;
 }> {
-  const [materials, zones, pt, sub, rechazo] = await Promise.all([
+  const [materials, zones, pt, sub, rechazo, defaults] = await Promise.all([
     prisma.material.findMany({
       where: { active: true },
       select: { id: true, name: true, code: true },
@@ -250,11 +251,30 @@ export async function getProductionFormData(): Promise<{
     getMaterialsByKind(MaterialKind.PRODUCTO_TERMINADO),
     getMaterialsByKind(MaterialKind.SUBPRODUCTO),
     getMaterialsByKind(MaterialKind.RECHAZO),
+    prisma.materialConsumable.findMany({
+      include: { consumable: true },
+      orderBy: { consumable: { name: "asc" } },
+    }),
   ]);
   const orAll = (list: MaterialOption[]): MaterialOption[] =>
     list.length > 0 ? list : materials;
+
+  // Consumibles predeterminados agrupados por producto, para precargarlos
+  // marcados en el formulario de saca de salida.
+  const consumablesByMaterial: Record<string, DefaultConsumable[]> = {};
+  for (const d of defaults) {
+    (consumablesByMaterial[d.materialId] ??= []).push({
+      consumableId: d.consumableId,
+      quantity: d.quantity,
+      name: d.consumable.name,
+      unit: d.consumable.unit,
+      unitCost: d.consumable.unitCost,
+    });
+  }
+
   return {
     materials,
+    consumablesByMaterial,
     materialsByType: {
       PRODUCTO_TERMINADO: orAll(pt),
       SUBPRODUCTO: orAll(sub),
@@ -301,6 +321,19 @@ async function getOrCreateDailyLot(
   });
   const lotNumber = generateLotNumber(new Date(), countToday + 1);
   return tx.productionLot.create({ data: { lotNumber, type, materialId } });
+}
+
+/**
+ * Siguiente nº correlativo de saca dentro de un lote (1..N). Se calcula sobre
+ * el máximo existente —no sobre el recuento— para no reutilizar un número si
+ * alguna saca se retiró del lote sin renumerar.
+ */
+export async function nextLotSequence(tx: Tx, lotId: string): Promise<number> {
+  const { _max } = await tx.sack.aggregate({
+    where: { lotId },
+    _max: { lotSequence: true },
+  });
+  return (_max.lotSequence ?? 0) + 1;
 }
 
 /** Devuelve la transformación abierta del día, o null si no hay ninguna. */
@@ -418,6 +451,21 @@ export interface CreateOutputSackInput {
   weight: number;
   zoneId?: string;
   notes?: string;
+  /**
+   * Consumibles aplicados a la saca. Si no viene, se usan los predeterminados
+   * del producto; si viene vacío, el operario los desmarcó todos y la saca no
+   * imputa ningún consumible.
+   */
+  consumableIds?: string[];
+}
+
+/** Consumible predeterminado de un producto, con su coste unitario vigente. */
+export interface DefaultConsumable {
+  consumableId: string;
+  quantity: number;
+  name: string;
+  unit: string;
+  unitCost: number;
 }
 
 /**
@@ -451,9 +499,31 @@ export async function createOutputSack(input: CreateOutputSackInput): Promise<{
         materialId: input.materialId,
         zoneId: input.zoneId ?? null,
         lotId: lot?.id ?? null,
+        lotSequence: lot ? await nextLotSequence(tx, lot.id) : null,
         notes: input.notes ?? null,
       },
     });
+
+    // Consumibles de la saca: los predeterminados del producto que siguen
+    // marcados. Se congela el coste unitario vigente de cada uno (0 € es válido).
+    const defaults = await tx.materialConsumable.findMany({
+      where: { materialId: input.materialId },
+      include: { consumable: { select: { unitCost: true } } },
+    });
+    const selected =
+      input.consumableIds == null
+        ? defaults
+        : defaults.filter((d) => input.consumableIds?.includes(d.consumableId));
+    if (selected.length > 0) {
+      await tx.sackConsumable.createMany({
+        data: selected.map((d) => ({
+          sackId: sack.id,
+          consumableId: d.consumableId,
+          quantity: d.quantity,
+          unitCost: d.consumable.unitCost,
+        })),
+      });
+    }
 
     // Trazabilidad (GL-37): ligar las sacas de entrada acumuladas para este
     // tipo. Al quedar registradas contra esta salida, no contarán para la

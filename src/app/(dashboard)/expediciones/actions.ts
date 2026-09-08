@@ -33,6 +33,7 @@ const createSchema = z.object({
   carrierId: z.string().optional(),
   vehiclePlate: z.string().optional(),
   scheduledAt: z.string().optional(),
+  orderNumber: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -50,13 +51,20 @@ export async function createShipmentAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { buyerId, carrierId, vehiclePlate, scheduledAt, notes } =
-      parsed.data;
+    const {
+      buyerId,
+      carrierId,
+      vehiclePlate,
+      scheduledAt,
+      orderNumber,
+      notes,
+    } = parsed.data;
     const shipment = await createShipment({
       buyerId,
       carrierId: carrierId || undefined,
       vehiclePlate: vehiclePlate || undefined,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
+      orderNumber: orderNumber || undefined,
       notes: notes || undefined,
     });
     revalidatePath("/expediciones");

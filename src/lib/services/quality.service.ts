@@ -6,7 +6,7 @@ import {
   DEFAULT_QUALITY_RANGES,
   SAMPLE_MEASURE_KEYS,
   SAMPLES_PER_RECORD,
-  densityStatus,
+  sampleStatus,
   type DensityRange,
   type ParamRange,
   type QualityRanges,
@@ -23,7 +23,7 @@ import {
  */
 
 export type QualityRecordWithSamples = Prisma.QualityRecordGetPayload<{
-  include: { samples: true };
+  include: { samples: true; material: { select: { id: true; name: true } } };
 }>;
 
 // ─── Configuración de rangos ────────────────────────────────────────────────────
@@ -59,6 +59,164 @@ export async function getDensityRange(): Promise<DensityRange> {
     min: density.min ?? DEFAULT_DENSITY_RANGE.min,
     max: density.max ?? DEFAULT_DENSITY_RANGE.max,
   };
+}
+
+// ─── Conjuntos de rangos por producto o categoría ───────────────────────────────
+
+export interface QualityRangeSetSummary {
+  id: string;
+  name: string;
+  active: boolean;
+  ranges: QualityRanges;
+  /** Productos y categorías que lo tienen asignado (para la tabla de config). */
+  materialNames: string[];
+  categoryNames: string[];
+}
+
+/** Normaliza un `ranges` guardado en JSON al shape completo de QualityRanges. */
+function toQualityRanges(raw: unknown): QualityRanges {
+  const stored = (raw ?? {}) as Partial<Record<string, Partial<ParamRange>>>;
+  const result = {} as QualityRanges;
+  for (const key of SAMPLE_MEASURE_KEYS) {
+    const s = stored[key];
+    result[key] = {
+      min: typeof s?.min === "number" ? s.min : null,
+      max: typeof s?.max === "number" ? s.max : null,
+    };
+  }
+  return result;
+}
+
+/** Conjuntos de rangos con los productos/categorías que los usan. */
+export async function listQualityRangeSets(): Promise<QualityRangeSetSummary[]> {
+  const sets = await prisma.qualityRangeSet.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      materials: { select: { name: true }, orderBy: { name: "asc" } },
+      categories: { select: { name: true }, orderBy: { name: "asc" } },
+    },
+  });
+  return sets.map((s) => ({
+    id: s.id,
+    name: s.name,
+    active: s.active,
+    ranges: toQualityRanges(s.ranges),
+    materialNames: s.materials.map((m) => m.name),
+    categoryNames: s.categories.map((c) => c.name),
+  }));
+}
+
+export interface SaveQualityRangeSetInput {
+  id?: string;
+  name: string;
+  active?: boolean;
+  ranges: QualityRanges;
+}
+
+/** Crea o actualiza un conjunto de rangos. */
+export async function saveQualityRangeSet(
+  input: SaveQualityRangeSetInput,
+): Promise<{ id: string }> {
+  const data = {
+    name: input.name,
+    active: input.active ?? true,
+    ranges: input.ranges as unknown as Prisma.InputJsonValue,
+  };
+  const set = input.id
+    ? await prisma.qualityRangeSet.update({ where: { id: input.id }, data })
+    : await prisma.qualityRangeSet.create({ data });
+  return { id: set.id };
+}
+
+/** Borra un conjunto; los productos/categorías que lo usaban quedan sin él. */
+export async function deleteQualityRangeSet(id: string): Promise<void> {
+  await prisma.$transaction([
+    prisma.material.updateMany({
+      where: { qualityRangeSetId: id },
+      data: { qualityRangeSetId: null },
+    }),
+    prisma.materialCategory.updateMany({
+      where: { qualityRangeSetId: id },
+      data: { qualityRangeSetId: null },
+    }),
+    prisma.qualityRangeSet.delete({ where: { id } }),
+  ]);
+}
+
+/**
+ * Rangos aplicables a un análisis del producto indicado. Orden de resolución:
+ * conjunto del producto → conjunto de su categoría → rangos generales. Un
+ * parámetro sin límites en el conjunto elegido cae al valor general.
+ */
+export async function resolveQualityRanges(
+  materialId?: string | null,
+): Promise<QualityRanges> {
+  const general = await getQualityRanges();
+  if (!materialId) return general;
+
+  const material = await prisma.material.findUnique({
+    where: { id: materialId },
+    select: {
+      qualityRangeSet: { select: { ranges: true, active: true } },
+      category: {
+        select: { qualityRangeSet: { select: { ranges: true, active: true } } },
+      },
+    },
+  });
+  const set =
+    (material?.qualityRangeSet?.active ? material.qualityRangeSet : null) ??
+    (material?.category?.qualityRangeSet?.active
+      ? material.category.qualityRangeSet
+      : null);
+  if (!set) return general;
+
+  const own = toQualityRanges(set.ranges);
+  const merged = {} as QualityRanges;
+  for (const key of SAMPLE_MEASURE_KEYS) {
+    const o = own[key];
+    merged[key] =
+      o.min == null && o.max == null ? general[key] : { ...o };
+  }
+  return merged;
+}
+
+/**
+ * Rangos resueltos de todos los productos de una tacada: el editor de calidad
+ * los precarga para poder recalcular OK/NOK al cambiar de producto sin ir al
+ * servidor.
+ */
+export async function resolveAllMaterialRanges(): Promise<
+  Record<string, QualityRanges>
+> {
+  const general = await getQualityRanges();
+  const materials = await prisma.material.findMany({
+    select: {
+      id: true,
+      qualityRangeSet: { select: { ranges: true, active: true } },
+      category: {
+        select: { qualityRangeSet: { select: { ranges: true, active: true } } },
+      },
+    },
+  });
+
+  const result: Record<string, QualityRanges> = {};
+  for (const m of materials) {
+    const set =
+      (m.qualityRangeSet?.active ? m.qualityRangeSet : null) ??
+      (m.category?.qualityRangeSet?.active ? m.category.qualityRangeSet : null);
+    if (!set) {
+      result[m.id] = general;
+      continue;
+    }
+    const own = toQualityRanges(set.ranges);
+    const merged = {} as QualityRanges;
+    for (const key of SAMPLE_MEASURE_KEYS) {
+      const o = own[key];
+      merged[key] = o.min == null && o.max == null ? general[key] : { ...o };
+    }
+    result[m.id] = merged;
+  }
+  return result;
 }
 
 // ─── Utilidades de rango temporal ────────────────────────────────────────────────
@@ -102,6 +260,8 @@ export interface RecordSummary {
   shift: string | null;
   client: string | null;
   notes: string | null;
+  materialId: string | null;
+  materialName: string | null;
   sampleCount: number;
   avgDensity: number | null;
   status: SampleStatus;
@@ -117,6 +277,8 @@ export function toRecordSummary(
     shift: record.shift,
     client: record.client,
     notes: record.notes,
+    materialId: record.materialId,
+    materialName: record.material?.name ?? null,
     sampleCount: measuredSamples(record.samples).length,
     avgDensity: averageDensity(record.samples),
     status: recordStatus(record.samples),
@@ -133,7 +295,10 @@ export function listMonthlyRecords(
   const { from, to } = monthBounds(year, month);
   return prisma.qualityRecord.findMany({
     where: { date: { gte: from, lt: to } },
-    include: { samples: { orderBy: { index: "asc" } } },
+    include: {
+      samples: { orderBy: { index: "asc" } },
+      material: { select: { id: true, name: true } },
+    },
     orderBy: { date: "asc" },
   });
 }
@@ -249,6 +414,8 @@ export interface CreateRecordInput {
   shift?: string;
   client?: string;
   notes?: string;
+  /** Producto analizado; determina los rangos de calidad aplicados. */
+  materialId?: string;
 }
 
 /** Crea un registro diario vacío (sin muestras todavía). */
@@ -261,6 +428,7 @@ export function createRecord(
       shift: input.shift ?? null,
       client: input.client ?? null,
       notes: input.notes ?? null,
+      materialId: input.materialId || null,
       result: QualityResult.PENDIENTE,
     },
     select: { id: true },
@@ -283,6 +451,7 @@ export interface SaveRecordInput {
   shift?: string;
   client?: string;
   notes?: string;
+  materialId?: string;
   samples: SampleInput[];
 }
 
@@ -302,7 +471,9 @@ function hasData(s: SampleInput): boolean {
 export async function saveRecord(
   input: SaveRecordInput,
 ): Promise<{ id: string }> {
-  const range = await getDensityRange();
+  // Los rangos salen del producto analizado (o de su categoría); sin producto,
+  // de los rangos generales.
+  const ranges = await resolveQualityRanges(input.materialId);
   const rows = input.samples.filter(hasData).map((s) => ({
     index: s.index,
     density: s.density,
@@ -311,7 +482,7 @@ export async function saveRecord(
     multicapas: s.multicapas,
     metal: s.metal,
     otros: s.otros,
-    status: densityStatus(s.density, range),
+    status: sampleStatus(s, ranges),
     comment: s.comment?.trim() || null,
   }));
   const result = recordStatus(rows) as QualityResult;
@@ -324,6 +495,7 @@ export async function saveRecord(
         shift: input.shift ?? null,
         client: input.client ?? null,
         notes: input.notes ?? null,
+        materialId: input.materialId || null,
         result,
         ...(rows.length > 0 ? { samples: { createMany: { data: rows } } } : {}),
       },

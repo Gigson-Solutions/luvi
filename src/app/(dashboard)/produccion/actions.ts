@@ -124,6 +124,10 @@ export async function createOutputSackAction(
       };
     }
     const d = parsed.data;
+    // Consumibles que el operario dejó marcados (`cons_<id>` por cada uno).
+    const consumableIds = [...formData.keys()]
+      .filter((k) => k.startsWith("cons_"))
+      .map((k) => k.slice("cons_".length));
     // La saca de salida NO se ubica en almacén: va directa a Expediciones.
     const { id, qrCode, lotNumber, inputCount, sackCount, lotClosed } =
       await createOutputSack({
@@ -131,6 +135,7 @@ export async function createOutputSackAction(
         materialId: d.materialId,
         weight: d.weight,
         notes: d.notes || undefined,
+        consumableIds,
       });
     await logAudit({
       userId: actor.id,

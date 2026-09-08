@@ -42,6 +42,8 @@ export function listActiveMaterialCategories(): Promise<MaterialCategory[]> {
 export interface MaterialCategoryInput {
   name: string;
   kind: MaterialKind;
+  /** Conjunto de rangos de calidad de toda la categoría (opcional). */
+  qualityRangeSetId?: string | null;
 }
 
 /**
@@ -62,7 +64,23 @@ export function createMaterialCategory(
   input: MaterialCategoryInput,
 ): Promise<{ id: string }> {
   return prisma.materialCategory.create({
-    data: { name: input.name, kind: input.kind },
+    data: {
+      name: input.name,
+      kind: input.kind,
+      qualityRangeSetId: input.qualityRangeSetId ?? null,
+    },
+    select: { id: true },
+  });
+}
+
+/** Cambia el conjunto de rangos de calidad de una categoría (null = ninguno). */
+export function setMaterialCategoryQualityRangeSet(
+  id: string,
+  qualityRangeSetId: string | null,
+): Promise<{ id: string }> {
+  return prisma.materialCategory.update({
+    where: { id },
+    data: { qualityRangeSetId },
     select: { id: true },
   });
 }

@@ -19,9 +19,11 @@ import type { QualityResult } from "@prisma/client";
 import {
   listMonthlyRecords,
   getMonthlyStats,
-  getDensityRange,
+  getQualityRanges,
+  resolveAllMaterialRanges,
   toRecordSummary,
 } from "@/lib/services/quality.service";
+import { listMaterials } from "@/lib/services/config.service";
 import {
   NewRecordDialog,
   SampleEditorDialog,
@@ -65,13 +67,19 @@ export default async function CalidadPage({
   const year = Number(params.year) || now.getFullYear();
   const month = clampMonth(Number(params.month) || now.getMonth() + 1);
 
-  const [records, stats, range] = await Promise.all([
-    listMonthlyRecords(year, month),
-    getMonthlyStats(year, month),
-    getDensityRange(),
-  ]);
+  const [records, stats, ranges, rangesByMaterial, allMaterials] =
+    await Promise.all([
+      listMonthlyRecords(year, month),
+      getMonthlyStats(year, month),
+      getQualityRanges(),
+      resolveAllMaterialRanges(),
+      listMaterials(),
+    ]);
 
   const summaries = records.map(toRecordSummary);
+  const materials = allMaterials
+    .filter((m) => m.active)
+    .map((m) => ({ id: m.id, name: m.name }));
 
   // Navegación mes anterior / siguiente
   const prev =
@@ -85,7 +93,7 @@ export default async function CalidadPage({
         icon={ClipboardCheck}
         title="Calidad"
         description="Registros de calidad por día, turno y cliente con hoja de 20 muestras."
-        actions={<NewRecordDialog />}
+        actions={<NewRecordDialog materials={materials} />}
       />
 
       {/* Navegación por mes/año */}
@@ -163,6 +171,7 @@ export default async function CalidadPage({
                   <TH>Fecha</TH>
                   <TH>Turno</TH>
                   <TH>Cliente</TH>
+                  <TH>Producto</TH>
                   <TH className="text-right">Muestras</TH>
                   <TH className="text-right">Densidad Prom.</TH>
                   <TH>Estado</TH>
@@ -177,6 +186,7 @@ export default async function CalidadPage({
                     shift: s.shift,
                     client: s.client,
                     notes: s.notes,
+                    materialId: s.materialId,
                     samples: records[i].samples.map((sm) => ({
                       index: sm.index,
                       density: sm.density,
@@ -195,6 +205,7 @@ export default async function CalidadPage({
                       </TD>
                       <TD>{s.shift ?? "—"}</TD>
                       <TD>{s.client ?? "—"}</TD>
+                      <TD>{s.materialName ?? "—"}</TD>
                       <TD className="text-right tabular-nums">
                         {s.sampleCount}
                       </TD>
@@ -212,7 +223,9 @@ export default async function CalidadPage({
                         <div className="flex items-center justify-end gap-1">
                           <SampleEditorDialog
                             record={editorData}
-                            range={range}
+                            ranges={ranges}
+                            materials={materials}
+                            rangesByMaterial={rangesByMaterial}
                           />
                           <DeleteRecordButton id={s.id} />
                         </div>

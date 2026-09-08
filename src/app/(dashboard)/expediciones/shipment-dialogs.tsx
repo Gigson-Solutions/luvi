@@ -122,6 +122,15 @@ export function NewShipmentDialog({
           </div>
 
           <div>
+            <Label htmlFor="orderNumber">Nº de pedido del comprador</Label>
+            <Input
+              id="orderNumber"
+              name="orderNumber"
+              placeholder="Opcional · sale en el packing list"
+            />
+          </div>
+
+          <div>
             <Label htmlFor="notes">Notas</Label>
             <Textarea id="notes" name="notes" />
           </div>

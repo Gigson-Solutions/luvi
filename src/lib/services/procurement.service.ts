@@ -198,7 +198,22 @@ export async function getProcurementStats(): Promise<ProcurementStats> {
   };
 }
 
-export interface CreatePurchaseOrderInput {
+/**
+ * Costes del pedido, cada uno en su unidad natural (€/t, €/contenedor o
+ * €/embarque). Todos opcionales y editables después de guardar el pedido.
+ */
+export interface PurchaseOrderCosts {
+  /** PRECIO DE LA MERCANCÍA (€/t). Si no viene se deriva de totalPrice. */
+  pricePerTon?: number | null;
+  oceanFreightPerContainer?: number | null;
+  arrivalCostsPerContainer?: number | null;
+  arrivalCostsPerShipment?: number | null;
+  deliveryTransportPerContainer?: number | null;
+  additionalCostsPerShipment?: number | null;
+  customsDuties?: number | null;
+}
+
+export interface CreatePurchaseOrderInput extends PurchaseOrderCosts {
   supplierId: string;
   materialId?: string;
   orderedTons: number;
@@ -207,6 +222,39 @@ export interface CreatePurchaseOrderInput {
   /** Precio total del pedido (€). Deriva pricePerTon = totalPrice / orderedTons. */
   totalPrice?: number;
   notes?: string;
+}
+
+/** Normaliza los costes del pedido a un objeto listo para Prisma. */
+function costsData(input: PurchaseOrderCosts): {
+  oceanFreightPerContainer: number | null;
+  arrivalCostsPerContainer: number | null;
+  arrivalCostsPerShipment: number | null;
+  deliveryTransportPerContainer: number | null;
+  additionalCostsPerShipment: number | null;
+  customsDuties: number | null;
+} {
+  return {
+    oceanFreightPerContainer: input.oceanFreightPerContainer ?? null,
+    arrivalCostsPerContainer: input.arrivalCostsPerContainer ?? null,
+    arrivalCostsPerShipment: input.arrivalCostsPerShipment ?? null,
+    deliveryTransportPerContainer: input.deliveryTransportPerContainer ?? null,
+    additionalCostsPerShipment: input.additionalCostsPerShipment ?? null,
+    customsDuties: input.customsDuties ?? null,
+  };
+}
+
+/**
+ * Precio de la mercancía por tonelada: el tecleado si viene, y si no el
+ * derivado del precio total (totalPrice / toneladas, 4 decimales).
+ */
+function resolvePricePerTon(
+  input: PurchaseOrderCosts & { totalPrice?: number | null; orderedTons: number },
+): number | null {
+  if (input.pricePerTon != null) return input.pricePerTon;
+  if (input.totalPrice != null && input.orderedTons > 0) {
+    return Math.round((input.totalPrice / input.orderedTons) * 10000) / 10000;
+  }
+  return null;
 }
 
 /** Genera el nº de PO con formato PO-YYYYMMDD-NNN (secuencial por día). */
@@ -229,10 +277,6 @@ export async function createPurchaseOrder(
   input: CreatePurchaseOrderInput,
 ): Promise<PurchaseOrderWithShipments> {
   const poNumber = await generatePoNumber();
-  const pricePerTon =
-    input.totalPrice != null && input.orderedTons > 0
-      ? Math.round((input.totalPrice / input.orderedTons) * 10000) / 10000
-      : null;
   return prisma.purchaseOrder.create({
     data: {
       poNumber,
@@ -241,13 +285,76 @@ export async function createPurchaseOrder(
       orderedTons: input.orderedTons,
       originPort: input.originPort ?? null,
       totalPrice: input.totalPrice ?? null,
-      pricePerTon,
+      pricePerTon: resolvePricePerTon(input),
       notes: input.notes ?? null,
+      ...costsData(input),
     },
     include: {
       supplier: true,
       providerShipments: { include: { containers: true } },
     },
+  });
+}
+
+export interface UpdatePurchaseOrderInput extends CreatePurchaseOrderInput {
+  id: string;
+}
+
+/**
+ * Edita un pedido ya creado: datos de cabecera y todos sus costes. El nº de PO
+ * no cambia. El estado se deja como está (se corrige aparte).
+ */
+export async function updatePurchaseOrder(
+  input: UpdatePurchaseOrderInput,
+): Promise<PurchaseOrderWithShipments> {
+  const order = await prisma.purchaseOrder.update({
+    where: { id: input.id },
+    data: {
+      supplierId: input.supplierId,
+      materialId: input.materialId ?? null,
+      orderedTons: input.orderedTons,
+      originPort: input.originPort ?? null,
+      totalPrice: input.totalPrice ?? null,
+      pricePerTon: resolvePricePerTon(input),
+      notes: input.notes ?? null,
+      ...costsData(input),
+    },
+    include: {
+      supplier: true,
+      providerShipments: { include: { containers: true } },
+    },
+  });
+  // Cambiar las toneladas pedidas puede cambiar el estado (p. ej. pasa a
+  // COMPLETADA), salvo que el estado esté fijado a mano.
+  await recomputeOrderStatus(order.id);
+  return order;
+}
+
+/**
+ * Fija el estado del pedido a mano (avanzar o retroceder). A partir de aquí el
+ * estado deja de recalcularse solo; se puede devolver al automático con
+ * `automatic = true`.
+ */
+export async function setPurchaseOrderStatus(
+  id: string,
+  status: PurchaseOrderStatus,
+  automatic = false,
+): Promise<{ id: string; status: PurchaseOrderStatus }> {
+  if (automatic) {
+    await prisma.purchaseOrder.update({
+      where: { id },
+      data: { statusManual: false },
+    });
+    await recomputeOrderStatus(id);
+    return prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, status: true },
+    });
+  }
+  return prisma.purchaseOrder.update({
+    where: { id },
+    data: { status, statusManual: true },
+    select: { id: true, status: true },
   });
 }
 
@@ -355,7 +462,14 @@ async function recomputeOrderStatus(purchaseOrderId: string): Promise<void> {
     where: { id: purchaseOrderId },
     include: { providerShipments: true },
   });
-  if (!order || order.status === PurchaseOrderStatus.CANCELADA) return;
+  // Un estado corregido a mano manda sobre el automático.
+  if (
+    !order ||
+    order.statusManual ||
+    order.status === PurchaseOrderStatus.CANCELADA
+  ) {
+    return;
+  }
 
   const sentKg = order.providerShipments.reduce(
     (acc, s) => acc + (s.weightKg ?? 0),
@@ -385,6 +499,157 @@ async function recomputeOrderStatus(purchaseOrderId: string): Promise<void> {
       data: { status },
     });
   }
+}
+
+export interface UpdateShipmentContainerInput extends ShipmentContainerInput {
+  /** Id del contenedor existente; sin él, se crea uno nuevo. */
+  id?: string;
+}
+
+export interface UpdateShipmentInput {
+  id: string;
+  departureDate?: Date;
+  etaValencia: Date;
+  etaPlanta: Date;
+  containers: UpdateShipmentContainerInput[];
+  notes?: string;
+}
+
+/**
+ * Edita un envío ya creado y arrastra los datos dependientes: los contenedores
+ * (alta, edición y baja), el peso total del envío y la fecha prevista de llegada
+ * que ven en Recepciones. No se borra un contenedor ya pesado o con sacas: eso
+ * sería deshacer una recepción consolidada.
+ */
+export async function updateProviderShipment(
+  input: UpdateShipmentInput,
+): Promise<ShipmentWithOrder> {
+  const totalWeightKg = input.containers.reduce(
+    (acc, c) => acc + (c.weight ?? 0),
+    0,
+  );
+  const hasWeights = input.containers.some((c) => c.weight != null);
+
+  const shipment = await prisma.$transaction(async (tx) => {
+    const existing = await tx.providerShipment.findUniqueOrThrow({
+      where: { id: input.id },
+      include: {
+        containers: { include: { _count: { select: { sacks: true } } } },
+      },
+    });
+
+    await tx.providerShipment.update({
+      where: { id: input.id },
+      data: {
+        billOfLading: input.containers[0]?.billOfLading ?? null,
+        departureDate: input.departureDate ?? null,
+        etaValencia: input.etaValencia,
+        etaPlanta: input.etaPlanta,
+        weightKg: hasWeights ? totalWeightKg : null,
+        notes: input.notes ?? null,
+      },
+    });
+
+    const keptIds = new Set(
+      input.containers.map((c) => c.id).filter((id): id is string => !!id),
+    );
+    for (const c of existing.containers) {
+      if (keptIds.has(c.id)) continue;
+      if (c.actualWeight != null || c._count.sacks > 0) {
+        throw new Error(
+          `El contenedor ${c.reference} ya se ha recibido: no se puede quitar del envío.`,
+        );
+      }
+      await tx.container.delete({ where: { id: c.id } });
+    }
+
+    // Proveedor y material heredados del pedido, para los contenedores nuevos.
+    const order = existing.purchaseOrderId
+      ? await tx.purchaseOrder.findUniqueOrThrow({
+          where: { id: existing.purchaseOrderId },
+          select: { supplierId: true, materialId: true },
+        })
+      : null;
+
+    for (const c of input.containers) {
+      const data = {
+        reference: c.reference,
+        billOfLading: c.billOfLading,
+        expectedWeight: c.weight ?? null,
+        // La fecha prevista de recepción sigue a la ETA a planta del envío.
+        estimatedArrival: input.etaPlanta,
+      };
+      if (c.id) {
+        await tx.container.update({ where: { id: c.id }, data });
+        continue;
+      }
+      if (!order) {
+        throw new Error(
+          "No se pueden añadir contenedores a un envío sin pedido asociado.",
+        );
+      }
+      await tx.container.create({
+        data: {
+          ...data,
+          supplierId: order.supplierId,
+          materialId: order.materialId,
+          providerShipmentId: existing.id,
+        },
+      });
+    }
+
+    return tx.providerShipment.findUniqueOrThrow({
+      where: { id: input.id },
+      include: {
+        purchaseOrder: { include: { supplier: true } },
+        containers: true,
+      },
+    });
+  });
+
+  if (shipment.purchaseOrderId)
+    await recomputeOrderStatus(shipment.purchaseOrderId);
+  return shipment;
+}
+
+/**
+ * Fija la etapa de tránsito de un envío, hacia delante o hacia atrás. Ninguna
+ * llegada es irreversible: volver a MARITIMO limpia las dos fechas de llegada.
+ */
+export async function setShipmentStage(
+  shipmentId: string,
+  stage: TransitStage,
+): Promise<ShipmentWithOrder> {
+  const now = new Date();
+  const existing = await prisma.providerShipment.findUniqueOrThrow({
+    where: { id: shipmentId },
+    select: { arrivedValencia: true, arrivedPlanta: true },
+  });
+
+  const data =
+    stage === "MARITIMO"
+      ? { arrivedValencia: null, arrivedPlanta: null }
+      : stage === "VALENCIA"
+        ? {
+            arrivedValencia: existing.arrivedValencia ?? now,
+            arrivedPlanta: null,
+          }
+        : {
+            arrivedValencia: existing.arrivedValencia ?? now,
+            arrivedPlanta: existing.arrivedPlanta ?? now,
+          };
+
+  const updated = await prisma.providerShipment.update({
+    where: { id: shipmentId },
+    data,
+    include: {
+      purchaseOrder: { include: { supplier: true } },
+      containers: true,
+    },
+  });
+  if (updated.purchaseOrderId)
+    await recomputeOrderStatus(updated.purchaseOrderId);
+  return updated;
 }
 
 /** Marca el hito "Llegado a Valencia" en un envío. */

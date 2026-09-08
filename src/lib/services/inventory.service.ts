@@ -16,6 +16,57 @@ import { SackStatus, ConsumableType } from "@prisma/client";
 
 const SIN_PROVEEDOR = "Sin proveedor";
 
+/**
+ * Filtros de la página de Inventario. Cada criterio admite VARIAS opciones y se
+ * combinan entre sí (AND entre criterios, OR dentro de cada uno). Una lista
+ * vacía significa "todas las opciones".
+ */
+export interface InventoryFilters {
+  supplierIds: string[];
+  warehouseIds: string[];
+  materialIds: string[];
+}
+
+export const EMPTY_FILTERS: InventoryFilters = {
+  supplierIds: [],
+  warehouseIds: [],
+  materialIds: [],
+};
+
+/** true si el valor pasa el criterio (criterio vacío = no filtra). */
+function passes(selected: string[], value: string | null | undefined): boolean {
+  if (selected.length === 0) return true;
+  return value != null && selected.includes(value);
+}
+
+export interface InventoryFilterOptions {
+  suppliers: { id: string; name: string }[];
+  warehouses: { id: string; name: string }[];
+  materials: { id: string; name: string }[];
+}
+
+/** Opciones disponibles en cada filtro del inventario. */
+export async function getInventoryFilterOptions(): Promise<InventoryFilterOptions> {
+  const [suppliers, warehouses, materials] = await Promise.all([
+    prisma.supplier.findMany({
+      where: { active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.warehouse.findMany({
+      where: { active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.material.findMany({
+      where: { active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  return { suppliers, warehouses, materials };
+}
+
 const OUTPUT_STATUSES: SackStatus[] = [
   SackStatus.PRODUCTO_TERMINADO,
   SackStatus.SUBPRODUCTO,
@@ -121,41 +172,55 @@ export interface ProductionStats {
  * frecuente. Aproximación: un lote puede mezclar proveedores; nos quedamos con
  * el mayoritario.
  */
-async function getLotOriginSuppliers(): Promise<Map<string, string>> {
+async function getLotOriginSuppliers(): Promise<
+  Map<string, { name: string; id: string | null }>
+> {
   const inputs = await prisma.transformationInput.findMany({
     select: {
       transformation: { select: { lotId: true } },
       sack: {
         select: {
-          container: { select: { supplier: { select: { name: true } } } },
+          container: {
+            select: { supplier: { select: { id: true, name: true } } },
+          },
         },
       },
     },
   });
 
-  const tally = new Map<string, Map<string, number>>();
+  const tally = new Map<string, Map<string, { id: string | null; n: number }>>();
   for (const i of inputs) {
     const lotId = i.transformation.lotId;
     const provider = i.sack.container?.supplier.name ?? SIN_PROVEEDOR;
-    const perLot = tally.get(lotId) ?? new Map<string, number>();
-    perLot.set(provider, (perLot.get(provider) ?? 0) + 1);
+    const supplierId = i.sack.container?.supplier.id ?? null;
+    const perLot = tally.get(lotId) ?? new Map();
+    const cur = perLot.get(provider) ?? { id: supplierId, n: 0 };
+    cur.n += 1;
+    perLot.set(provider, cur);
     tally.set(lotId, perLot);
   }
 
-  const dominant = new Map<string, string>();
+  const dominant = new Map<string, { name: string; id: string | null }>();
   for (const [lotId, perLot] of tally) {
-    const top = [...perLot.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (top) dominant.set(lotId, top[0]);
+    const top = [...perLot.entries()].sort((a, b) => b[1].n - a[1].n)[0];
+    if (top) dominant.set(lotId, { name: top[0], id: top[1].id });
   }
   return dominant;
 }
 
 /** Tarjetas por tipo, desglose por proveedor de origen e histórico semanal. */
-export async function getProductionStats(): Promise<ProductionStats> {
+export async function getProductionStats(
+  filters: InventoryFilters = EMPTY_FILTERS,
+): Promise<ProductionStats> {
   const weeks = lastNWeeks(5);
   const [sacks, originByLot] = await Promise.all([
     prisma.sack.findMany({
-      where: { status: { in: OUTPUT_STATUSES } },
+      where: {
+        status: { in: OUTPUT_STATUSES },
+        ...(filters.materialIds.length > 0
+          ? { materialId: { in: filters.materialIds } }
+          : {}),
+      },
       select: {
         status: true,
         weight: true,
@@ -192,9 +257,10 @@ export async function getProductionStats(): Promise<ProductionStats> {
   for (const s of sacks) {
     const key = outputKey(s.status);
     if (!key) continue;
-    const provider = s.lotId
-      ? (originByLot.get(s.lotId) ?? SIN_PROVEEDOR)
-      : SIN_PROVEEDOR;
+    const origin = s.lotId ? originByLot.get(s.lotId) : undefined;
+    const provider = origin?.name ?? SIN_PROVEEDOR;
+    // El proveedor de una saca de salida es el de origen de su lote.
+    if (!passes(filters.supplierIds, origin?.id)) continue;
 
     totals[key].count += 1;
     totals[key].weightKg += s.weight;
@@ -254,7 +320,9 @@ export interface ConsumptionStats {
  * Sacas consumidas (entradas a tolva registradas en TransformationInput),
  * desglosadas por proveedor de material + histórico semanal por enteredAt.
  */
-export async function getConsumptionStats(): Promise<ConsumptionStats> {
+export async function getConsumptionStats(
+  filters: InventoryFilters = EMPTY_FILTERS,
+): Promise<ConsumptionStats> {
   const weeks = lastNWeeks(5);
   const inputs = await prisma.transformationInput.findMany({
     select: {
@@ -262,7 +330,11 @@ export async function getConsumptionStats(): Promise<ConsumptionStats> {
       sack: {
         select: {
           weight: true,
-          container: { select: { supplier: { select: { name: true } } } },
+          materialId: true,
+          zone: { select: { warehouseId: true } },
+          container: {
+            select: { supplier: { select: { id: true, name: true } } },
+          },
         },
       },
     },
@@ -280,6 +352,13 @@ export async function getConsumptionStats(): Promise<ConsumptionStats> {
   const weekProviderTally = weeks.map(() => new Map<string, number>());
 
   for (const i of inputs) {
+    if (
+      !passes(filters.supplierIds, i.sack.container?.supplier.id) ||
+      !passes(filters.warehouseIds, i.sack.zone?.warehouseId) ||
+      !passes(filters.materialIds, i.sack.materialId)
+    ) {
+      continue;
+    }
     const provider = i.sack.container?.supplier.name ?? SIN_PROVEEDOR;
     const weight = i.sack.weight;
 
@@ -326,9 +405,22 @@ export interface ProviderLocation {
  * Sacas EN_ALMACEN agrupadas por proveedor de material y, dentro de cada uno,
  * por almacén (nombre de la planta: Montalbos / La Gineta).
  */
-export async function getLocationStats(): Promise<ProviderLocation[]> {
+export async function getLocationStats(
+  filters: InventoryFilters = EMPTY_FILTERS,
+): Promise<ProviderLocation[]> {
   const sacks = await prisma.sack.findMany({
-    where: { status: SackStatus.EN_ALMACEN },
+    where: {
+      status: SackStatus.EN_ALMACEN,
+      ...(filters.materialIds.length > 0
+        ? { materialId: { in: filters.materialIds } }
+        : {}),
+      ...(filters.warehouseIds.length > 0
+        ? { zone: { is: { warehouseId: { in: filters.warehouseIds } } } }
+        : {}),
+      ...(filters.supplierIds.length > 0
+        ? { container: { is: { supplierId: { in: filters.supplierIds } } } }
+        : {}),
+    },
     select: {
       weight: true,
       container: { select: { supplier: { select: { name: true } } } },
@@ -419,16 +511,37 @@ function tonsToSacks(tons: number): number {
  *  - Comprado (no enviado): toneladas pedidas en POs abiertas pendientes de enviar.
  * Conecta con Aprovisionamiento. 1 saca ≈ 1 t donde hace falta aproximar.
  */
-export async function getExpectedStock(): Promise<ExpectedStock> {
+export async function getExpectedStock(
+  filters: InventoryFilters = EMPTY_FILTERS,
+): Promise<ExpectedStock> {
   const [current, orders] = await Promise.all([
     prisma.sack.findMany({
-      where: { status: SackStatus.EN_ALMACEN },
+      where: {
+        status: SackStatus.EN_ALMACEN,
+        ...(filters.materialIds.length > 0
+          ? { materialId: { in: filters.materialIds } }
+          : {}),
+        ...(filters.warehouseIds.length > 0
+          ? { zone: { is: { warehouseId: { in: filters.warehouseIds } } } }
+          : {}),
+        ...(filters.supplierIds.length > 0
+          ? { container: { is: { supplierId: { in: filters.supplierIds } } } }
+          : {}),
+      },
       select: {
         weight: true,
         container: { select: { supplier: { select: { name: true } } } },
       },
     }),
     prisma.purchaseOrder.findMany({
+      where: {
+        ...(filters.supplierIds.length > 0
+          ? { supplierId: { in: filters.supplierIds } }
+          : {}),
+        ...(filters.materialIds.length > 0
+          ? { materialId: { in: filters.materialIds } }
+          : {}),
+      },
       select: {
         orderedTons: true,
         supplier: { select: { name: true } },

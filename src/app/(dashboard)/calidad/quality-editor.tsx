@@ -36,13 +36,27 @@ import {
   SAMPLE_MEASURE_UNITS,
   SAMPLE_MEASURE_COLORS,
   SAMPLES_PER_RECORD,
-  densityStatus,
-  type DensityRange,
+  sampleStatus,
+  type QualityRanges,
   type SampleMeasureKey,
   type SampleStatus,
 } from "./quality-thresholds";
 
 const INITIAL: ActionState = { ok: false };
+
+/** Producto seleccionable en un registro de calidad. */
+export interface MaterialOption {
+  id: string;
+  name: string;
+}
+
+/** Texto del rango OK de densidad, para la cabecera del editor. */
+function densityLabel(ranges: QualityRanges): string {
+  const { min, max } = ranges.density;
+  if (min == null && max == null) return "sin límite";
+  if (min != null && max != null) return `${min}–${max} g`;
+  return min != null ? `≥ ${min} g` : `≤ ${max} g`;
+}
 
 const MONTHS = [
   "Enero",
@@ -120,7 +134,11 @@ export function MonthYearNav({
 
 // ─── Diálogo: nuevo registro ─────────────────────────────────────────────────────
 
-export function NewRecordDialog(): React.JSX.Element {
+export function NewRecordDialog({
+  materials,
+}: {
+  materials: MaterialOption[];
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
@@ -165,6 +183,20 @@ export function NewRecordDialog(): React.JSX.Element {
             </div>
           </div>
           <div>
+            <Label htmlFor="materialId">Producto</Label>
+            <Select id="materialId" name="materialId" defaultValue="">
+              <option value="">Sin producto (rangos generales)</option>
+              {materials.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Los rangos de calidad del producto se cargan solos en el análisis.
+            </p>
+          </div>
+          <div>
             <Label htmlFor="notes">Observaciones</Label>
             <Textarea id="notes" name="notes" />
           </div>
@@ -202,6 +234,7 @@ export interface EditorRecordData {
   shift: string | null;
   client: string | null;
   notes: string | null;
+  materialId: string | null;
   samples: EditorSampleData[];
 }
 
@@ -254,13 +287,23 @@ function StatusPill({ status }: { status: SampleStatus }): React.JSX.Element {
 
 export function SampleEditorDialog({
   record,
-  range,
+  ranges: generalRanges,
+  materials,
+  rangesByMaterial,
 }: {
   record: EditorRecordData;
-  range: DensityRange;
+  /** Rangos generales, para registros sin producto asignado. */
+  ranges: QualityRanges;
+  materials: MaterialOption[];
+  /** Rangos ya resueltos de cada producto (propios → tipo → generales). */
+  rangesByMaterial: Record<string, QualityRanges>;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [materialId, setMaterialId] = useState(record.materialId ?? "");
   const [rows, setRows] = useState<RowState[]>(() => buildRows(record.samples));
+  // Al cambiar de producto, el OK/NOK de la rejilla se recalcula al momento.
+  const ranges =
+    (materialId ? rangesByMaterial[materialId] : undefined) ?? generalRanges;
   const [state, action] = useActionState(
     async (prev: ActionState, formData: FormData) => {
       const res = await saveRecordAction(prev, formData);
@@ -330,14 +373,30 @@ export function SampleEditorDialog({
       <DialogContent
         className="max-w-5xl"
         title={`Editar Registro · ${record.dateLabel}`}
-        description={`Estado OK si densidad ${range.min}–${range.max} g. Hasta 20 muestras.`}
+        description={`Estado OK si densidad ${densityLabel(ranges)} y el resto de parámetros dentro de rango. Hasta 20 muestras.`}
       >
         <form action={action} className="space-y-4">
           <input type="hidden" name="id" value={record.id} />
           <input type="hidden" name="samples" value={samplesJson} />
 
           {/* Cabecera */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div>
+              <Label htmlFor={`edit-material-${record.id}`}>Producto</Label>
+              <Select
+                id={`edit-material-${record.id}`}
+                name="materialId"
+                value={materialId}
+                onChange={(e) => setMaterialId(e.target.value)}
+              >
+                <option value="">Sin producto</option>
+                {materials.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
             <div>
               <Label htmlFor="edit-shift">Turno</Label>
               <Select
@@ -411,7 +470,8 @@ export function SampleEditorDialog({
               })}
             </div>
             <p className="mt-2 text-right text-xs text-[var(--color-muted)]">
-              Rango OK Densidad: {range.min}-{range.max}g
+              Rango OK Densidad: {densityLabel(ranges)}
+              {materialId ? " (rangos del producto)" : " (rangos generales)"}
             </p>
           </div>
 
@@ -445,7 +505,17 @@ export function SampleEditorDialog({
               </thead>
               <tbody>
                 {rows.map((row, idx) => {
-                  const status = densityStatus(parseNum(row.density), range);
+                  const status = sampleStatus(
+                    {
+                      density: parseNum(row.density),
+                      pvc: parseNum(row.pvc),
+                      cola: parseNum(row.cola),
+                      multicapas: parseNum(row.multicapas),
+                      metal: parseNum(row.metal),
+                      otros: parseNum(row.otros),
+                    },
+                    ranges,
+                  );
                   const rowTint =
                     status === "OK"
                       ? tintBg("#22c55e", 9)

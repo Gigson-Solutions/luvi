@@ -102,3 +102,28 @@ export function densityStatus(
   if (density == null || Number.isNaN(density)) return "PENDIENTE";
   return density >= range.min && density <= range.max ? "OK" : "NOK";
 }
+
+/** Valores medibles de una muestra (los que se contrastan con los rangos). */
+export type SampleValues = Partial<Record<SampleMeasureKey, number | null>>;
+
+/**
+ * Estado de una muestra aplicando TODOS los rangos configurados, no solo la
+ * densidad: cualquier parámetro medido fuera de su min/max deja la muestra NOK.
+ * Sin densidad medida la muestra sigue PENDIENTE (es el parámetro de referencia
+ * de la hoja de calidad).
+ */
+export function sampleStatus(
+  values: SampleValues,
+  ranges: QualityRanges,
+): SampleStatus {
+  const density = values.density;
+  if (density == null || Number.isNaN(density)) return "PENDIENTE";
+  for (const key of SAMPLE_MEASURE_KEYS) {
+    const value = values[key];
+    if (value == null || Number.isNaN(value)) continue;
+    const { min, max } = ranges[key];
+    if (min != null && value < min) return "NOK";
+    if (max != null && value > max) return "NOK";
+  }
+  return "OK";
+}

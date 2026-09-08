@@ -34,9 +34,14 @@ import {
 import {
   createMaterialCategory,
   setMaterialCategoryActive,
+  setMaterialCategoryQualityRangeSet,
   seedDefaultMaterialCategories,
   deriveMaterialKind,
 } from "@/lib/services/material.service";
+import {
+  saveQualityRangeSet,
+  deleteQualityRangeSet,
+} from "@/lib/services/quality.service";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
 
@@ -58,7 +63,28 @@ const materialSchema = z.object({
   code: z.string().min(1, "El código es obligatorio"),
   description: z.string().optional(),
   categoryId: z.string().optional(),
+  qualityRangeSetId: z.string().optional(),
 });
+
+/**
+ * Consumibles predeterminados marcados en el formulario del producto. Cada uno
+ * llega como `cons_<id>` (marcado) + `consQty_<id>` (cantidad por saca).
+ */
+function readDefaultConsumables(
+  formData: FormData,
+): { consumableId: string; quantity: number }[] {
+  const items: { consumableId: string; quantity: number }[] = [];
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("cons_") || value === "") continue;
+    const consumableId = key.slice("cons_".length);
+    const qty = Number(formData.get(`consQty_${consumableId}`) ?? 1);
+    items.push({
+      consumableId,
+      quantity: Number.isFinite(qty) && qty > 0 ? Math.trunc(qty) : 1,
+    });
+  }
+  return items;
+}
 
 export async function saveMaterialAction(
   _prev: ActionState,
@@ -73,11 +99,14 @@ export async function saveMaterialAction(
         error: parsed.error.issues[0]?.message ?? "Datos inválidos",
       };
     }
-    const { id, description, categoryId, ...rest } = parsed.data;
+    const { id, description, categoryId, qualityRangeSetId, ...rest } =
+      parsed.data;
     const input = {
       ...rest,
       description: description || undefined,
       categoryId: categoryId || undefined,
+      qualityRangeSetId: qualityRangeSetId || undefined,
+      defaultConsumables: readDefaultConsumables(formData),
     };
     // Crea o actualiza según venga id, y usa el id resultante para la traza.
     const result = id
@@ -104,6 +133,7 @@ export async function saveMaterialAction(
 
 const materialCategorySchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio"),
+  qualityRangeSetId: z.string().optional(),
 });
 
 export async function saveMaterialCategoryAction(
@@ -127,6 +157,7 @@ export async function saveMaterialCategoryAction(
     const result = await createMaterialCategory({
       name: parsed.data.name,
       kind,
+      qualityRangeSetId: parsed.data.qualityRangeSetId || null,
     });
     await logAudit({
       userId: actor.id,
@@ -534,6 +565,111 @@ export async function saveQualityRangesAction(
     return { ok: true, message: "Rangos de calidad guardados" };
   } catch (e) {
     return fail(e, "Error al guardar los rangos de calidad");
+  }
+}
+
+// ─── Calidad (conjuntos de rangos por producto/categoría) ────────────────────────
+
+/** Lee los 6 pares min/max del formulario y valida que min ≤ max. */
+function readRangesFromForm(
+  formData: FormData,
+): Record<SampleMeasureKey, ParamRange> | { error: string } {
+  const ranges = {} as Record<SampleMeasureKey, ParamRange>;
+  for (const key of SAMPLE_MEASURE_KEYS) {
+    const min = parseOptionalNumber(formData.get(`${key}_min`));
+    const max = parseOptionalNumber(formData.get(`${key}_max`));
+    if (min === "invalid" || max === "invalid") {
+      return { error: "Los rangos deben ser numéricos" };
+    }
+    if (min != null && max != null && min > max) {
+      return { error: "El mínimo no puede ser mayor que el máximo" };
+    }
+    ranges[key] = { min, max };
+  }
+  return ranges;
+}
+
+/** Crea o actualiza un conjunto de rangos de calidad reutilizable. */
+export async function saveQualityRangeSetAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const id = String(formData.get("id") ?? "");
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return { ok: false, error: "El nombre es obligatorio" };
+    const ranges = readRangesFromForm(formData);
+    if ("error" in ranges) return { ok: false, error: ranges.error };
+
+    const set = await saveQualityRangeSet({
+      id: id || undefined,
+      name,
+      active: formData.get("active") !== "false",
+      ranges,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: id ? "UPDATE_QUALITY_RANGE_SET" : "CREATE_QUALITY_RANGE_SET",
+      entity: "QualityRangeSet",
+      entityId: set.id,
+      payload: { name },
+    });
+    revalidatePath(REVALIDATE);
+    revalidatePath("/calidad");
+    return { ok: true, message: id ? "Conjunto guardado" : "Conjunto creado" };
+  } catch (e) {
+    return fail(e, "Error al guardar el conjunto de rangos");
+  }
+}
+
+/** Borra un conjunto; los productos/categorías que lo usaban se quedan sin él. */
+export async function deleteQualityRangeSetAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const id = String(formData.get("id") ?? "");
+    if (!id) return { ok: false, error: "Conjunto inválido" };
+    await deleteQualityRangeSet(id);
+    await logAudit({
+      userId: actor.id,
+      action: "DELETE_QUALITY_RANGE_SET",
+      entity: "QualityRangeSet",
+      entityId: id,
+    });
+    revalidatePath(REVALIDATE);
+    revalidatePath("/calidad");
+    return { ok: true, message: "Conjunto eliminado" };
+  } catch (e) {
+    return fail(e, "Error al eliminar el conjunto de rangos");
+  }
+}
+
+/** Asigna (o quita) el conjunto de rangos de un tipo de material. */
+export async function setCategoryRangeSetAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const id = String(formData.get("id") ?? "");
+    const setId = String(formData.get("qualityRangeSetId") ?? "");
+    if (!id) return { ok: false, error: "Tipo de material inválido" };
+    await setMaterialCategoryQualityRangeSet(id, setId || null);
+    await logAudit({
+      userId: actor.id,
+      action: "UPDATE_MATERIAL_CATEGORY",
+      entity: "MaterialCategory",
+      entityId: id,
+      payload: { qualityRangeSetId: setId || null },
+    });
+    revalidatePath(REVALIDATE);
+    revalidatePath("/calidad");
+    return { ok: true, message: "Rangos del tipo actualizados" };
+  } catch (e) {
+    return fail(e, "Error al asignar los rangos");
   }
 }
 

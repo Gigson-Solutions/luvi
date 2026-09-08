@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { SackStatusBadge } from "@/components/ui/status-badge";
 import { QrCode } from "@/components/qr/qr-code";
-import { formatKg } from "@/lib/utils";
+import { formatKg, formatSackNumber } from "@/lib/utils";
 import {
   findSackByQrOrId,
   listRecentSacks,
@@ -67,7 +67,9 @@ function toPrintJob(sack: QrSackDetail): QrPrintJob {
     weight: sack.weight,
     material: sack.materialName,
     warehouse: sack.warehouseName ?? "",
-    batchNumber: sack.lotNumber ?? sack.batchNumber ?? undefined,
+    batchNumber: sack.lotNumber
+      ? formatSackNumber(sack.lotSequence, sack.lotNumber)
+      : (sack.batchNumber ?? undefined),
     codigoProducto: sack.materialCode,
     tipoProducto: sack.tipoProducto,
     contenedor: sack.containerReference ?? undefined,
@@ -146,7 +148,10 @@ function SackPanel({ sack }: { sack: QrSackDetail }): React.JSX.Element {
               <LabelRow label="ID" value={sack.id} mono />
               <LabelRow label="Material" value={sack.materialName} />
               <LabelRow label="Peso" value={formatKg(sack.weight)} />
-              <LabelRow label="Lote" value={sack.lotNumber ?? "—"} />
+              <LabelRow
+                label="Lote"
+                value={formatSackNumber(sack.lotSequence, sack.lotNumber)}
+              />
             </dl>
           </div>
           <QrPrintButton job={toPrintJob(sack)} />
@@ -170,8 +175,11 @@ function SackPanel({ sack }: { sack: QrSackDetail }): React.JSX.Element {
               value={<SackStatusBadge status={sack.status} />}
             />
             <Field label="Peso" value={formatKg(sack.weight)} />
-            <Field label="Lote" value={sack.lotNumber} />
-            <Field label="Nº saca" value={sack.batchNumber} />
+            <Field
+              label="Lote"
+              value={formatSackNumber(sack.lotSequence, sack.lotNumber)}
+            />
+            <Field label="Nº saca (contenedor)" value={sack.batchNumber} />
             <Field label="Almacén" value={sack.warehouseName} />
             <Field label="Ubicación" value={sack.zoneName} />
             <Field label="Contenedor" value={sack.containerReference} />

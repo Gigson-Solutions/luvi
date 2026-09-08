@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PurchaseOrderStatusBadge } from "@/components/ui/status-badge";
-import { formatKg, formatDate, cn } from "@/lib/utils";
+import { formatKg, formatDate, formatEuro, cn } from "@/lib/utils";
 import {
   listPurchaseOrdersPivot,
   getProcurementStats,
@@ -25,7 +25,11 @@ import {
 } from "@/lib/services/procurement.service";
 import {
   NewPurchaseOrderDialog,
+  EditPurchaseOrderDialog,
+  OrderStatusSelect,
   NewShipmentDialog,
+  EditShipmentDialog,
+  ShipmentStageSelect,
   TransitMilestoneButton,
 } from "./procurement-dialogs";
 
@@ -117,6 +121,15 @@ function TonChip({
   );
 }
 
+/** Fecha en formato yyyy-MM-dd para los inputs date del formulario de edición. */
+function toDateInput(date: Date | null): string {
+  if (!date) return "";
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 /** Tarjeta de un envío dentro del desplegable de la orden. */
 function ShipmentCard({
   shipment,
@@ -124,6 +137,21 @@ function ShipmentCard({
   shipment: PurchaseOrderPivot["order"]["providerShipments"][number];
 }): React.JSX.Element {
   const stage = shipmentStage(shipment);
+  const editable = {
+    id: shipment.id,
+    departureDate: toDateInput(shipment.departureDate),
+    etaValencia: toDateInput(shipment.etaValencia),
+    etaPlanta: toDateInput(shipment.etaPlanta),
+    notes: shipment.notes ?? "",
+    containers: shipment.containers.map((c) => ({
+      id: c.id,
+      billOfLading: c.billOfLading ?? "",
+      reference: c.reference,
+      weight: c.expectedWeight != null ? String(c.expectedWeight) : "",
+      // Un contenedor ya pesado no se puede quitar del envío.
+      locked: c.actualWeight != null,
+    })),
+  };
   const delayed = isShipmentDelayed(shipment);
   const shipmentTons =
     shipment.weightKg != null ? shipment.weightKg / 1000 : null;
@@ -212,7 +240,11 @@ function ShipmentCard({
           </p>
         </div>
       </div>
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+        <EditShipmentDialog shipment={editable} />
+        {/* La etapa se puede corregir en los dos sentidos: ninguna llegada es
+            irreversible. */}
+        <ShipmentStageSelect shipmentId={shipment.id} stage={stage} />
         {stage === "MARITIMO" && (
           <TransitMilestoneButton
             shipmentId={shipment.id}
@@ -222,17 +254,65 @@ function ShipmentCard({
         {stage === "VALENCIA" && (
           <TransitMilestoneButton shipmentId={shipment.id} milestone="planta" />
         )}
-        {stage === "PLANTA" && (
-          <span className="text-xs text-[var(--color-muted)]">Completado</span>
-        )}
       </div>
     </div>
   );
 }
 
+/** Costes del pedido con importe, para el resumen de la fila. */
+function orderCostLines(
+  order: PurchaseOrderPivot["order"],
+): { label: string; value: string }[] {
+  const lines: { label: string; value: string }[] = [];
+  const push = (
+    label: string,
+    amount: number | null,
+    unit: string,
+  ): void => {
+    if (amount == null) return;
+    lines.push({ label, value: `${formatEuro(amount)}${unit}` });
+  };
+  push("Mercancía", order.pricePerTon, "/t");
+  push("Flete marítimo", order.oceanFreightPerContainer, "/cont.");
+  push("Gastos de llegada", order.arrivalCostsPerContainer, "/cont.");
+  push("Gastos de llegada", order.arrivalCostsPerShipment, "/embarque");
+  push("Transporte de entrega", order.deliveryTransportPerContainer, "/cont.");
+  push("Gastos adicionales", order.additionalCostsPerShipment, "/embarque");
+  push("Aranceles", order.customsDuties, "");
+  return lines;
+}
+
 /** Orden de compra como fila desplegable con sus envíos (native <details>). */
-function OrderRow({ p }: { p: PurchaseOrderPivot }): React.JSX.Element {
+function OrderRow({
+  p,
+  suppliers,
+  materials,
+}: {
+  p: PurchaseOrderPivot;
+  suppliers: { id: string; name: string }[];
+  materials: { id: string; name: string }[];
+}): React.JSX.Element {
   const { order } = p;
+  const costLines = orderCostLines(order);
+  const editable = {
+    id: order.id,
+    poNumber: order.poNumber,
+    supplierId: order.supplierId,
+    materialId: order.materialId,
+    orderedTons: order.orderedTons,
+    originPort: order.originPort,
+    totalPrice: order.totalPrice,
+    pricePerTon: order.pricePerTon,
+    oceanFreightPerContainer: order.oceanFreightPerContainer,
+    arrivalCostsPerContainer: order.arrivalCostsPerContainer,
+    arrivalCostsPerShipment: order.arrivalCostsPerShipment,
+    deliveryTransportPerContainer: order.deliveryTransportPerContainer,
+    additionalCostsPerShipment: order.additionalCostsPerShipment,
+    customsDuties: order.customsDuties,
+    notes: order.notes,
+    status: order.status,
+    statusManual: order.statusManual,
+  };
   return (
     <details className="group rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 list-none">
@@ -297,6 +377,39 @@ function OrderRow({ p }: { p: PurchaseOrderPivot }): React.JSX.Element {
             accent="var(--color-warning)"
           />
         </div>
+
+        {/* Edición del pedido y corrección de su estado */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <EditPurchaseOrderDialog
+            order={editable}
+            suppliers={suppliers}
+            materials={materials}
+          />
+          <OrderStatusSelect
+            orderId={order.id}
+            status={order.status}
+            statusManual={order.statusManual}
+          />
+        </div>
+
+        {/* Costes del pedido */}
+        {costLines.length > 0 && (
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-hover)] p-3">
+            <p className="mb-2 text-xs font-medium text-[var(--color-foreground)]">
+              Costes del pedido
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+              {costLines.map((c, i) => (
+                <div key={`${c.label}-${i}`} className="text-xs">
+                  <span className="text-[var(--color-muted)]">{c.label}: </span>
+                  <span className="font-medium text-[var(--color-foreground)]">
+                    {c.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
@@ -437,7 +550,12 @@ export default async function AprovisionamientoPage({
       ) : (
         <div className="space-y-2">
           {pivot.map((p) => (
-            <OrderRow key={p.order.id} p={p} />
+            <OrderRow
+              key={p.order.id}
+              p={p}
+              suppliers={formData.suppliers}
+              materials={formData.materials}
+            />
           ))}
         </div>
       )}

@@ -12,6 +12,7 @@ import {
   Trash2,
   CheckCircle,
   AlertTriangle,
+  ScanLine,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -31,12 +32,27 @@ import {
   getLocationStats,
   getExpectedStock,
   getConsumablesStats,
+  getInventoryFilterOptions,
   type ProviderStat,
   type ExpectedProvider,
+  type InventoryFilters as InventoryFiltersType,
 } from "@/lib/services/inventory.service";
+import { InventoryFilters } from "./inventory-filters";
+import {
+  findOpenCount,
+  getCountDetail,
+  listInventoryCounts,
+} from "@/lib/services/inventory-count.service";
+import { listWarehouses } from "@/lib/services/config.service";
+import { InventoryCountPanel } from "./inventory-count-client";
 
 type Tab =
-  "produccion" | "consumido" | "ubicacion" | "esperado" | "consumibles";
+  | "produccion"
+  | "consumido"
+  | "ubicacion"
+  | "esperado"
+  | "consumibles"
+  | "recuento";
 
 const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
   { value: "produccion", label: "Producción", icon: Factory },
@@ -44,6 +60,7 @@ const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
   { value: "ubicacion", label: "Ubicación", icon: MapPin },
   { value: "esperado", label: "Esperado", icon: Ship },
   { value: "consumibles", label: "Consumibles", icon: Package },
+  { value: "recuento", label: "Recuento por escaneo", icon: ScanLine },
 ];
 
 const PROVIDER_COLORS = [
@@ -65,7 +82,8 @@ function isTab(v: string | undefined): v is Tab {
     v === "consumido" ||
     v === "ubicacion" ||
     v === "esperado" ||
-    v === "consumibles"
+    v === "consumibles" ||
+    v === "recuento"
   );
 }
 
@@ -207,8 +225,12 @@ function StockComparisonChart({
 
 // ─── Pestañas ────────────────────────────────────────────────────────────────
 
-async function ProduccionTab(): Promise<React.JSX.Element> {
-  const stats = await getProductionStats();
+async function ProduccionTab({
+  filters,
+}: {
+  filters: InventoryFiltersType;
+}): Promise<React.JSX.Element> {
+  const stats = await getProductionStats(filters);
   const chartData = [
     { label: "Prod. Term.", value: stats.pt.count },
     { label: "Subprod.", value: stats.subproducto.count },
@@ -382,8 +404,12 @@ async function ProduccionTab(): Promise<React.JSX.Element> {
   );
 }
 
-async function ConsumidoTab(): Promise<React.JSX.Element> {
-  const stats = await getConsumptionStats();
+async function ConsumidoTab({
+  filters,
+}: {
+  filters: InventoryFiltersType;
+}): Promise<React.JSX.Element> {
+  const stats = await getConsumptionStats(filters);
   const chartData = stats.byProvider.map((p) => ({
     label: p.provider,
     value: p.count,
@@ -492,8 +518,12 @@ async function ConsumidoTab(): Promise<React.JSX.Element> {
   );
 }
 
-async function UbicacionTab(): Promise<React.JSX.Element> {
-  const providers = await getLocationStats();
+async function UbicacionTab({
+  filters,
+}: {
+  filters: InventoryFiltersType;
+}): Promise<React.JSX.Element> {
+  const providers = await getLocationStats(filters);
   if (providers.length === 0) {
     return (
       <EmptyState
@@ -549,8 +579,12 @@ async function UbicacionTab(): Promise<React.JSX.Element> {
   );
 }
 
-async function EsperadoTab(): Promise<React.JSX.Element> {
-  const { totals, byProvider } = await getExpectedStock();
+async function EsperadoTab({
+  filters,
+}: {
+  filters: InventoryFiltersType;
+}): Promise<React.JSX.Element> {
+  const { totals, byProvider } = await getExpectedStock(filters);
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -809,13 +843,63 @@ async function ConsumiblesTab(): Promise<React.JSX.Element> {
   );
 }
 
+/**
+ * Recuento de inventario escaneando sacas: sesión en curso (si la hay) y
+ * histórico de recuentos con su resultado.
+ */
+async function RecuentoTab(): Promise<React.JSX.Element> {
+  const [open, warehouses, history] = await Promise.all([
+    findOpenCount(),
+    listWarehouses(),
+    listInventoryCounts(),
+  ]);
+  const openCount = open ? await getCountDetail(open.id) : null;
+  return (
+    <InventoryCountPanel
+      openCount={openCount}
+      warehouses={warehouses
+        .filter((w) => w.active)
+        .map((w) => ({ id: w.id, name: w.name }))}
+      history={history}
+    />
+  );
+}
+
+/** Un parámetro repetible de la URL siempre como lista de valores. */
+function asList(value: string | string[] | undefined): string[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 export default async function InventarioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    proveedor?: string | string[];
+    almacen?: string | string[];
+    producto?: string | string[];
+  }>;
 }): Promise<React.JSX.Element> {
-  const { tab } = await searchParams;
-  const activeTab: Tab = isTab(tab) ? tab : "produccion";
+  const params = await searchParams;
+  const activeTab: Tab = isTab(params.tab) ? params.tab : "produccion";
+
+  // Cada criterio admite varias opciones y todos se combinan entre sí.
+  const filters: InventoryFiltersType = {
+    supplierIds: asList(params.proveedor),
+    warehouseIds: asList(params.almacen),
+    materialIds: asList(params.producto),
+  };
+  const filterOptions = await getInventoryFilterOptions();
+
+  /** Mantiene los filtros activos al cambiar de pestaña. */
+  function tabHref(value: Tab): string {
+    const qs = new URLSearchParams({ tab: value });
+    for (const id of filters.supplierIds) qs.append("proveedor", id);
+    for (const id of filters.warehouseIds) qs.append("almacen", id);
+    for (const id of filters.materialIds) qs.append("producto", id);
+    return `/inventario?${qs.toString()}`;
+  }
 
   return (
     <div>
@@ -832,7 +916,7 @@ export default async function InventarioPage({
           return (
             <Link
               key={t.value}
-              href={`/inventario?tab=${t.value}`}
+              href={tabHref(t.value)}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap",
                 active
@@ -847,11 +931,17 @@ export default async function InventarioPage({
         })}
       </div>
 
-      {activeTab === "produccion" && <ProduccionTab />}
-      {activeTab === "consumido" && <ConsumidoTab />}
-      {activeTab === "ubicacion" && <UbicacionTab />}
-      {activeTab === "esperado" && <EsperadoTab />}
+      {/* Los filtros no aplican a Consumibles (no cuelgan de sacas). */}
+      {activeTab !== "consumibles" && activeTab !== "recuento" && (
+        <InventoryFilters options={filterOptions} />
+      )}
+
+      {activeTab === "produccion" && <ProduccionTab filters={filters} />}
+      {activeTab === "consumido" && <ConsumidoTab filters={filters} />}
+      {activeTab === "ubicacion" && <UbicacionTab filters={filters} />}
+      {activeTab === "esperado" && <EsperadoTab filters={filters} />}
       {activeTab === "consumibles" && <ConsumiblesTab />}
+      {activeTab === "recuento" && <RecuentoTab />}
     </div>
   );
 }

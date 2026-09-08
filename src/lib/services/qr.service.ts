@@ -38,6 +38,8 @@ export interface QrSackDetail {
   batchNumber: string | null;
   /** Nº de lote de producción (solo sacas de salida). */
   lotNumber: string | null;
+  /** Nº correlativo de la saca dentro de su lote; se muestra `N/LOTE`. */
+  lotSequence: number | null;
   containerReference: string | null;
   billOfLading: string | null;
   /** Fecha de recepción o producción, ya formateada (es-ES). */
@@ -103,6 +105,7 @@ export async function findSackByQrOrId(
     zoneName: sack.zone?.name ?? null,
     batchNumber: sack.batchNumber,
     lotNumber: sack.lot?.lotNumber ?? null,
+    lotSequence: sack.lotSequence,
     containerReference: sack.container?.reference ?? null,
     billOfLading: sack.container?.billOfLading ?? null,
     fecha,

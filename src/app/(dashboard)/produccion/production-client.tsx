@@ -14,7 +14,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SackStatusBadge } from "@/components/ui/status-badge";
 import { QrScanner } from "@/components/qr/qr-scanner";
 import { QrCode } from "@/components/qr/qr-code";
-import { formatKg } from "@/lib/utils";
+import { formatKg, formatEuro } from "@/lib/utils";
+import type { DefaultConsumable } from "@/lib/services/production.service";
 import {
   Dialog,
   DialogTrigger,
@@ -200,13 +201,23 @@ type OutputType = "PRODUCTO_TERMINADO" | "SUBPRODUCTO" | "RECHAZO";
 
 export function OutputSackDialog({
   materialsByType,
+  consumablesByMaterial,
 }: {
   materialsByType: Record<OutputType, Option[]>;
+  /** Consumibles predeterminados de cada producto (se cargan marcados). */
+  consumablesByMaterial: Record<string, DefaultConsumable[]>;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [outputType, setOutputType] =
     useState<OutputType>("PRODUCTO_TERMINADO");
+  const [materialId, setMaterialId] = useState("");
+  const [unchecked, setUnchecked] = useState<string[]>([]);
   const [weight, setWeight] = useState("");
+
+  const defaults = consumablesByMaterial[materialId] ?? [];
+  const consumableTotal = defaults
+    .filter((c) => !unchecked.includes(c.consumableId))
+    .reduce((sum, c) => sum + c.quantity * c.unitCost, 0);
   const [scaleMsg, setScaleMsg] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [created, setCreated] = useState<{
@@ -246,6 +257,8 @@ export function OutputSackDialog({
       setCreated(null);
       setWeight("");
       setScaleMsg(null);
+      setMaterialId("");
+      setUnchecked([]);
     }
   }
 
@@ -308,7 +321,11 @@ export function OutputSackDialog({
                 name="type"
                 required
                 value={outputType}
-                onChange={(e) => setOutputType(e.target.value as OutputType)}
+                onChange={(e) => {
+                  setOutputType(e.target.value as OutputType);
+                  setMaterialId("");
+                  setUnchecked([]);
+                }}
               >
                 {TYPE_LABELS.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -326,8 +343,11 @@ export function OutputSackDialog({
                   id="materialId"
                   name="materialId"
                   required
-                  defaultValue=""
-                  key={outputType}
+                  value={materialId}
+                  onChange={(e) => {
+                    setMaterialId(e.target.value);
+                    setUnchecked([]);
+                  }}
                 >
                   <option value="" disabled>
                     Selecciona…
@@ -374,13 +394,59 @@ export function OutputSackDialog({
               </div>
             </div>
 
+            {/* Consumibles predeterminados del producto: vienen marcados y se
+                pueden desmarcar como excepción. Solo suman los marcados. */}
+            {defaults.length > 0 && (
+              <div>
+                <Label>Consumibles</Label>
+                <div className="mt-1 space-y-1 rounded-lg border border-[var(--color-border)] p-2">
+                  {defaults.map((c) => {
+                    const checked = !unchecked.includes(c.consumableId);
+                    return (
+                      <label
+                        key={c.consumableId}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          name={`cons_${c.consumableId}`}
+                          value="1"
+                          checked={checked}
+                          onChange={(e) =>
+                            setUnchecked((prev) =>
+                              e.target.checked
+                                ? prev.filter((id) => id !== c.consumableId)
+                                : [...prev, c.consumableId],
+                            )
+                          }
+                          className="h-4 w-4 accent-[var(--color-primary)]"
+                        />
+                        <span className="flex-1">
+                          {c.quantity}× {c.name}
+                        </span>
+                        <span className="text-xs text-[var(--color-muted)] tabular-nums">
+                          {formatEuro(c.quantity * c.unitCost)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                  <div className="flex justify-between border-t border-[var(--color-border)] pt-1 text-xs font-medium">
+                    <span>Total consumibles</span>
+                    <span className="tabular-nums">
+                      {formatEuro(consumableTotal)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <Label htmlFor="notes">Notas</Label>
               <Textarea id="notes" name="notes" />
             </div>
 
             <p className="text-xs text-[var(--color-muted)]">
-              El nº de lote se genera automáticamente (formato DDMMYY-nº). Las
+              El nº de lote se genera automáticamente (formato DDMMAA-nº). Las
               sacas de Producto Terminado del mismo material se acumulan en el
               lote del día.
             </p>

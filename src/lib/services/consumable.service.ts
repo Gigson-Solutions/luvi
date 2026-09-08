@@ -152,7 +152,14 @@ export async function registerConsumableMovement(
 
     return tx.consumable.update({
       where: { id: input.consumableId },
-      data: { currentStock: nextStock },
+      data: {
+        currentStock: nextStock,
+        // Una compra con precio fija el coste unitario vigente del consumible;
+        // es el que se congela en cada saca que lo lleve (0 € es válido).
+        ...(input.quantity > 0 && input.unitPrice != null
+          ? { unitCost: input.unitPrice }
+          : {}),
+      },
     });
   });
 
