@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { SackStatus, LotType } from "@prisma/client";
+import { SackStatus, LotType, ConsumableType } from "@prisma/client";
 import { prisma, resetDb, seedBaseline, type Baseline } from "../db";
 import {
   registerContainer,
@@ -277,7 +277,11 @@ describe("Producción — consultas e historial", () => {
     const statuses = output.map((s) => s.status);
     expect(statuses).toContain(SackStatus.PRODUCTO_TERMINADO);
     expect(statuses).toContain(SackStatus.SUBPRODUCTO);
-    expect(output.every((s) => s.lot !== null)).toBe(true);
+    // GL-41: solo el Producto Terminado se acumula en el lote del día; los
+    // subproductos nacen sueltos y se agrupan a mano desde Expediciones.
+    const byStatus = new Map(output.map((s) => [s.status, s]));
+    expect(byStatus.get(SackStatus.PRODUCTO_TERMINADO)?.lot).not.toBeNull();
+    expect(byStatus.get(SackStatus.SUBPRODUCTO)?.lot).toBeNull();
   });
 
   it("getProductionStats refleja en producción, PT de hoy y kg procesados", async () => {
@@ -294,5 +298,144 @@ describe("Producción — consultas e historial", () => {
     expect(stats.inProduction).toBe(2);
     expect(stats.ptToday).toBe(1);
     expect(stats.kgProcessed).toBeCloseTo(2000, 1);
+  });
+});
+
+// ─── Tareas del cliente (07-sep) ────────────────────────────────────────────────
+
+describe("Producción — numeración de lote y de saca", () => {
+  it("el lote del día usa el formato DDMMAA-nº de camión", async () => {
+    await createOutputSack({
+      type: LotType.PRODUCTO_TERMINADO,
+      materialId: base.materialId,
+      weight: 900,
+    });
+
+    const lot = await prisma.productionLot.findFirstOrThrow();
+    const hoy = new Date();
+    const dd = String(hoy.getDate()).padStart(2, "0");
+    const mm = String(hoy.getMonth() + 1).padStart(2, "0");
+    const aa = String(hoy.getFullYear()).slice(-2);
+    expect(lot.lotNumber).toBe(`${dd}${mm}${aa}-1`);
+  });
+
+  it("numera las sacas 1..N dentro de su lote", async () => {
+    for (const weight of [900, 950, 1000]) {
+      await createOutputSack({
+        type: LotType.PRODUCTO_TERMINADO,
+        materialId: base.materialId,
+        weight,
+      });
+    }
+
+    const sacks = await prisma.sack.findMany({
+      where: { lotId: { not: null } },
+      orderBy: { createdAt: "asc" },
+      select: { lotSequence: true, weight: true },
+    });
+    expect(sacks.map((s) => s.lotSequence)).toEqual([1, 2, 3]);
+  });
+
+  it("las sacas sueltas (subproducto) no llevan correlativo de lote", async () => {
+    await createOutputSack({
+      type: LotType.SUBPRODUCTO,
+      materialId: base.materialId,
+      weight: 300,
+    });
+    const sack = await prisma.sack.findFirstOrThrow({
+      where: { status: SackStatus.SUBPRODUCTO },
+    });
+    expect(sack.lotId).toBeNull();
+    expect(sack.lotSequence).toBeNull();
+  });
+});
+
+describe("Producción — consumibles predeterminados del producto", () => {
+  /** Da de alta dos consumibles y los asocia al material de la baseline. */
+  async function seedDefaults(): Promise<{ saca: string; capuchon: string }> {
+    const saca = await prisma.consumable.create({
+      data: {
+        type: ConsumableType.SACA_VACIA,
+        name: "Saca vacía Test",
+        unitCost: 4.5,
+      },
+    });
+    const capuchon = await prisma.consumable.create({
+      data: {
+        type: ConsumableType.CAPUCHON,
+        name: "Capuchón Test",
+        unitCost: 0, // 0 € es un valor válido
+      },
+    });
+    await prisma.materialConsumable.createMany({
+      data: [
+        { materialId: base.materialId, consumableId: saca.id, quantity: 1 },
+        { materialId: base.materialId, consumableId: capuchon.id, quantity: 2 },
+      ],
+    });
+    return { saca: saca.id, capuchon: capuchon.id };
+  }
+
+  it("aplica todos los predeterminados si el operario no toca nada", async () => {
+    await seedDefaults();
+    const { id } = await createOutputSack({
+      type: LotType.PRODUCTO_TERMINADO,
+      materialId: base.materialId,
+      weight: 900,
+    });
+
+    const applied = await prisma.sackConsumable.findMany({
+      where: { sackId: id },
+    });
+    expect(applied).toHaveLength(2);
+    // el coste unitario queda congelado en la saca
+    expect(applied.map((a) => a.unitCost).sort()).toEqual([0, 4.5]);
+    expect(applied.find((a) => a.unitCost === 0)?.quantity).toBe(2);
+  });
+
+  it("solo aplica los que el operario deja marcados", async () => {
+    const { saca } = await seedDefaults();
+    const { id } = await createOutputSack({
+      type: LotType.PRODUCTO_TERMINADO,
+      materialId: base.materialId,
+      weight: 900,
+      consumableIds: [saca],
+    });
+
+    const applied = await prisma.sackConsumable.findMany({
+      where: { sackId: id },
+    });
+    expect(applied).toHaveLength(1);
+    expect(applied[0].consumableId).toBe(saca);
+  });
+
+  it("desmarcarlos todos deja la saca sin consumibles imputados", async () => {
+    await seedDefaults();
+    const { id } = await createOutputSack({
+      type: LotType.PRODUCTO_TERMINADO,
+      materialId: base.materialId,
+      weight: 900,
+      consumableIds: [],
+    });
+    expect(await prisma.sackConsumable.count({ where: { sackId: id } })).toBe(0);
+  });
+
+  it("un cambio de precio posterior no altera el coste ya congelado", async () => {
+    const { saca } = await seedDefaults();
+    const { id } = await createOutputSack({
+      type: LotType.PRODUCTO_TERMINADO,
+      materialId: base.materialId,
+      weight: 900,
+      consumableIds: [saca],
+    });
+    await prisma.consumable.update({
+      where: { id: saca },
+      data: { unitCost: 9.9 },
+    });
+
+    const applied = await prisma.sackConsumable.findFirstOrThrow({
+      where: { sackId: id },
+    });
+    expect(applied.unitCost).toBe(4.5);
   });
 });

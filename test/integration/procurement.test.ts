@@ -3,7 +3,11 @@ import { PurchaseOrderStatus } from "@prisma/client";
 import { prisma, resetDb, seedBaseline, type Baseline } from "../db";
 import {
   createPurchaseOrder,
+  updatePurchaseOrder,
+  setPurchaseOrderStatus,
   createProviderShipment,
+  updateProviderShipment,
+  setShipmentStage,
   markArrivedValencia,
   markArrivedPlanta,
   listPurchaseOrdersPivot,
@@ -17,28 +21,42 @@ let base: Baseline;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DEPARTURE = new Date("2026-08-01T00:00:00Z");
+// GL-50: las ETAs las teclea el usuario; aquí fijamos unas de referencia.
+const ETA_VALENCIA = new Date(DEPARTURE.getTime() + 30 * MS_PER_DAY);
+const ETA_PLANTA = new Date(DEPARTURE.getTime() + 37 * MS_PER_DAY);
 
 // Referencias de contenedor únicas a nivel global (Container.reference es @unique),
 // para que crear varios envíos en un mismo test no colisione.
 let seq = 0;
-function containers(n = 1): ShipmentContainerInput[] {
+function containers(n = 1, totalWeightKg?: number): ShipmentContainerInput[] {
   return Array.from({ length: n }, () => {
     seq += 1;
-    return { billOfLading: `BL-${seq}`, reference: `CONT-${seq}` };
+    return {
+      billOfLading: `BL-${seq}`,
+      reference: `CONT-${seq}`,
+      // GL-57: el peso del envío es la suma del de sus contenedores.
+      ...(totalWeightKg != null ? { weight: totalWeightKg / n } : {}),
+    };
   });
 }
 
-/** Helper: envío con fecha de salida fija y contenedor(es) por defecto. */
+/**
+ * Helper: envío con fecha de salida y ETAs fijas. El peso pedido se reparte
+ * entre los contenedores, que es de donde sale el peso del envío (GL-57).
+ */
 function ship(
   purchaseOrderId: string,
   weightKg: number,
-  conts: ShipmentContainerInput[] = containers(1),
+  conts?: ShipmentContainerInput[],
 ) {
   return createProviderShipment({
     purchaseOrderId,
     departureDate: DEPARTURE,
-    weightKg,
-    containers: conts,
+    etaValencia: ETA_VALENCIA,
+    etaPlanta: ETA_PLANTA,
+    containers:
+      conts?.map((c, i, all) => ({ ...c, weight: weightKg / all.length })) ??
+      containers(1, weightKg),
   });
 }
 
@@ -118,7 +136,7 @@ describe("Aprovisionamiento — órdenes de compra", () => {
 });
 
 describe("Aprovisionamiento — envíos de proveedor", () => {
-  it("crea un envío, deriva las ETAs de la salida y pasa la PO a EN_TRANSITO", async () => {
+  it("GL-50/GL-57: guarda las ETAs tecleadas, suma el peso de los contenedores y pasa la PO a EN_TRANSITO", async () => {
     const po = await createPurchaseOrder({
       supplierId: base.supplierId,
       materialId: base.materialId,
@@ -128,23 +146,22 @@ describe("Aprovisionamiento — envíos de proveedor", () => {
     const shipment = await createProviderShipment({
       purchaseOrderId: po.id,
       departureDate: DEPARTURE,
-      containers: [{ billOfLading: "BL-0001", reference: "CONT-A" }],
-      weightKg: 24000,
+      etaValencia: ETA_VALENCIA,
+      etaPlanta: ETA_PLANTA,
+      containers: [
+        { billOfLading: "BL-0001", reference: "CONT-A", weight: 14000 },
+        { billOfLading: "BL-0002", reference: "CONT-B", weight: 10000 },
+      ],
     });
 
     expect(shipment.purchaseOrderId).toBe(po.id);
     // billOfLading del envío = BL del primer contenedor
     expect(shipment.billOfLading).toBe("BL-0001");
     expect(shipment.departureDate).toEqual(DEPARTURE);
-    expect(shipment.maritimeDays).toBe(30);
-    expect(shipment.terrestrialDays).toBe(7);
-    // etaValencia = salida + 30; etaPlanta = salida + 37
-    expect(shipment.etaValencia).toEqual(
-      new Date(DEPARTURE.getTime() + 30 * MS_PER_DAY),
-    );
-    expect(shipment.etaPlanta).toEqual(
-      new Date(DEPARTURE.getTime() + 37 * MS_PER_DAY),
-    );
+    // GL-50: las ETAs son las que introdujo el usuario, no derivadas de días.
+    expect(shipment.etaValencia).toEqual(ETA_VALENCIA);
+    expect(shipment.etaPlanta).toEqual(ETA_PLANTA);
+    // GL-57: peso del envío = suma de los pesos de sus contenedores.
     expect(shipment.weightKg).toBe(24000);
     expect(shipment.arrivedValencia).toBeNull();
     expect(shipment.arrivedPlanta).toBeNull();
@@ -157,7 +174,7 @@ describe("Aprovisionamiento — envíos de proveedor", () => {
     expect(refreshed.status).toBe(PurchaseOrderStatus.EN_TRANSITO);
   });
 
-  it("GL-45: respeta días de tránsito personalizados en el cálculo de ETAs", async () => {
+  it("GL-57: sin pesos en los contenedores, el envío queda sin peso", async () => {
     const po = await createPurchaseOrder({
       supplierId: base.supplierId,
       orderedTons: 10,
@@ -165,17 +182,11 @@ describe("Aprovisionamiento — envíos de proveedor", () => {
     const shipment = await createProviderShipment({
       purchaseOrderId: po.id,
       departureDate: DEPARTURE,
-      maritimeDays: 40,
-      terrestrialDays: 5,
+      etaValencia: ETA_VALENCIA,
+      etaPlanta: ETA_PLANTA,
       containers: [{ billOfLading: "BL-X", reference: "CONT-X" }],
-      weightKg: 10000,
     });
-    expect(shipment.etaValencia).toEqual(
-      new Date(DEPARTURE.getTime() + 40 * MS_PER_DAY),
-    );
-    expect(shipment.etaPlanta).toEqual(
-      new Date(DEPARTURE.getTime() + 45 * MS_PER_DAY),
-    );
+    expect(shipment.weightKg).toBeNull();
   });
 
   it("GL-45: crea un Container por par {BL, contenedor} con datos heredados y ETA planta", async () => {
@@ -188,11 +199,12 @@ describe("Aprovisionamiento — envíos de proveedor", () => {
     const shipment = await createProviderShipment({
       purchaseOrderId: po.id,
       departureDate: DEPARTURE,
-      weightKg: 24000,
+      etaValencia: ETA_VALENCIA,
+      etaPlanta: ETA_PLANTA,
       containers: [
-        { billOfLading: "BL-1", reference: "MSKU-100" },
-        { billOfLading: "BL-2", reference: "MSKU-200" },
-        { billOfLading: "BL-3", reference: "MSKU-300" },
+        { billOfLading: "BL-1", reference: "MSKU-100", weight: 8000 },
+        { billOfLading: "BL-2", reference: "MSKU-200", weight: 8000 },
+        { billOfLading: "BL-3", reference: "MSKU-300", weight: 8000 },
       ],
     });
 
@@ -213,11 +225,13 @@ describe("Aprovisionamiento — envíos de proveedor", () => {
       shipment.containers.every((c) => c.providerShipmentId === shipment.id),
     ).toBe(true);
     // estimatedArrival = etaPlanta → aparecen en Recepciones como pendientes
+    expect(shipment.etaPlanta).toEqual(ETA_PLANTA);
     expect(
       shipment.containers.every(
         (c) =>
-          c.estimatedArrival?.getTime() === shipment.etaPlanta?.getTime() &&
-          c.actualWeight === null,
+          c.estimatedArrival?.getTime() === ETA_PLANTA.getTime() &&
+          c.actualWeight === null &&
+          c.expectedWeight === 8000,
       ),
     ).toBe(true);
   });
@@ -358,6 +372,232 @@ describe("Aprovisionamiento — pivot y stats", () => {
   });
 
   it("listShipments devuelve envíos con su PO, proveedor y contenedores", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 10,
+    });
+    await ship(po.id, 10000, containers(2));
+
+    const shipments = await listShipments();
+    expect(shipments).toHaveLength(1);
+    expect(shipments[0].purchaseOrder?.supplier.name).toBe("Proveedor Test");
+    expect(shipments[0].containers).toHaveLength(2);
+  });
+});
+
+// ─── Tareas del cliente (07-sep) ────────────────────────────────────────────────
+
+describe("Aprovisionamiento — costes y edición del pedido", () => {
+  it("guarda todos los costes del pedido y los deja editables después", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 100,
+      pricePerTon: 420,
+      oceanFreightPerContainer: 1800,
+      arrivalCostsPerContainer: 150,
+      arrivalCostsPerShipment: 300,
+      deliveryTransportPerContainer: 250,
+      additionalCostsPerShipment: 90,
+      customsDuties: 2500,
+    });
+
+    expect(po.pricePerTon).toBe(420);
+    expect(po.oceanFreightPerContainer).toBe(1800);
+    expect(po.customsDuties).toBe(2500);
+
+    const edited = await updatePurchaseOrder({
+      id: po.id,
+      supplierId: base.supplierId,
+      orderedTons: 120,
+      pricePerTon: 400,
+      oceanFreightPerContainer: 1950,
+      arrivalCostsPerContainer: 150,
+      arrivalCostsPerShipment: 300,
+      deliveryTransportPerContainer: 250,
+      additionalCostsPerShipment: 90,
+      customsDuties: 2600,
+    });
+
+    expect(edited.poNumber).toBe(po.poNumber); // el nº de pedido no cambia
+    expect(edited.orderedTons).toBe(120);
+    expect(edited.pricePerTon).toBe(400);
+    expect(edited.oceanFreightPerContainer).toBe(1950);
+    expect(edited.customsDuties).toBe(2600);
+  });
+
+  it("el precio de la mercancía tecleado manda sobre el derivado del total", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 20,
+      totalPrice: 15000, // derivaría 750 €/t
+      pricePerTon: 700,
+    });
+    expect(po.pricePerTon).toBe(700);
+  });
+
+  it("permite fijar el estado a mano y volver al automático", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 20,
+    });
+    await ship(po.id, 20000); // el automático lo pondría EN_TRANSITO
+
+    const manual = await setPurchaseOrderStatus(
+      po.id,
+      PurchaseOrderStatus.COMPLETADA,
+    );
+    expect(manual.status).toBe(PurchaseOrderStatus.COMPLETADA);
+
+    // un cambio posterior en los envíos NO pisa el estado fijado a mano
+    await markArrivedValencia((await listShipments())[0].id);
+    let refreshed = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+    });
+    expect(refreshed.status).toBe(PurchaseOrderStatus.COMPLETADA);
+    expect(refreshed.statusManual).toBe(true);
+
+    // volver al automático lo recalcula desde los envíos
+    const auto = await setPurchaseOrderStatus(
+      po.id,
+      PurchaseOrderStatus.ABIERTA,
+      true,
+    );
+    expect(auto.status).toBe(PurchaseOrderStatus.EN_TRANSITO);
+    refreshed = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+    });
+    expect(refreshed.statusManual).toBe(false);
+  });
+});
+
+describe("Aprovisionamiento — edición del envío y etapas reversibles", () => {
+  it("edita fechas y contenedores, y arrastra peso y ETA a Recepciones", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      materialId: base.materialId,
+      orderedTons: 40,
+    });
+    const shipment = await ship(po.id, 20000);
+    const [original] = shipment.containers;
+    const nuevaEta = new Date(ETA_PLANTA.getTime() + 7 * MS_PER_DAY);
+
+    const updated = await updateProviderShipment({
+      id: shipment.id,
+      departureDate: DEPARTURE,
+      etaValencia: ETA_VALENCIA,
+      etaPlanta: nuevaEta,
+      notes: "Retraso en origen",
+      containers: [
+        {
+          id: original.id,
+          billOfLading: original.billOfLading ?? "BL-1",
+          reference: original.reference,
+          weight: 22000,
+        },
+        { billOfLading: "BL-NUEVO", reference: "CONT-NUEVO", weight: 8000 },
+      ],
+    });
+
+    expect(updated.notes).toBe("Retraso en origen");
+    expect(updated.etaPlanta).toEqual(nuevaEta);
+    expect(updated.weightKg).toBe(30000); // 22000 + 8000
+    expect(updated.containers).toHaveLength(2);
+    // los contenedores heredan la nueva fecha prevista y su peso
+    expect(
+      updated.containers.every(
+        (c) => c.estimatedArrival?.getTime() === nuevaEta.getTime(),
+      ),
+    ).toBe(true);
+    const byRef = new Map(updated.containers.map((c) => [c.reference, c]));
+    expect(byRef.get(original.reference)?.expectedWeight).toBe(22000);
+    expect(byRef.get("CONT-NUEVO")?.supplierId).toBe(base.supplierId);
+    expect(byRef.get("CONT-NUEVO")?.materialId).toBe(base.materialId);
+  });
+
+  it("quita del envío un contenedor que ya no viene", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 40,
+    });
+    const shipment = await ship(po.id, 20000, containers(2));
+    const [keep] = shipment.containers;
+
+    const updated = await updateProviderShipment({
+      id: shipment.id,
+      etaValencia: ETA_VALENCIA,
+      etaPlanta: ETA_PLANTA,
+      containers: [
+        {
+          id: keep.id,
+          billOfLading: keep.billOfLading ?? "BL",
+          reference: keep.reference,
+          weight: 10000,
+        },
+      ],
+    });
+
+    expect(updated.containers).toHaveLength(1);
+    expect(updated.weightKg).toBe(10000);
+  });
+
+  it("no deja quitar un contenedor ya pesado en recepción", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 40,
+    });
+    const shipment = await ship(po.id, 20000, containers(2));
+    const [pesado, otro] = shipment.containers;
+    await prisma.container.update({
+      where: { id: pesado.id },
+      data: { actualWeight: 9800 },
+    });
+
+    await expect(
+      updateProviderShipment({
+        id: shipment.id,
+        etaValencia: ETA_VALENCIA,
+        etaPlanta: ETA_PLANTA,
+        containers: [
+          {
+            id: otro.id,
+            billOfLading: otro.billOfLading ?? "BL",
+            reference: otro.reference,
+            weight: 10000,
+          },
+        ],
+      }),
+    ).rejects.toThrow(/ya se ha recibido/i);
+  });
+
+  it("la etapa del envío se puede retroceder: ninguna llegada es irreversible", async () => {
+    const po = await createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 20,
+    });
+    const shipment = await ship(po.id, 20000);
+
+    const enPlanta = await setShipmentStage(shipment.id, "PLANTA");
+    expect(shipmentStage(enPlanta)).toBe("PLANTA");
+
+    const enValencia = await setShipmentStage(shipment.id, "VALENCIA");
+    expect(shipmentStage(enValencia)).toBe("VALENCIA");
+    expect(enValencia.arrivedPlanta).toBeNull();
+
+    const enMar = await setShipmentStage(shipment.id, "MARITIMO");
+    expect(shipmentStage(enMar)).toBe("MARITIMO");
+    expect(enMar.arrivedValencia).toBeNull();
+    expect(enMar.arrivedPlanta).toBeNull();
+
+    // y el estado de la PO se recalcula al retroceder
+    const refreshed = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+    });
+    expect(refreshed.status).toBe(PurchaseOrderStatus.EN_TRANSITO);
+  });
+});
+
+describe("Aprovisionamiento — listado de envíos", () => {
+  it("listShipments incluye PO, proveedor y contenedores", async () => {
     const po = await createPurchaseOrder({
       supplierId: base.supplierId,
       orderedTons: 10,

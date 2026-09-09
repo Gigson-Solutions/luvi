@@ -29,7 +29,18 @@ describe("getAccessibleModules", () => {
     expect(mods).toContain("recepciones");
     expect(mods).not.toContain("configuracion");
   });
-  it("ADMIN obtiene todos los módulos (12)", () => {
-    expect(getAccessibleModules(UserRole.ADMIN).length).toBe(12);
+  // Sin número fijo: el catálogo de módulos crece y el test no debe caducar.
+  it("ADMIN ve todo lo que ven los demás roles, más configuración", () => {
+    const admin = getAccessibleModules(UserRole.ADMIN);
+    const resto = [
+      UserRole.OPERARIO,
+      UserRole.ADMINISTRACION,
+      UserRole.MANAGER,
+    ].flatMap((role) => getAccessibleModules(role));
+
+    for (const mod of new Set(resto)) {
+      expect(admin).toContain(mod);
+    }
+    expect(admin).toContain("configuracion");
   });
 });

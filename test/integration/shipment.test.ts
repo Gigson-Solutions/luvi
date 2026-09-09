@@ -10,6 +10,7 @@ import {
   listShipments,
   getShipmentStats,
   getShipmentFormData,
+  getPackingList,
 } from "@/lib/services/shipment.service";
 
 let base: Baseline;
@@ -103,10 +104,16 @@ describe("Expediciones — creación de envíos (BORRADOR)", () => {
     expect(s1.reference).not.toBe(s2.reference);
   });
 
-  it("rechaza envío sin lotes", async () => {
-    await expect(
-      createShipment({ buyerId: base.buyerId, lots: [] }),
-    ).rejects.toThrow();
+  // GL-42: el envío se puede crear vacío y asignarle los lotes después; lo que
+  // no se permite es expedirlo sin lotes.
+  it("crea un envío vacío en BORRADOR y no deja expedirlo sin lotes", async () => {
+    const vacio = await createShipment({ buyerId: base.buyerId, lots: [] });
+    expect(vacio.status).toBe(ShipmentStatus.BORRADOR);
+    expect(vacio.lots).toHaveLength(0);
+
+    await expect(expediteShipment(vacio.id)).rejects.toThrow(
+      /al menos un lote/i,
+    );
   });
 
   it("rechaza envío con peso <= 0 en algún lote", async () => {
@@ -166,18 +173,22 @@ describe("Expediciones — expedición (CONFIRMADO → EXPEDIDO)", () => {
     expect(sacks.every((s) => s.status === SackStatus.EN_TRANSITO)).toBe(true);
   });
 
-  it("no permite expedir un envío que no está confirmado (sigue en borrador)", async () => {
+  it("no permite expedir dos veces el mismo envío", async () => {
     const pt = await createPtLot(base.materialId);
     const draft = await createShipment({
       buyerId: base.buyerId,
       lots: [{ lotId: pt.lotId, weightKg: 100 }],
     });
-    await expect(expediteShipment(draft.id)).rejects.toThrow();
-    // las sacas siguen intactas
+
+    // Un envío en BORRADOR con lotes SÍ se puede expedir (no hace falta pasar
+    // por CONFIRMADO); lo que no se puede es repetir la expedición.
+    const { shipment } = await expediteShipment(draft.id);
+    expect(shipment.status).toBe(ShipmentStatus.EXPEDIDO);
+    await expect(expediteShipment(draft.id)).rejects.toThrow(/ya ha sido/i);
+
+    // y las sacas quedaron en tránsito, no intactas
     const sacks = await prisma.sack.findMany({ where: { lotId: pt.lotId } });
-    expect(sacks.every((s) => s.status === SackStatus.PRODUCTO_TERMINADO)).toBe(
-      true,
-    );
+    expect(sacks.every((s) => s.status === SackStatus.EN_TRANSITO)).toBe(true);
   });
 });
 
@@ -286,5 +297,73 @@ describe("Expediciones — listados y StatCards", () => {
 
     const data = await getShipmentFormData();
     expect(data.lots.find((l) => l.id === pt.lotId)).toBeUndefined();
+  });
+});
+
+// ─── Tareas del cliente (07-sep) ────────────────────────────────────────────────
+
+describe("Expediciones — packing list", () => {
+  it("lista una fila por saca con su lote, BIG BAG y peso, más el total", async () => {
+    const pt = await createPtLot(base.materialId, 3, 950);
+    // numeramos las sacas dentro del lote como hace Producción
+    const sacks = await prisma.sack.findMany({
+      where: { lotId: pt.lotId },
+      orderBy: { createdAt: "asc" },
+    });
+    let seq = 1;
+    for (const s of sacks) {
+      await prisma.sack.update({
+        where: { id: s.id },
+        data: { lotSequence: seq++ },
+      });
+    }
+
+    const shipment = await createShipment({
+      buyerId: base.buyerId,
+      carrierId: base.carrierId,
+      vehiclePlate: "1234-ABC",
+      orderNumber: "PED-2026-0912",
+      lots: [{ lotId: pt.lotId, weightKg: 2850 }],
+    });
+
+    const packing = await getPackingList(shipment.id);
+    expect(packing).not.toBeNull();
+    expect(packing?.orderNumber).toBe("PED-2026-0912");
+    // sin albarán de Holded todavía, el nº de albarán es la referencia del envío
+    expect(packing?.albaranNumber).toBe(shipment.reference);
+    expect(packing?.buyerName).toBe("Comprador Test");
+    expect(packing?.vehiclePlate).toBe("1234-ABC");
+    expect(packing?.rows).toHaveLength(3);
+    expect(packing?.rows.map((r) => r.sackNumber)).toEqual([
+      `1/${pt.lotNumber}`,
+      `2/${pt.lotNumber}`,
+      `3/${pt.lotNumber}`,
+    ]);
+    expect(packing?.rows.every((r) => r.lotNumber === pt.lotNumber)).toBe(true);
+    expect(packing?.totalWeightKg).toBe(2850);
+  });
+
+  it("tras expedir, usa el albarán de Holded y la fecha de expedición", async () => {
+    const pt = await createPtLot(base.materialId, 1, 500);
+    const shipment = await createShipment({
+      buyerId: base.buyerId,
+      lots: [{ lotId: pt.lotId, weightKg: 500 }],
+    });
+    const { shipment: expedido } = await expediteShipment(shipment.id);
+
+    const packing = await getPackingList(shipment.id);
+    expect(packing?.albaranNumber).toBe(expedido.holdedAlbaranId);
+    expect(packing?.loadDate).toEqual(expedido.expeditedAt);
+  });
+
+  it("un envío sin lotes da un packing list vacío, no un error", async () => {
+    const shipment = await createShipment({ buyerId: base.buyerId, lots: [] });
+    const packing = await getPackingList(shipment.id);
+    expect(packing?.rows).toHaveLength(0);
+    expect(packing?.totalWeightKg).toBe(0);
+  });
+
+  it("devuelve null si el envío no existe", async () => {
+    expect(await getPackingList("no-existe")).toBeNull();
   });
 });
