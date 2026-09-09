@@ -20,7 +20,7 @@ Webapp de logística industrial para **Luvi2000**, empresa que procesa plástico
 | Forms           | React Hook Form + Zod                    |
 | Charts          | Recharts                                 |
 | Package manager | pnpm                                     |
-| Deploy          | Vercel + Neon                            |
+| Deploy          | **Autohospedado en Hetzner** (VPS único) |
 
 ---
 
@@ -103,10 +103,16 @@ enum SackStatus {
 
 ### Gestruck (Básculas)
 
-- 2 básculas industriales en planta Montalbos
-- API pendiente de validar con José (informático Melder)
-- Fallback obligatorio: entrada manual de peso
-- Báscula pequeña: necesita reconfiguración protocolo SIGS para decimales
+- 2 básculas industriales en planta Montalbos, ambas en el sistema Gestruck
+  (Gesnet2 de Giropes) que corre en el PC de planta. Interlocutor: José Manuel,
+  de **Básculas Romero** (el instalador).
+  - **BÁSCULA** (puente, camión) → Recepciones. Se lee por **API REST**, con
+    fallback a la BBDD si la API no responde.
+  - **PLATAFORMA** (big bag) → Producción. La API no publica estas pesadas: se
+    leen **directamente de la BBDD MySQL** de Gestruck.
+- Fallback obligatorio: entrada manual de peso.
+- Báscula pequeña: necesita reconfiguración protocolo SIGS para decimales.
+- Detalle completo (red, dispositivos y limitaciones): `docs/basculas-gestruck.md`.
 
 ### Holded
 
@@ -118,6 +124,53 @@ enum SackStatus {
 
 - Probablemente Zebra (ZPL) — pendiente confirmación de marca
 - La abstracción de cola de impresión debe ser extensible a otras marcas
+
+---
+
+## Infraestructura y Deploy (GL-25)
+
+⚠️ **Decisión (jul 2026): NO usamos Vercel/Neon. Todo autohospedado en un único VPS Hetzner.**
+Motivo: hay que llegar a las básculas **Gestruck** en la LAN de la planta por **VPN (WireGuard)**, y Vercel (serverless, IP dinámica) no puede formar parte de la VPN. Al hospedar la app en el mismo box que el hub WireGuard, alcanza la Gestruck **directo por el túnel, sin proxy**.
+
+### Servidor
+
+- **Hetzner VPS `luvi2000-erp`** — `178.104.136.83`, Ubuntu 24.04 LTS, 2 vCPU / 3.7 GB / 38 GB.
+- Un solo box con todo: **Next.js + PostgreSQL local + WireGuard (hub) + Caddy (reverse proxy + TLS automático)**.
+- PostgreSQL local → Prisma sin driver serverless/pooler. BBDD y credenciales en el propio servidor.
+
+### Red / VPN (WireGuard)
+
+```
+Usuarios ──HTTPS──▶ Caddy ──▶ Next.js (localhost:3000) ──▶ PostgreSQL (local)
+                                     │
+                                     └── Gestruck ──▶ wg0 (túnel) ──▶ Planta Montalbos ──▶ básculas
+```
+
+- Hub `wg0` = **10.8.0.1/24**, puerto **UDP 51820**.
+- Peer **planta Montalbos** = **10.8.0.2**, expone la LAN **192.168.1.0/24** (Gestruck en **192.168.1.200**).
+- La app llama a la Gestruck por su IP de planta a través del túnel (ver `src/lib/integrations/gestruck.ts`).
+- **Regla de oro:** si Gestruck falla o no está configurada → `{ manual: true }`, el operario mete el peso a mano. La báscula nunca bloquea la operativa.
+
+### Firewall (ufw)
+
+- Abiertos: **22/tcp** (SSH), **80+443/tcp** (Caddy), **51820/udp** (WireGuard). Todo lo demás denegado.
+
+### Backups / operativa
+
+- `pg_dump` nocturno → Hetzner Storage Box + snapshots del VPS. Restore documentado.
+- Contrapartida asumida: VPS único = punto único de fallo.
+
+> Los secretos (claves privadas WG, password de la BBDD, `GESTRUCK_API_KEY`) viven **solo en el servidor** (`/etc/wireguard/` y el `.env` de cada entorno en `/opt/luvi-prod` y `/opt/luvi-staging`), nunca en el repo.
+
+### Entornos desplegados
+
+| Entorno  | Directorio          | Servicio        | Puerto |
+| -------- | ------------------- | --------------- | ------ |
+| prod     | `/opt/luvi-prod`    | `luvi-prod`     | 3000   |
+| staging  | `/opt/luvi-staging` | `luvi-staging`  | 3001   |
+
+Deploy con `/root/deploy-luvi.sh` (hace `reset --hard origin/main`, instala,
+migra, hace seed y compila) y después `systemctl restart <servicio>`.
 
 ---
 
