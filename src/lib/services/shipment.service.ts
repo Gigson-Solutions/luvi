@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createAlbaran } from "@/lib/integrations/holded";
-import { generateLotNumber, formatSackNumber } from "@/lib/utils";
+import { generateLotNumber } from "@/lib/utils";
 import {
   MAX_SACKS_PER_LOT,
   nextLotSequence,
@@ -874,7 +874,10 @@ export async function deliverShipment(
 /** Fila del packing list: una saca del envío. */
 export interface PackingListRow {
   lotNumber: string;
-  /** Identificador BIG BAG: nº de saca dentro del lote + código QR. */
+  /**
+   * Identificador BIG BAG `N/LOTE`, con N correlativo en todo el envío
+   * (1/220826-4, 2/220826-4, 3/230826-1…), como en el documento de LUVI.
+   */
   sackNumber: string;
   qrCode: string;
   materialName: string;
@@ -923,7 +926,6 @@ export async function getPackingList(
           select: {
             qrCode: true,
             weight: true,
-            lotSequence: true,
             material: { select: { name: true } },
             lot: { select: { lotNumber: true } },
           },
@@ -935,9 +937,9 @@ export async function getPackingList(
           ],
         });
 
-  const rows: PackingListRow[] = sacks.map((s) => ({
+  const rows: PackingListRow[] = sacks.map((s, i) => ({
     lotNumber: s.lot?.lotNumber ?? "—",
-    sackNumber: formatSackNumber(s.lotSequence, s.lot?.lotNumber ?? null),
+    sackNumber: `${i + 1}/${s.lot?.lotNumber ?? "—"}`,
     qrCode: s.qrCode,
     materialName: s.material.name,
     weightKg: s.weight,

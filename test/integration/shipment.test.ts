@@ -343,6 +343,29 @@ describe("Expediciones — packing list", () => {
     expect(packing?.totalWeightKg).toBe(2850);
   });
 
+  it("numera los BIG BAG seguidos en todo el envío, aunque haya varios lotes", async () => {
+    const first = await createPtLot(base.materialId, 2, 1000);
+    const second = await createPtLot(base.materialId, 3, 1000);
+    const shipment = await createShipment({
+      buyerId: base.buyerId,
+      lots: [
+        { lotId: second.lotId, weightKg: 3000 },
+        { lotId: first.lotId, weightKg: 2000 },
+      ],
+    });
+
+    const packing = await getPackingList(shipment.id);
+    // lotes en orden de producción, sin reiniciar la numeración entre lotes
+    expect(packing?.rows.map((r) => r.sackNumber)).toEqual([
+      `1/${first.lotNumber}`,
+      `2/${first.lotNumber}`,
+      `3/${second.lotNumber}`,
+      `4/${second.lotNumber}`,
+      `5/${second.lotNumber}`,
+    ]);
+    expect(packing?.totalWeightKg).toBe(5000);
+  });
+
   it("tras expedir, usa el albarán de Holded y la fecha de expedición", async () => {
     const pt = await createPtLot(base.materialId, 1, 500);
     const shipment = await createShipment({
