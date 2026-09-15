@@ -215,6 +215,7 @@ export async function registerPalletReturnAction(
       },
     });
     revalidatePath("/consumibles");
+    revalidatePath("/inventario");
     const restockNote =
       res.restocked > 0 ? `, ${res.restocked} de vuelta a stock` : "";
     return {

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { ConsumableType, type Consumable, type Prisma } from "@prisma/client";
 import { getCostsConfig } from "@/lib/services/cost.service";
 import { setConfig } from "@/lib/services/config.service";
+import { addBrokenPalletsFromReturn } from "@/lib/services/broken-pallet.service";
 
 /**
  * Servicio de Consumibles — lógica de negocio sobre Consumable, ConsumableMovement
@@ -283,7 +284,7 @@ export interface RegisterPalletReturnInput {
   buyerId: string;
   /** Palés recibidos en buen estado → descuentan deuda y vuelven a stock. */
   okCount: number;
-  /** Palés recibidos rotos/NOK → descuentan deuda y quedan en histórico. */
+  /** Palés recibidos rotos/NOK → descuentan deuda y pasan al stock de palés rotos. */
   brokenCount: number;
   vehiclePlate?: string;
   /** Fecha de la devolución (por defecto, ahora). */
@@ -303,7 +304,7 @@ export interface PalletReturnResult {
 /**
  * Registra la devolución de palés de un comprador desglosada en OK y rotos.
  * Los OK descuentan deuda y vuelven al stock del consumible palé; los rotos
- * descuentan deuda pero quedan solo en el histórico. Todo en una transacción.
+ * descuentan deuda y se suman al stock de palés rotos. Todo en una transacción.
  */
 export async function registerPalletReturn(
   input: RegisterPalletReturnInput,
@@ -368,7 +369,7 @@ export async function registerPalletReturn(
       }
     }
 
-    // Palés rotos → descuentan deuda pero no vuelven a stock (solo histórico).
+    // Palés rotos → descuentan deuda y pasan al stock de palés rotos.
     if (broken > 0) {
       await tx.palletMovement.create({
         data: {
@@ -379,6 +380,13 @@ export async function registerPalletReturn(
           notes: input.notes ?? null,
           ...(when ? { createdAt: when } : {}),
         },
+      });
+      await addBrokenPalletsFromReturn(tx, {
+        buyerId: input.buyerId,
+        quantity: broken,
+        vehiclePlate: input.vehiclePlate,
+        notes: input.notes,
+        date: when,
       });
     }
 

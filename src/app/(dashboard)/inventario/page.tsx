@@ -13,6 +13,9 @@ import {
   CheckCircle,
   AlertTriangle,
   ScanLine,
+  PackageX,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -25,7 +28,7 @@ import {
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MiniBarChart } from "../dashboards/dashboard-charts";
-import { formatKg, cn } from "@/lib/utils";
+import { formatKg, formatDate, cn } from "@/lib/utils";
 import {
   getProductionStats,
   getConsumptionStats,
@@ -45,6 +48,16 @@ import {
 } from "@/lib/services/inventory-count.service";
 import { listWarehouses } from "@/lib/services/config.service";
 import { InventoryCountPanel } from "./inventory-count-client";
+import {
+  BROKEN_PALLET_SOURCES,
+  getBrokenPalletStock,
+  listBrokenPalletMovements,
+  listBrokenPalletRecipients,
+} from "@/lib/services/broken-pallet.service";
+import {
+  AddBrokenPalletsDialog,
+  ShipBrokenPalletsDialog,
+} from "./broken-pallet-dialogs";
 
 type Tab =
   | "produccion"
@@ -52,6 +65,7 @@ type Tab =
   | "ubicacion"
   | "esperado"
   | "consumibles"
+  | "pales-rotos"
   | "recuento";
 
 const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
@@ -60,6 +74,7 @@ const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
   { value: "ubicacion", label: "Ubicación", icon: MapPin },
   { value: "esperado", label: "Esperado", icon: Ship },
   { value: "consumibles", label: "Consumibles", icon: Package },
+  { value: "pales-rotos", label: "Palés rotos", icon: PackageX },
   { value: "recuento", label: "Recuento por escaneo", icon: ScanLine },
 ];
 
@@ -83,6 +98,7 @@ function isTab(v: string | undefined): v is Tab {
     v === "ubicacion" ||
     v === "esperado" ||
     v === "consumibles" ||
+    v === "pales-rotos" ||
     v === "recuento"
   );
 }
@@ -843,6 +859,127 @@ async function ConsumiblesTab(): Promise<React.JSX.Element> {
   );
 }
 
+const BROKEN_SOURCE_LABELS: Record<string, string> = {
+  [BROKEN_PALLET_SOURCES.DEVOLUCION]: "Devolución",
+  [BROKEN_PALLET_SOURCES.MANUAL]: "Entrada manual",
+  [BROKEN_PALLET_SOURCES.SALIDA]: "Salida",
+};
+
+/**
+ * Stock de palés rotos: disponible, entradas (devoluciones y manuales), salidas
+ * con su albarán de Holded e histórico de movimientos.
+ */
+async function PalesRotosTab(): Promise<React.JSX.Element> {
+  const [stock, movements, recipients] = await Promise.all([
+    getBrokenPalletStock(),
+    listBrokenPalletMovements(),
+    listBrokenPalletRecipients(),
+  ]);
+  const entries = movements
+    .filter((m) => m.quantity > 0)
+    .reduce((sum, m) => sum + m.quantity, 0);
+  const exits = movements
+    .filter((m) => m.quantity < 0)
+    .reduce((sum, m) => sum - m.quantity, 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <AddBrokenPalletsDialog />
+        <ShipBrokenPalletsDialog recipients={recipients} available={stock} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <StatCard
+          label="Palés rotos disponibles"
+          value={stock}
+          accent="#ef4444"
+          icon={PackageX}
+        />
+        <StatCard
+          label="Entradas"
+          value={entries}
+          hint="Devoluciones y entradas manuales"
+          accent="var(--color-primary)"
+          icon={ArrowDownToLine}
+        />
+        <StatCard
+          label="Salidas"
+          value={exits}
+          hint="Enviados con albarán"
+          accent="#f59e0b"
+          icon={ArrowUpFromLine}
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PackageX className="w-4 h-4" /> Movimientos de palés rotos
+          </CardTitle>
+          <p className="text-xs text-[var(--color-muted)] mt-1">
+            Últimos 100 movimientos
+          </p>
+        </CardHeader>
+        <CardContent>
+          {movements.length === 0 ? (
+            <EmptyState
+              icon={PackageX}
+              title="Sin palés rotos"
+              description="Entran al registrar devoluciones con palés rotos o añadiéndolos a mano."
+            />
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Fecha</TH>
+                  <TH>Tipo</TH>
+                  <TH>Cliente / Destinatario</TH>
+                  <TH className="text-right">Cantidad</TH>
+                  <TH>Albarán</TH>
+                  <TH>Notas</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {movements.map((m) => (
+                  <TR key={m.id}>
+                    <TD className="whitespace-nowrap">
+                      {formatDate(m.createdAt, true)}
+                    </TD>
+                    <TD>{BROKEN_SOURCE_LABELS[m.source] ?? m.source}</TD>
+                    <TD>{m.buyer?.name ?? "—"}</TD>
+                    <TD
+                      className={cn(
+                        "text-right font-semibold tabular-nums",
+                        m.quantity < 0
+                          ? "text-[#ef4444]"
+                          : "text-[var(--color-primary)]",
+                      )}
+                    >
+                      {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
+                    </TD>
+                    <TD className="font-mono text-xs">
+                      {m.holdedAlbaranId ?? "—"}
+                      {m.reference && (
+                        <span className="block text-[var(--color-muted)]">
+                          {m.reference}
+                        </span>
+                      )}
+                    </TD>
+                    <TD className="text-xs text-[var(--color-muted)]">
+                      {m.notes ?? ""}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 /**
  * Recuento de inventario escaneando sacas: sesión en curso (si la hay) y
  * histórico de recuentos con su resultado.
@@ -932,15 +1069,18 @@ export default async function InventarioPage({
       </div>
 
       {/* Los filtros no aplican a Consumibles (no cuelgan de sacas). */}
-      {activeTab !== "consumibles" && activeTab !== "recuento" && (
-        <InventoryFilters options={filterOptions} />
-      )}
+      {activeTab !== "consumibles" &&
+        activeTab !== "pales-rotos" &&
+        activeTab !== "recuento" && (
+          <InventoryFilters options={filterOptions} />
+        )}
 
       {activeTab === "produccion" && <ProduccionTab filters={filters} />}
       {activeTab === "consumido" && <ConsumidoTab filters={filters} />}
       {activeTab === "ubicacion" && <UbicacionTab filters={filters} />}
       {activeTab === "esperado" && <EsperadoTab filters={filters} />}
       {activeTab === "consumibles" && <ConsumiblesTab />}
+      {activeTab === "pales-rotos" && <PalesRotosTab />}
       {activeTab === "recuento" && <RecuentoTab />}
     </div>
   );

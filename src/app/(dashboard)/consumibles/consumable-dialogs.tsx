@@ -216,7 +216,7 @@ export function PalletReturnDialog({
       </DialogTrigger>
       <DialogContent
         title="Devolución de palés"
-        description="Los OK vuelven al stock; los rotos quedan en histórico. Ambos descuentan la deuda del cliente."
+        description="Los OK vuelven al stock; los rotos pasan al stock de palés rotos (Inventario). Ambos descuentan la deuda del cliente."
       >
         <form action={action} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">

@@ -13,6 +13,10 @@ import {
   type FinishCountResult,
   type MissingSack,
 } from "@/lib/services/inventory-count.service";
+import {
+  addBrokenPallets,
+  shipBrokenPallets,
+} from "@/lib/services/broken-pallet.service";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
@@ -113,7 +117,111 @@ export async function finishInventoryCountAction(
   } catch (e) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Error al finalizar el inventario",
+      error:
+        e instanceof Error ? e.message : "Error al finalizar el inventario",
+    };
+  }
+}
+
+// ─── Palés rotos ────────────────────────────────────────────────────────────────
+
+const addBrokenSchema = z.object({
+  quantity: z.coerce
+    .number()
+    .int("La cantidad debe ser un número entero")
+    .positive("La cantidad debe ser mayor que 0"),
+  notes: z.string().optional(),
+});
+
+/** Entrada manual de palés rotos al stock. */
+export async function addBrokenPalletsAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = addBrokenSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    const stock = await addBrokenPallets({
+      quantity: parsed.data.quantity,
+      notes: parsed.data.notes || undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "ADD_BROKEN_PALLETS",
+      entity: "BrokenPalletMovement",
+      payload: { quantity: parsed.data.quantity, stock },
+    });
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      message: `${parsed.data.quantity} palés rotos añadidos (disponibles: ${stock})`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al añadir palés rotos",
+    };
+  }
+}
+
+const shipBrokenSchema = z.object({
+  buyerId: z.string().min(1, "Selecciona el destinatario"),
+  quantity: z.coerce
+    .number()
+    .int("La cantidad debe ser un número entero")
+    .positive("La cantidad debe ser mayor que 0"),
+  notes: z.string().optional(),
+});
+
+/** Salida de palés rotos: descuenta del stock y genera el albarán en Holded. */
+export async function shipBrokenPalletsAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = shipBrokenSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    const res = await shipBrokenPallets({
+      buyerId: parsed.data.buyerId,
+      quantity: parsed.data.quantity,
+      notes: parsed.data.notes || undefined,
+    });
+    await logAudit({
+      userId: actor.id,
+      action: "SHIP_BROKEN_PALLETS",
+      entity: "BrokenPalletMovement",
+      entityId: res.reference,
+      payload: {
+        buyerId: parsed.data.buyerId,
+        quantity: parsed.data.quantity,
+        holdedAlbaranId: res.holdedAlbaranId,
+        simulated: res.simulated,
+      },
+    });
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      message: `Salida ${res.reference} registrada (albarán ${res.holdedAlbaranId ?? "—"}). Quedan ${res.stock} palés rotos.`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Error al registrar la salida de palés rotos",
     };
   }
 }

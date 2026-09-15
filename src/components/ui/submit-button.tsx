@@ -10,18 +10,20 @@ export function SubmitButton({
   pendingText = "Guardando…",
   variant,
   className,
+  disabled = false,
 }: {
   children: React.ReactNode;
   pendingText?: string;
   variant?: Variant;
   className?: string;
+  disabled?: boolean;
 }): React.JSX.Element {
   const { pending } = useFormStatus();
   return (
     <Button
       type="submit"
       variant={variant}
-      disabled={pending}
+      disabled={pending || disabled}
       className={className}
     >
       {pending ? pendingText : children}

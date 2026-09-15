@@ -10,6 +10,7 @@ const TABLES = [
   "config",
   "incidents",
   "pallet_movements",
+  "broken_pallet_movements",
   "consumable_movements",
   "consumables",
   "quality_samples",

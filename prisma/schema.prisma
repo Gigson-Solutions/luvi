@@ -183,6 +183,7 @@ model Buyer {
 
   shipments Shipment[]
   palletMovements PalletMovement[]
+  brokenPalletMovements BrokenPalletMovement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -795,6 +796,31 @@ model PalletMovement {
   @@index([buyerId])
   @@index([shipmentId])
   @@map("pallet_movements")
+}
+
+// ─── Palés rotos (stock propio) ───────────────────────────────────────────────
+
+/**
+ * Movimientos del stock de palés rotos; el disponible es la suma de `quantity`.
+ * Entran desde las devoluciones de palés (los marcados como rotos) o a mano, y
+ * salen hacia un destinatario con su albarán en Holded.
+ */
+model BrokenPalletMovement {
+  id              String  @id @default(cuid())
+  quantity        Int     // positivo = entrada, negativo = salida
+  source          String  // "devolución" | "manual" | "salida"
+  buyerId         String? // devolución: cliente que los devuelve · salida: destinatario
+  reference       String? @unique // salida: referencia autogenerada PR-YYMMDD-NNN
+  holdedAlbaranId String? // salida: albarán generado en Holded
+  vehiclePlate    String?
+  notes           String?
+
+  buyer     Buyer?   @relation(fields: [buyerId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([buyerId])
+  @@index([createdAt])
+  @@map("broken_pallet_movements")
 }
 
 // ─── Inventario por escaneo de sacas ──────────────────────────────────────────
