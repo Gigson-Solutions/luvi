@@ -7,36 +7,18 @@ import { getPackingList } from "@/lib/services/shipment.service";
 import { requireModule } from "@/lib/rbac";
 import { PrintButton } from "./print-button";
 
-/** Peso en kg con 2 decimales y separador español. */
+/** Peso en kg sin decimales, como en el documento de LUVI. */
 function kg(value: number): string {
-  return `${value.toLocaleString("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} kg`;
+  return String(Math.round(value));
 }
 
-/** Dato de cabecera del documento (etiqueta arriba, valor debajo). */
-function HeaderField({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}): React.JSX.Element {
-  return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-        {label}
-      </p>
-      <p className="font-medium text-[var(--color-foreground)]">{value}</p>
-    </div>
-  );
-}
+const cell = "border border-black px-1 py-0 text-left align-top";
 
 /**
- * Packing list de un envío, con la presentación del documento que usa LUVI:
- * cabecera con nº de pedido, nº de albarán y fecha de carga, una fila por saca
- * (lote · BIG BAG · peso) y el peso total. Se imprime o se guarda como PDF.
+ * Packing list de un envío, calcado del documento que usa LUVI: logo, título,
+ * nº de pedido, albarán LUVI con la fecha de carga, tabla LOTE · BIG BAG ·
+ * PESO (kg) con una fila por saca y el peso total. Se imprime o se guarda como
+ * PDF desde el navegador.
  */
 export default async function PackingListPage({
   params,
@@ -50,6 +32,8 @@ export default async function PackingListPage({
 
   return (
     <div className="mx-auto max-w-4xl">
+      <style>{"@page { size: A4; margin: 20mm 18mm; }"}</style>
+
       <div className="mb-6 flex items-center justify-between print:hidden">
         <Link href="/expediciones?tab=envios">
           <Button variant="outline" size="sm">
@@ -59,88 +43,64 @@ export default async function PackingListPage({
         <PrintButton />
       </div>
 
-      <article className="rounded-xl border border-[var(--color-border)] bg-white p-8 text-black print:border-0 print:p-0">
-        <header className="mb-6 flex items-start justify-between gap-6 border-b border-neutral-300 pb-4">
-          <div>
-            <h1 className="text-xl font-bold">PACKING LIST</h1>
-            <p className="text-sm text-neutral-600">LUVI2000</p>
-          </div>
-          <div className="text-right text-sm">
-            <p className="font-medium">{packingList.buyerName}</p>
-            {packingList.carrierName && (
-              <p className="text-neutral-600">{packingList.carrierName}</p>
-            )}
-            {packingList.vehiclePlate && (
-              <p className="text-neutral-600">{packingList.vehiclePlate}</p>
-            )}
-          </div>
-        </header>
+      <article className="rounded-xl border border-[var(--color-border)] bg-white px-12 py-14 text-black print:rounded-none print:border-0 print:p-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/luvi2000-logo.png"
+          alt="luvi2000"
+          width={200}
+          height={60}
+          className="mb-16 h-auto w-64"
+        />
 
-        <section className="mb-6 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-          <HeaderField
-            label="Nº de pedido"
-            value={packingList.orderNumber ?? "—"}
-          />
-          <HeaderField
-            label="Nº albarán LUVI"
-            value={packingList.albaranNumber}
-          />
-          <HeaderField
-            label="Fecha de carga"
-            value={formatDate(packingList.loadDate)}
-          />
-          <HeaderField label="Expedición" value={packingList.reference} />
-        </section>
+        <h1 className="mb-6 text-center text-lg font-bold text-[#2f5496] underline underline-offset-2">
+          PACKING LIST
+        </h1>
 
-        {packingList.rows.length === 0 ? (
-          <p className="text-sm text-neutral-600">
-            Este envío todavía no tiene sacas asignadas.
-          </p>
-        ) : (
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-y border-neutral-300 bg-neutral-100">
-                <th className="px-2 py-2 text-left font-semibold">#</th>
-                <th className="px-2 py-2 text-left font-semibold">Lote</th>
-                <th className="px-2 py-2 text-left font-semibold">BIG BAG</th>
-                <th className="px-2 py-2 text-left font-semibold">Producto</th>
-                <th className="px-2 py-2 text-right font-semibold">Peso</th>
+        <p className="mb-3 text-sm font-bold text-[#2f5496]">
+          Nº de pedido {packingList.orderNumber ?? "—"}
+        </p>
+        <p className="mb-1 text-sm font-bold text-[#2f5496]">
+          ALBARÁN LUVI: {packingList.albaranNumber} (FECHA DE CARGA:{" "}
+          {formatDate(packingList.loadDate)})
+        </p>
+
+        <table className="w-full table-fixed border-collapse font-serif text-[15px] leading-tight">
+          <thead>
+            <tr>
+              <th className="border border-black py-1 text-center text-2xl font-bold">
+                LOTE
+              </th>
+              <th className="border border-black py-1 text-center text-2xl font-bold">
+                BIG BAG
+              </th>
+              <th className="border border-black py-1 text-center text-2xl font-bold">
+                PESO (kg)
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {packingList.rows.length === 0 ? (
+              <tr>
+                <td className={cell} colSpan={3}>
+                  Este envío todavía no tiene sacas asignadas.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {packingList.rows.map((row, i) => (
-                <tr key={row.qrCode} className="border-b border-neutral-200">
-                  <td className="px-2 py-1.5 tabular-nums text-neutral-500">
-                    {i + 1}
-                  </td>
-                  <td className="px-2 py-1.5 font-mono">{row.lotNumber}</td>
-                  <td className="px-2 py-1.5 font-mono">
-                    {row.sackNumber}
-                    <span className="ml-2 text-xs text-neutral-500">
-                      {row.qrCode}
-                    </span>
-                  </td>
-                  <td className="px-2 py-1.5">{row.materialName}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">
-                    {kg(row.weightKg)}
-                  </td>
+            ) : (
+              packingList.rows.map((row) => (
+                <tr key={row.qrCode} className="break-inside-avoid">
+                  <td className={cell}>{row.lotNumber}</td>
+                  <td className={cell}>{row.sackNumber}</td>
+                  <td className={cell}>{kg(row.weightKg)}</td>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-neutral-400 font-semibold">
-                <td className="px-2 py-2" colSpan={3}>
-                  Total ({packingList.rows.length}{" "}
-                  {packingList.rows.length === 1 ? "saca" : "sacas"})
-                </td>
-                <td />
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {kg(packingList.totalWeightKg)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        )}
+              ))
+            )}
+          </tbody>
+        </table>
+
+        <p className="mt-12 font-serif text-2xl font-bold">
+          PESO TOTAL:&nbsp; {kg(packingList.totalWeightKg)} KG
+        </p>
       </article>
     </div>
   );

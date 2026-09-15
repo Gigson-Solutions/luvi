@@ -927,7 +927,12 @@ export async function getPackingList(
             material: { select: { name: true } },
             lot: { select: { lotNumber: true } },
           },
-          orderBy: [{ lotId: "asc" }, { lotSequence: "asc" }],
+          // lotes en orden de producción, y dentro de cada lote por nº de saca
+          orderBy: [
+            { lot: { createdAt: "asc" } },
+            { lotId: "asc" },
+            { lotSequence: "asc" },
+          ],
         });
 
   const rows: PackingListRow[] = sacks.map((s) => ({

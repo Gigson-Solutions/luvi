@@ -221,7 +221,7 @@ export function Sidebar({
   return (
     <>
       {/* Barra superior — solo móvil */}
-      <header className="md:hidden sticky top-0 z-30 flex items-center gap-3 h-14 px-4 bg-[var(--color-sidebar-bg)]">
+      <header className="md:hidden print:hidden sticky top-0 z-30 flex items-center gap-3 h-14 px-4 bg-[var(--color-sidebar-bg)]">
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -234,7 +234,7 @@ export function Sidebar({
       </header>
 
       {/* Sidebar fijo — escritorio */}
-      <aside className="hidden md:flex w-56 shrink-0 min-h-screen bg-[var(--color-sidebar-bg)] flex-col">
+      <aside className="hidden md:flex print:hidden w-56 shrink-0 min-h-screen bg-[var(--color-sidebar-bg)] flex-col">
         <div className="flex items-center h-14 px-4 border-b border-white/10">
           <Logo />
         </div>

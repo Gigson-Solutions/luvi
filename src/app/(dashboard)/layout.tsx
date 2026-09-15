@@ -24,7 +24,7 @@ export default async function DashboardLayout({
         userEmail={u.email ?? null}
       />
       <main className="flex-1 min-w-0 overflow-auto">
-        <div className="px-4 md:px-6 py-5 max-w-screen-2xl mx-auto">
+        <div className="px-4 md:px-6 py-5 max-w-screen-2xl mx-auto print:p-0">
           {children}
         </div>
       </main>
