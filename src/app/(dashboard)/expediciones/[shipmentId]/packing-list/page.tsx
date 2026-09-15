@@ -12,7 +12,14 @@ function kg(value: number): string {
   return String(Math.round(value));
 }
 
-const cell = "border border-black px-1 py-0 text-left align-top";
+const cell = "border px-2 py-1 text-left align-top";
+const head = "border px-2 py-2 text-center text-2xl font-bold";
+
+/**
+ * Bordes negros en línea: la regla global `* { border-color }` de globals.css
+ * va sin capa y pisa a la utilidad `border-black` de Tailwind.
+ */
+const black: React.CSSProperties = { borderColor: "#000" };
 
 /**
  * Packing list de un envío, calcado del documento que usa LUVI: logo, título,
@@ -50,17 +57,17 @@ export default async function PackingListPage({
           alt="luvi2000"
           width={200}
           height={60}
-          className="mb-16 h-auto w-64"
+          className="mb-20 h-auto w-64"
         />
 
-        <h1 className="mb-6 text-center text-lg font-bold text-[#2f5496] underline underline-offset-2">
+        <h1 className="mb-10 text-center text-lg font-bold text-[#2f5496] underline underline-offset-2">
           PACKING LIST
         </h1>
 
-        <p className="mb-3 text-sm font-bold text-[#2f5496]">
+        <p className="mb-4 text-sm font-bold text-[#2f5496]">
           Nº de pedido {packingList.orderNumber ?? "—"}
         </p>
-        <p className="mb-1 text-sm font-bold text-[#2f5496]">
+        <p className="mb-3 text-sm font-bold text-[#2f5496]">
           ALBARÁN LUVI: {packingList.albaranNumber} (FECHA DE CARGA:{" "}
           {formatDate(packingList.loadDate)})
         </p>
@@ -68,13 +75,13 @@ export default async function PackingListPage({
         <table className="w-full table-fixed border-collapse font-serif text-[15px] leading-tight">
           <thead>
             <tr>
-              <th className="border border-black py-1 text-center text-2xl font-bold">
+              <th className={head} style={black}>
                 LOTE
               </th>
-              <th className="border border-black py-1 text-center text-2xl font-bold">
+              <th className={head} style={black}>
                 BIG BAG
               </th>
-              <th className="border border-black py-1 text-center text-2xl font-bold">
+              <th className={head} style={black}>
                 PESO (kg)
               </th>
             </tr>
@@ -82,23 +89,29 @@ export default async function PackingListPage({
           <tbody>
             {packingList.rows.length === 0 ? (
               <tr>
-                <td className={cell} colSpan={3}>
+                <td className={cell} style={black} colSpan={3}>
                   Este envío todavía no tiene sacas asignadas.
                 </td>
               </tr>
             ) : (
               packingList.rows.map((row) => (
                 <tr key={row.qrCode} className="break-inside-avoid">
-                  <td className={cell}>{row.lotNumber}</td>
-                  <td className={cell}>{row.sackNumber}</td>
-                  <td className={cell}>{kg(row.weightKg)}</td>
+                  <td className={cell} style={black}>
+                    {row.lotNumber}
+                  </td>
+                  <td className={cell} style={black}>
+                    {row.sackNumber}
+                  </td>
+                  <td className={cell} style={black}>
+                    {kg(row.weightKg)}
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
 
-        <p className="mt-12 font-serif text-2xl font-bold">
+        <p className="mt-14 font-serif text-2xl font-bold">
           PESO TOTAL:&nbsp; {kg(packingList.totalWeightKg)} KG
         </p>
       </article>
