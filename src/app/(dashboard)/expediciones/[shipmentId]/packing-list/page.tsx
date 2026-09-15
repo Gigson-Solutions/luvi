@@ -12,8 +12,8 @@ function kg(value: number): string {
   return String(Math.round(value));
 }
 
-const cell = "border px-2 py-1 text-left align-top";
-const head = "border px-2 py-2 text-center text-2xl font-bold";
+const cell = "border px-3 py-1.5 text-left align-middle";
+const head = "border px-3 py-2.5 text-center text-2xl font-bold";
 
 /**
  * Bordes negros en línea: la regla global `* { border-color }` de globals.css
@@ -72,7 +72,7 @@ export default async function PackingListPage({
           {formatDate(packingList.loadDate)})
         </p>
 
-        <table className="w-full table-fixed border-collapse font-serif text-[15px] leading-tight">
+        <table className="w-full table-fixed border-collapse font-[Cambria,Georgia,serif] text-base leading-snug">
           <thead>
             <tr>
               <th className={head} style={black}>
@@ -111,7 +111,7 @@ export default async function PackingListPage({
           </tbody>
         </table>
 
-        <p className="mt-14 font-serif text-2xl font-bold">
+        <p className="mt-14 font-[Cambria,Georgia,serif] text-2xl font-bold">
           PESO TOTAL:&nbsp; {kg(packingList.totalWeightKg)} KG
         </p>
       </article>
