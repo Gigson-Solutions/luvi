@@ -71,6 +71,8 @@ export interface QualityRangeSetSummary {
   /** Productos y categorías que lo tienen asignado (para la tabla de config). */
   materialNames: string[];
   categoryNames: string[];
+  materialIds: string[];
+  categoryIds: string[];
 }
 
 /** Normaliza un `ranges` guardado en JSON al shape completo de QualityRanges. */
@@ -88,12 +90,17 @@ function toQualityRanges(raw: unknown): QualityRanges {
 }
 
 /** Conjuntos de rangos con los productos/categorías que los usan. */
-export async function listQualityRangeSets(): Promise<QualityRangeSetSummary[]> {
+export async function listQualityRangeSets(): Promise<
+  QualityRangeSetSummary[]
+> {
   const sets = await prisma.qualityRangeSet.findMany({
     orderBy: { name: "asc" },
     include: {
-      materials: { select: { name: true }, orderBy: { name: "asc" } },
-      categories: { select: { name: true }, orderBy: { name: "asc" } },
+      materials: { select: { id: true, name: true }, orderBy: { name: "asc" } },
+      categories: {
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      },
     },
   });
   return sets.map((s) => ({
@@ -103,29 +110,93 @@ export async function listQualityRangeSets(): Promise<QualityRangeSetSummary[]> 
     ranges: toQualityRanges(s.ranges),
     materialNames: s.materials.map((m) => m.name),
     categoryNames: s.categories.map((c) => c.name),
+    materialIds: s.materials.map((m) => m.id),
+    categoryIds: s.categories.map((c) => c.id),
   }));
 }
 
 export interface SaveQualityRangeSetInput {
   id?: string;
+  /** Vacío → se nombra como los productos/tipos seleccionados. */
   name: string;
   active?: boolean;
   ranges: QualityRanges;
+  /**
+   * Productos y tipos de material (ya existentes) a los que se aplica. Si se
+   * indican, sustituyen la asignación anterior del conjunto; un producto o tipo
+   * que tuviera otro conjunto pasa a este.
+   */
+  materialIds?: string[];
+  categoryIds?: string[];
 }
 
-/** Crea o actualiza un conjunto de rangos. */
+/** Crea o actualiza un conjunto de rangos y, si se indica, a qué se aplica. */
 export async function saveQualityRangeSet(
   input: SaveQualityRangeSetInput,
-): Promise<{ id: string }> {
+): Promise<{ id: string; name: string }> {
+  const name = input.name.trim() || (await nameFromSelection(input));
+  if (!name) {
+    throw new Error(
+      "Selecciona al menos un material o tipo de material existente",
+    );
+  }
+  const duplicate = await prisma.qualityRangeSet.findFirst({
+    where: { name, ...(input.id ? { id: { not: input.id } } : {}) },
+    select: { id: true },
+  });
+  if (duplicate) throw new Error(`Ya existe un conjunto llamado "${name}"`);
+
   const data = {
-    name: input.name,
+    name,
     active: input.active ?? true,
     ranges: input.ranges as unknown as Prisma.InputJsonValue,
   };
-  const set = input.id
-    ? await prisma.qualityRangeSet.update({ where: { id: input.id }, data })
-    : await prisma.qualityRangeSet.create({ data });
-  return { id: set.id };
+  return prisma.$transaction(async (tx) => {
+    const set = input.id
+      ? await tx.qualityRangeSet.update({ where: { id: input.id }, data })
+      : await tx.qualityRangeSet.create({ data });
+
+    if (input.materialIds) {
+      await tx.material.updateMany({
+        where: { qualityRangeSetId: set.id, id: { notIn: input.materialIds } },
+        data: { qualityRangeSetId: null },
+      });
+      await tx.material.updateMany({
+        where: { id: { in: input.materialIds } },
+        data: { qualityRangeSetId: set.id },
+      });
+    }
+    if (input.categoryIds) {
+      await tx.materialCategory.updateMany({
+        where: { qualityRangeSetId: set.id, id: { notIn: input.categoryIds } },
+        data: { qualityRangeSetId: null },
+      });
+      await tx.materialCategory.updateMany({
+        where: { id: { in: input.categoryIds } },
+        data: { qualityRangeSetId: set.id },
+      });
+    }
+    return { id: set.id, name: set.name };
+  });
+}
+
+/** Nombre por defecto de un conjunto: los tipos y productos a los que se aplica. */
+async function nameFromSelection(
+  input: SaveQualityRangeSetInput,
+): Promise<string> {
+  const [categories, materials] = await Promise.all([
+    prisma.materialCategory.findMany({
+      where: { id: { in: input.categoryIds ?? [] } },
+      select: { name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.material.findMany({
+      where: { id: { in: input.materialIds ?? [] } },
+      select: { name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  return [...categories, ...materials].map((x) => x.name).join(", ");
 }
 
 /** Borra un conjunto; los productos/categorías que lo usaban quedan sin él. */
@@ -174,8 +245,7 @@ export async function resolveQualityRanges(
   const merged = {} as QualityRanges;
   for (const key of SAMPLE_MEASURE_KEYS) {
     const o = own[key];
-    merged[key] =
-      o.min == null && o.max == null ? general[key] : { ...o };
+    merged[key] = o.min == null && o.max == null ? general[key] : { ...o };
   }
   return merged;
 }

@@ -597,23 +597,33 @@ export async function saveQualityRangeSetAction(
   try {
     const actor = await requireSession();
     const id = String(formData.get("id") ?? "");
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name) return { ok: false, error: "El nombre es obligatorio" };
+    const materialIds = formData.getAll("materialIds").map(String);
+    const categoryIds = formData.getAll("categoryIds").map(String);
+    if (materialIds.length === 0 && categoryIds.length === 0) {
+      return {
+        ok: false,
+        error: "Selecciona al menos un material o tipo de material existente",
+      };
+    }
     const ranges = readRangesFromForm(formData);
     if ("error" in ranges) return { ok: false, error: ranges.error };
+
+    const name = String(formData.get("name") ?? "").trim();
 
     const set = await saveQualityRangeSet({
       id: id || undefined,
       name,
       active: formData.get("active") !== "false",
       ranges,
+      materialIds,
+      categoryIds,
     });
     await logAudit({
       userId: actor.id,
       action: id ? "UPDATE_QUALITY_RANGE_SET" : "CREATE_QUALITY_RANGE_SET",
       entity: "QualityRangeSet",
       entityId: set.id,
-      payload: { name },
+      payload: { name: set.name, materialIds, categoryIds },
     });
     revalidatePath(REVALIDATE);
     revalidatePath("/calidad");

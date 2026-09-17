@@ -345,7 +345,9 @@ export function MaterialsSection({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return materials.filter((m) => {
-      if (filter === "none" ? !!m.categoryId : filter && m.categoryId !== filter)
+      if (
+        filter === "none" ? !!m.categoryId : filter && m.categoryId !== filter
+      )
         return false;
       if (status === "active" && !m.active) return false;
       if (status === "inactive" && m.active) return false;
@@ -1536,12 +1538,113 @@ function DeleteRangeSetButton({ id }: { id: string }): React.JSX.Element {
   );
 }
 
+/**
+ * Productos y tipos de material (ya dados de alta) a los que se aplica un
+ * conjunto. Un conjunto no se crea "suelto": siempre cuelga de algo existente.
+ */
+function RangeSetTargets({
+  set,
+  materials,
+  categories,
+  rangeSets,
+}: {
+  set?: QualityRangeSetSummary;
+  materials: MaterialWithCategory[];
+  categories: MaterialCategory[];
+  rangeSets: QualityRangeSetSummary[];
+}): React.JSX.Element {
+  const setName = new Map(rangeSets.map((r) => [r.id, r.name]));
+  const selectedMaterials = new Set(set?.materialIds ?? []);
+  const selectedCategories = new Set(set?.categoryIds ?? []);
+  const groups = [
+    {
+      field: "categoryIds",
+      label: "Tipos de material",
+      items: categories
+        .filter((c) => c.active || selectedCategories.has(c.id))
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          current: c.qualityRangeSetId,
+          checked: selectedCategories.has(c.id),
+        })),
+    },
+    {
+      field: "materialIds",
+      label: "Materiales",
+      items: materials
+        .filter((m) => m.active || selectedMaterials.has(m.id))
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          current: m.qualityRangeSetId,
+          checked: selectedMaterials.has(m.id),
+        })),
+    },
+  ];
+  return (
+    <div className="space-y-3">
+      {groups.map((g) => (
+        <div key={g.field}>
+          <Label>{g.label}</Label>
+          {g.items.length === 0 ? (
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              No hay {g.label.toLowerCase()} dados de alta.
+            </p>
+          ) : (
+            <div className="mt-1 max-h-40 space-y-1 overflow-auto rounded-lg border border-[var(--color-border)] p-2">
+              {g.items.map((item) => {
+                const inputId = `${set?.id ?? "new"}-${g.field}-${item.id}`;
+                const other =
+                  item.current && item.current !== set?.id
+                    ? setName.get(item.current)
+                    : undefined;
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      id={inputId}
+                      name={g.field}
+                      value={item.id}
+                      defaultChecked={item.checked}
+                      className="h-4 w-4 accent-[var(--color-primary)]"
+                    />
+                    <label htmlFor={inputId} className="flex-1">
+                      {item.name}
+                      {other && (
+                        <span className="ml-1 text-xs text-[var(--color-muted)]">
+                          (ahora usa «{other}»)
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+      <p className="text-xs text-[var(--color-muted)]">
+        Selecciona al menos un material o tipo. Si ya tenía otro conjunto, pasa
+        a usar este.
+      </p>
+    </div>
+  );
+}
+
 export function QualitySection({
   ranges,
   rangeSets,
+  materials,
+  categories,
 }: {
   ranges: QualityRanges;
   rangeSets: QualityRangeSetSummary[];
+  materials: MaterialWithCategory[];
+  categories: MaterialCategory[];
 }): React.JSX.Element {
   const [state, action] = useActionState(saveQualityRangesAction, INITIAL);
   return (
@@ -1574,19 +1677,23 @@ export function QualitySection({
                 </Button>
               }
               title="Nuevo conjunto de rangos"
-              description="Se asigna después a productos (en Materiales) o a tipos de material."
+              description="Elige los materiales o tipos de material existentes a los que se aplica."
               action={saveQualityRangeSetAction}
               submitLabel="Crear"
             >
               {() => (
                 <>
+                  <RangeSetTargets
+                    materials={materials}
+                    categories={categories}
+                    rangeSets={rangeSets}
+                  />
                   <div>
-                    <Label htmlFor="set-name">Nombre</Label>
+                    <Label htmlFor="set-name">Nombre (opcional)</Label>
                     <Input
                       id="set-name"
                       name="name"
-                      required
-                      placeholder="Ej. PE Natural"
+                      placeholder="Por defecto, el de lo seleccionado"
                     />
                   </div>
                   <RangeGrid ranges={EMPTY_RANGES} idPrefix="new-" />
@@ -1603,7 +1710,7 @@ export function QualitySection({
         {rangeSets.length === 0 ? (
           <EmptyState
             title="No hay conjuntos de rangos"
-            description="Crea un conjunto y asígnalo a los productos o tipos que lo necesiten."
+            description="Crea un conjunto seleccionando los materiales o tipos que lo necesiten."
           />
         ) : (
           <Table>
@@ -1640,13 +1747,21 @@ export function QualitySection({
                         {() => (
                           <>
                             <input type="hidden" name="id" value={s.id} />
+                            <RangeSetTargets
+                              set={s}
+                              materials={materials}
+                              categories={categories}
+                              rangeSets={rangeSets}
+                            />
                             <div>
-                              <Label htmlFor={`set-name-${s.id}`}>Nombre</Label>
+                              <Label htmlFor={`set-name-${s.id}`}>
+                                Nombre (opcional)
+                              </Label>
                               <Input
                                 id={`set-name-${s.id}`}
                                 name="name"
-                                required
                                 defaultValue={s.name}
+                                placeholder="Por defecto, el de lo seleccionado"
                               />
                             </div>
                             <RangeGrid

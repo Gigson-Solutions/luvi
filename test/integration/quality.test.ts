@@ -248,6 +248,47 @@ describe("Calidad — conjuntos de rangos por producto o tipo", () => {
     expect(sets[0].ranges.density).toEqual({ min: 345, max: 355 });
   });
 
+  it("se crea seleccionando materiales existentes: se asigna y toma su nombre", async () => {
+    const otro = await saveQualityRangeSet({
+      name: "Anterior",
+      ranges: ranges({ density: { min: 300, max: 400 } }),
+      materialIds: [base.materialId],
+    });
+    const material = await prisma.material.findUniqueOrThrow({
+      where: { id: base.materialId },
+    });
+    expect(material.qualityRangeSetId).toBe(otro.id);
+
+    // Un conjunto nuevo sin nombre se llama como el material y se lo queda.
+    const nuevo = await saveQualityRangeSet({
+      name: "",
+      ranges: ranges({ density: { min: 340, max: 360 } }),
+      materialIds: [base.materialId],
+    });
+    expect(nuevo.name).toBe(material.name);
+    let sets = await listQualityRangeSets();
+    expect(sets.find((x) => x.id === nuevo.id)?.materialIds).toEqual([
+      base.materialId,
+    ]);
+    expect(sets.find((x) => x.id === otro.id)?.materialIds).toEqual([]);
+
+    // Al editarlo desmarcando el material, queda sin asignar.
+    await saveQualityRangeSet({
+      id: nuevo.id,
+      name: nuevo.name,
+      ranges: ranges({ density: { min: 340, max: 360 } }),
+      materialIds: [],
+      categoryIds: [],
+    });
+    sets = await listQualityRangeSets();
+    expect(sets.find((x) => x.id === nuevo.id)?.materialIds).toEqual([]);
+
+    // Sin nada seleccionado ni nombre, no se crea.
+    await expect(
+      saveQualityRangeSet({ name: "", ranges: ranges({}), materialIds: [] }),
+    ).rejects.toThrow(/Selecciona/);
+  });
+
   it("el conjunto del producto manda sobre el de su tipo y sobre los generales", async () => {
     const delTipo = await saveQualityRangeSet({
       name: "Tipo",

@@ -168,7 +168,12 @@ export default async function ConfiguracionPage({
         <UsersSection users={users} currentUserId={currentUserId} />
       )}
       {activeTab === "calidad" && (
-        <QualitySection ranges={qualityRanges} rangeSets={qualityRangeSets} />
+        <QualitySection
+          ranges={qualityRanges}
+          rangeSets={qualityRangeSets}
+          materials={materials}
+          categories={materialCategories}
+        />
       )}
       {activeTab === "costes" && <CostsSection costs={costs} />}
     </div>
