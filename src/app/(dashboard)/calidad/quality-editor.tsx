@@ -37,6 +37,7 @@ import {
   SAMPLE_MEASURE_COLORS,
   SAMPLES_PER_RECORD,
   sampleStatus,
+  isOutOfRange,
   type QualityRanges,
   type SampleMeasureKey,
   type SampleStatus,
@@ -50,12 +51,13 @@ export interface MaterialOption {
   name: string;
 }
 
-/** Texto del rango OK de densidad, para la cabecera del editor. */
-function densityLabel(ranges: QualityRanges): string {
-  const { min, max } = ranges.density;
+/** Texto del rango OK configurado de un parámetro (p. ej. «330–370 g»). */
+function rangeLabel(ranges: QualityRanges, key: SampleMeasureKey): string {
+  const { min, max } = ranges[key];
+  const unit = SAMPLE_MEASURE_UNITS[key];
   if (min == null && max == null) return "sin límite";
-  if (min != null && max != null) return `${min}–${max} g`;
-  return min != null ? `≥ ${min} g` : `≤ ${max} g`;
+  if (min != null && max != null) return `${min}–${max} ${unit}`;
+  return min != null ? `≥ ${min} ${unit}` : `≤ ${max} ${unit}`;
 }
 
 const MONTHS = [
@@ -373,7 +375,7 @@ export function SampleEditorDialog({
       <DialogContent
         className="max-w-5xl"
         title={`Editar Registro · ${record.dateLabel}`}
-        description={`Estado OK si densidad ${densityLabel(ranges)} y el resto de parámetros dentro de rango. Hasta 20 muestras.`}
+        description={`Estado OK si densidad ${rangeLabel(ranges, "density")} y el resto de parámetros dentro de rango. Hasta 20 muestras.`}
       >
         <form action={action} className="space-y-4">
           <input type="hidden" name="id" value={record.id} />
@@ -454,24 +456,28 @@ export function SampleEditorDialog({
                     <p className="text-xs font-medium" style={{ color }}>
                       {SAMPLE_MEASURE_LABELS[key]}
                     </p>
-                    <p className="text-base font-semibold tabular-nums">
+                    <p
+                      className={
+                        isOutOfRange(stat?.avg, ranges[key])
+                          ? "text-base font-semibold tabular-nums text-red-600"
+                          : "text-base font-semibold tabular-nums"
+                      }
+                    >
                       {stat == null ? "—" : stat.avg.toFixed(2)}
                       <span className="text-xs font-normal text-[var(--color-muted)]">
                         {SAMPLE_MEASURE_UNITS[key]}
                       </span>
                     </p>
                     <p className="text-xs text-[var(--color-muted)] tabular-nums">
-                      {stat == null
-                        ? " "
-                        : `${stat.min.toFixed(2)} – ${stat.max.toFixed(2)}`}
+                      Rango: {rangeLabel(ranges, key)}
                     </p>
                   </div>
                 );
               })}
             </div>
             <p className="mt-2 text-right text-xs text-[var(--color-muted)]">
-              Rango OK Densidad: {densityLabel(ranges)}
-              {materialId ? " (rangos del producto)" : " (rangos generales)"}
+              {materialId ? "Rangos del producto" : "Rangos generales"}
+              {" · en rojo, los valores fuera de rango"}
             </p>
           </div>
 
@@ -531,28 +537,46 @@ export function SampleEditorDialog({
                       <td className="px-2 py-1 text-center font-mono text-xs text-[var(--color-muted)]">
                         {row.index}
                       </td>
-                      {SAMPLE_MEASURE_KEYS.map((key) => (
-                        <td
-                          key={key}
-                          className="px-1 py-1"
-                          style={{
-                            backgroundColor: tintBg(
-                              SAMPLE_MEASURE_COLORS[key],
-                              5,
-                            ),
-                          }}
-                        >
-                          <Input
-                            type="number"
-                            step="0.01"
-                            inputMode="decimal"
-                            className="h-8 text-xs"
-                            value={row[key]}
-                            onChange={(e) => setCell(idx, key, e.target.value)}
-                            aria-label={`${SAMPLE_MEASURE_LABELS[key]} muestra ${row.index}`}
-                          />
-                        </td>
-                      ))}
+                      {SAMPLE_MEASURE_KEYS.map((key) => {
+                        const outOfRange = isOutOfRange(
+                          parseNum(row[key]),
+                          ranges[key],
+                        );
+                        return (
+                          <td
+                            key={key}
+                            className="px-1 py-1"
+                            style={{
+                              backgroundColor: tintBg(
+                                SAMPLE_MEASURE_COLORS[key],
+                                5,
+                              ),
+                            }}
+                          >
+                            <Input
+                              type="number"
+                              step="0.01"
+                              inputMode="decimal"
+                              className={
+                                outOfRange
+                                  ? "h-8 text-xs font-semibold text-red-600 border-red-500"
+                                  : "h-8 text-xs"
+                              }
+                              value={row[key]}
+                              onChange={(e) =>
+                                setCell(idx, key, e.target.value)
+                              }
+                              aria-label={`${SAMPLE_MEASURE_LABELS[key]} muestra ${row.index}`}
+                              aria-invalid={outOfRange || undefined}
+                              title={
+                                outOfRange
+                                  ? `Fuera de rango (${rangeLabel(ranges, key)})`
+                                  : undefined
+                              }
+                            />
+                          </td>
+                        );
+                      })}
                       <td className="px-2 py-1 text-center">
                         <StatusPill status={status} />
                       </td>

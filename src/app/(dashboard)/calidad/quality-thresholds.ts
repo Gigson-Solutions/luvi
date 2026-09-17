@@ -119,11 +119,17 @@ export function sampleStatus(
   const density = values.density;
   if (density == null || Number.isNaN(density)) return "PENDIENTE";
   for (const key of SAMPLE_MEASURE_KEYS) {
-    const value = values[key];
-    if (value == null || Number.isNaN(value)) continue;
-    const { min, max } = ranges[key];
-    if (min != null && value < min) return "NOK";
-    if (max != null && value > max) return "NOK";
+    if (isOutOfRange(values[key], ranges[key])) return "NOK";
   }
   return "OK";
+}
+
+/** true si el valor está medido y cae fuera de su min/max configurado. */
+export function isOutOfRange(
+  value: number | null | undefined,
+  range: ParamRange,
+): boolean {
+  if (value == null || Number.isNaN(value)) return false;
+  if (range.min != null && value < range.min) return true;
+  return range.max != null && value > range.max;
 }
