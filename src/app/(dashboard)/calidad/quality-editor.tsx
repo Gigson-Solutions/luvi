@@ -559,8 +559,15 @@ export function SampleEditorDialog({
                               inputMode="decimal"
                               className={
                                 outOfRange
-                                  ? "h-8 text-xs font-semibold"
+                                  ? "h-8 text-xs font-semibold text-red-600"
                                   : "h-8 text-xs"
+                              }
+                              // El borde va inline: como clase la pisa el
+                              // borde base del Input.
+                              style={
+                                outOfRange
+                                  ? { borderColor: "var(--color-red-500)" }
+                                  : undefined
                               }
                               value={row[key]}
                               onChange={(e) =>
