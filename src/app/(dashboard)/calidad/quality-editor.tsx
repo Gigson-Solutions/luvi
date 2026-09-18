@@ -559,7 +559,7 @@ export function SampleEditorDialog({
                               inputMode="decimal"
                               className={
                                 outOfRange
-                                  ? "h-8 text-xs font-semibold text-red-600 border-red-500"
+                                  ? "h-8 text-xs font-semibold"
                                   : "h-8 text-xs"
                               }
                               value={row[key]}
