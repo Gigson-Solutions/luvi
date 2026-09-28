@@ -6,6 +6,8 @@ import {
   saveRecord,
   getRecordDetail,
   listMonthlyRecords,
+  listRecords,
+  listQualityClients,
   getMonthlyStats,
   getDensityRange,
   deleteRecord,
@@ -220,6 +222,58 @@ describe("Calidad — listado y estadísticas mensuales", () => {
   });
 });
 
+describe("Calidad — filtros por fechas, cliente y producto", () => {
+  it("listRecords combina rango de fechas, clientes y productos", async () => {
+    const other = await prisma.material.create({
+      data: { name: "Escama Test", code: "ESC-T1", type: "PELLET_PP" },
+    });
+    await createRecord({
+      date: new Date("2026-09-02T00:00:00"),
+      client: "Cliente A",
+      materialId: base.materialId,
+    });
+    await createRecord({
+      date: new Date("2026-09-10T00:00:00"),
+      client: "Cliente B",
+      materialId: other.id,
+    });
+    await createRecord({
+      date: new Date("2026-10-01T00:00:00"),
+      client: "Cliente A",
+      materialId: other.id,
+    });
+
+    const range = {
+      from: new Date("2026-09-01T00:00:00"),
+      to: new Date("2026-10-01T00:00:00"),
+    };
+    expect(await listRecords(range)).toHaveLength(2);
+    expect(
+      await listRecords({ ...range, clients: ["Cliente A"] }),
+    ).toHaveLength(1);
+    expect(
+      await listRecords({ ...range, materialIds: [other.id] }),
+    ).toHaveLength(1);
+    expect(
+      await listRecords({
+        from: new Date("2026-01-01T00:00:00"),
+        to: new Date("2027-01-01T00:00:00"),
+        clients: ["Cliente A"],
+        materialIds: [other.id],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("listQualityClients devuelve los clientes distintos, sin vacíos", async () => {
+    await createRecord({ date: new Date(), client: "Cliente B" });
+    await createRecord({ date: new Date(), client: "Cliente A" });
+    await createRecord({ date: new Date(), client: "Cliente A" });
+    await createRecord({ date: new Date() });
+
+    expect(await listQualityClients()).toEqual(["Cliente A", "Cliente B"]);
+  });
+});
+
 // ─── Tareas del cliente (07-sep) ────────────────────────────────────────────────
 
 /** Rangos completos a partir de unos pocos parámetros. */
@@ -406,7 +460,10 @@ describe("Calidad — conjuntos de rangos por producto o tipo", () => {
 
 describe("Calidad — el análisis aplica los rangos de su producto", () => {
   it("sampleStatus mira todos los parámetros con límite, no solo la densidad", () => {
-    const r = ranges({ density: { min: 340, max: 360 }, pvc: { min: null, max: 2 } });
+    const r = ranges({
+      density: { min: 340, max: 360 },
+      pvc: { min: null, max: 2 },
+    });
     expect(sampleStatus({ density: 350 }, r)).toBe("OK");
     expect(sampleStatus({ density: 335 }, r)).toBe("NOK");
     expect(sampleStatus({ density: 350, pvc: 5 }, r)).toBe("NOK");

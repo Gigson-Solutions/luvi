@@ -16,6 +16,7 @@ import {
   PackageX,
   ArrowDownToLine,
   ArrowUpFromLine,
+  ArrowDownUp,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -46,7 +47,7 @@ import {
   getCountDetail,
   listInventoryCounts,
 } from "@/lib/services/inventory-count.service";
-import { listWarehouses } from "@/lib/services/config.service";
+import { listMaterials, listWarehouses } from "@/lib/services/config.service";
 import { InventoryCountPanel } from "./inventory-count-client";
 import {
   BROKEN_PALLET_SOURCES,
@@ -58,6 +59,16 @@ import {
   AddBrokenPalletsDialog,
   ShipBrokenPalletsDialog,
 } from "./broken-pallet-dialogs";
+import {
+  getSackAvailability,
+  listStockAdjustments,
+  listZoneOptions,
+} from "@/lib/services/stock-adjustment.service";
+import {
+  PrintStockEntryLabelsButton,
+  StockEntryDialog,
+  StockExitDialog,
+} from "./stock-adjustment-dialogs";
 
 type Tab =
   | "produccion"
@@ -66,6 +77,7 @@ type Tab =
   | "esperado"
   | "consumibles"
   | "pales-rotos"
+  | "altas-bajas"
   | "recuento";
 
 const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
@@ -75,6 +87,7 @@ const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
   { value: "esperado", label: "Esperado", icon: Ship },
   { value: "consumibles", label: "Consumibles", icon: Package },
   { value: "pales-rotos", label: "Palés rotos", icon: PackageX },
+  { value: "altas-bajas", label: "Altas y bajas", icon: ArrowDownUp },
   { value: "recuento", label: "Recuento por escaneo", icon: ScanLine },
 ];
 
@@ -99,6 +112,7 @@ function isTab(v: string | undefined): v is Tab {
     v === "esperado" ||
     v === "consumibles" ||
     v === "pales-rotos" ||
+    v === "altas-bajas" ||
     v === "recuento"
   );
 }
@@ -981,6 +995,156 @@ async function PalesRotosTab(): Promise<React.JSX.Element> {
 }
 
 /**
+ * Altas y bajas manuales de sacas: stock inicial, material que no entra por
+ * contenedor y correcciones de inventario. Cada alta crea sacas con QR cuyas
+ * etiquetas se imprimen desde aquí.
+ */
+async function AltasBajasTab(): Promise<React.JSX.Element> {
+  const [adjustments, availability, zones, allMaterials] = await Promise.all([
+    listStockAdjustments(),
+    getSackAvailability(),
+    listZoneOptions(),
+    listMaterials(),
+  ]);
+  const materials = allMaterials
+    .filter((m) => m.active)
+    .map((m) => ({ id: m.id, name: m.name }));
+  const entries = adjustments.filter((a) => a.type === "ALTA");
+  const exits = adjustments.filter((a) => a.type === "BAJA");
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <StockExitDialog
+          materials={materials}
+          zones={zones}
+          availability={availability}
+        />
+        <StockEntryDialog materials={materials} zones={zones} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <StatCard
+          label="Sacas dadas de alta"
+          value={entries.reduce((sum, a) => sum + a.numSacks, 0)}
+          hint={formatKg(entries.reduce((sum, a) => sum + a.totalWeight, 0))}
+          accent="var(--color-primary)"
+          icon={ArrowDownToLine}
+        />
+        <StatCard
+          label="Sacas dadas de baja"
+          value={exits.reduce((sum, a) => sum + a.numSacks, 0)}
+          hint={formatKg(exits.reduce((sum, a) => sum + a.totalWeight, 0))}
+          accent="#ef4444"
+          icon={ArrowUpFromLine}
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ArrowDownUp className="w-4 h-4" /> Movimientos manuales
+          </CardTitle>
+          <p className="text-xs text-[var(--color-muted)] mt-1">
+            Últimos 100 movimientos
+          </p>
+        </CardHeader>
+        <CardContent>
+          {adjustments.length === 0 ? (
+            <EmptyState
+              icon={ArrowDownUp}
+              title="Sin altas ni bajas manuales"
+              description="Da de alta el stock inicial o corrige el inventario con los botones de arriba."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Fecha</TH>
+                    <TH>Tipo</TH>
+                    <TH>Producto</TH>
+                    <TH>Ubicación</TH>
+                    <TH className="text-right">Sacas</TH>
+                    <TH className="text-right">Peso</TH>
+                    <TH>Notas</TH>
+                    <TH>Usuario</TH>
+                    <TH className="text-right">Etiquetas</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {adjustments.map((a) => (
+                    <TR key={a.id}>
+                      <TD className="whitespace-nowrap">
+                        {formatDate(a.date)}
+                      </TD>
+                      <TD>
+                        <span
+                          className={cn(
+                            "font-medium",
+                            a.type === "ALTA"
+                              ? "text-[var(--color-primary)]"
+                              : "text-[#ef4444]",
+                          )}
+                        >
+                          {a.type === "ALTA" ? "Alta" : "Baja"}
+                        </span>
+                      </TD>
+                      <TD>{a.material.name}</TD>
+                      <TD>
+                        {a.zone
+                          ? `${a.zone.warehouse.name} · ${a.zone.name}`
+                          : "Cualquiera"}
+                      </TD>
+                      <TD
+                        className={cn(
+                          "text-right font-semibold tabular-nums",
+                          a.type === "ALTA"
+                            ? "text-[var(--color-primary)]"
+                            : "text-[#ef4444]",
+                        )}
+                      >
+                        {a.type === "ALTA"
+                          ? `+${a.numSacks}`
+                          : `-${a.numSacks}`}
+                      </TD>
+                      <TD className="text-right tabular-nums whitespace-nowrap">
+                        {formatKg(a.totalWeight)}
+                        {a.weightPerSack != null && (
+                          <span className="block text-xs text-[var(--color-muted)]">
+                            {formatKg(a.weightPerSack)}/saca
+                          </span>
+                        )}
+                      </TD>
+                      <TD className="text-xs text-[var(--color-muted)]">
+                        {a.notes ?? ""}
+                      </TD>
+                      <TD className="text-xs text-[var(--color-muted)]">
+                        {a.user?.name ?? "—"}
+                      </TD>
+                      <TD className="text-right">
+                        {a.type === "ALTA" && (
+                          <div className="flex justify-end">
+                            <PrintStockEntryLabelsButton
+                              stockEntryId={a.id}
+                              count={a.numSacks}
+                            />
+                          </div>
+                        )}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/**
  * Recuento de inventario escaneando sacas: sesión en curso (si la hay) y
  * histórico de recuentos con su resultado.
  */
@@ -1071,6 +1235,7 @@ export default async function InventarioPage({
       {/* Los filtros no aplican a Consumibles (no cuelgan de sacas). */}
       {activeTab !== "consumibles" &&
         activeTab !== "pales-rotos" &&
+        activeTab !== "altas-bajas" &&
         activeTab !== "recuento" && (
           <InventoryFilters options={filterOptions} />
         )}
@@ -1081,6 +1246,7 @@ export default async function InventarioPage({
       {activeTab === "esperado" && <EsperadoTab filters={filters} />}
       {activeTab === "consumibles" && <ConsumiblesTab />}
       {activeTab === "pales-rotos" && <PalesRotosTab />}
+      {activeTab === "altas-bajas" && <AltasBajasTab />}
       {activeTab === "recuento" && <RecuentoTab />}
     </div>
   );

@@ -55,6 +55,15 @@ describe("Impresora ZPL", () => {
     expect(zpl).toContain("^XZ");
     expect(zpl).toContain("SACK-ABC123");
     expect(zpl).toContain("PESO NETO");
+    expect(zpl).not.toContain("NOTAS");
+  });
+  it("buildZpl añade las notas del alta solo si las hay", () => {
+    const zpl = buildZpl({
+      qrCode: "SACK-ABC123",
+      pesoNetoKg: 1000,
+      notas: "Stock inicial ^ BL MEDU1234",
+    });
+    expect(zpl).toContain("NOTAS: Stock inicial BL MEDU1234");
   });
   it("enqueueLabels sin impresora simula la cola", async () => {
     const prev = process.env.QR_PRINTER_URL;

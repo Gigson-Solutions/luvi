@@ -25,6 +25,7 @@ export interface LabelData {
   proyecto?: string;
   fecha?: string; // recepción o producción (dd/mm/aaaa)
   pesoNetoKg?: number;
+  notas?: string; // altas manuales: "stock inicial", BLs de origen…
 }
 
 /** Densidad de la impresora en dots/mm. 8 = 203 dpi, 12 = 300 dpi. */
@@ -89,6 +90,15 @@ export function buildZpl(label: LabelData): string {
     ["FECHA RECEPCIÓN/PRODUCCIÓN", zpl(label.fecha)],
     ["PESO NETO", `${zpl(label.pesoNetoKg)} kg`],
   ];
+  // Las notas solo salen si las hay (altas manuales); una línea, recortada
+  // para que no se salga del recuadro.
+  const notas = zpl(label.notas).replace(/\s+/g, " ").trim();
+  if (notas) {
+    bulletFields.push([
+      "NOTAS",
+      notas.length > 48 ? `${notas.slice(0, 47)}…` : notas,
+    ]);
+  }
   let by = bodyTop + mm(6);
   for (const [k, v] of bulletFields) {
     // viñeta (cuadradito relleno)

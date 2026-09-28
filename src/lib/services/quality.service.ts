@@ -355,22 +355,57 @@ export function toRecordSummary(
   };
 }
 
-// ─── Listado y estadísticas mensuales ────────────────────────────────────────────
+// ─── Listado y estadísticas ──────────────────────────────────────────────────────
 
-/** Registros del mes (con muestras), más antiguos primero. */
-export function listMonthlyRecords(
-  year: number,
-  month: number,
+/** Criterios del listado: rango [from, to) y, opcionalmente, clientes/productos. */
+export interface QualityRecordFilter {
+  from: Date;
+  to: Date;
+  /** Vacío = todos los clientes. */
+  clients?: string[];
+  /** Vacío = todos los productos. */
+  materialIds?: string[];
+}
+
+/** Registros que cumplen el filtro (con muestras), más antiguos primero. */
+export function listRecords(
+  filter: QualityRecordFilter,
 ): Promise<QualityRecordWithSamples[]> {
-  const { from, to } = monthBounds(year, month);
+  const clients = filter.clients ?? [];
+  const materialIds = filter.materialIds ?? [];
   return prisma.qualityRecord.findMany({
-    where: { date: { gte: from, lt: to } },
+    where: {
+      date: { gte: filter.from, lt: filter.to },
+      ...(clients.length > 0 ? { client: { in: clients } } : {}),
+      ...(materialIds.length > 0 ? { materialId: { in: materialIds } } : {}),
+    },
     include: {
       samples: { orderBy: { index: "asc" } },
       material: { select: { id: true, name: true } },
     },
     orderBy: { date: "asc" },
   });
+}
+
+/** Registros del mes (con muestras), más antiguos primero. */
+export function listMonthlyRecords(
+  year: number,
+  month: number,
+): Promise<QualityRecordWithSamples[]> {
+  return listRecords(monthBounds(year, month));
+}
+
+/** Clientes distintos que aparecen en algún registro, para el filtro. */
+export async function listQualityClients(): Promise<string[]> {
+  const rows = await prisma.qualityRecord.findMany({
+    where: { client: { not: null } },
+    distinct: ["client"],
+    select: { client: true },
+    orderBy: { client: "asc" },
+  });
+  return rows
+    .map((r) => r.client?.trim() ?? "")
+    .filter((c): c is string => c !== "");
 }
 
 export interface MonthlyStats {
@@ -380,12 +415,10 @@ export interface MonthlyStats {
   nokDays: number;
 }
 
-/** KPIs del mes: registros, muestras, densidad promedio y días con NOK. */
-export async function getMonthlyStats(
-  year: number,
-  month: number,
-): Promise<MonthlyStats> {
-  const records = await listMonthlyRecords(year, month);
+/** KPIs de un conjunto de registros: muestras, densidad promedio y días NOK. */
+export function computeStats(
+  records: QualityRecordWithSamples[],
+): MonthlyStats {
   const allSamples = records.flatMap((r) => r.samples);
   const nokDays = new Set(
     records
@@ -398,6 +431,14 @@ export async function getMonthlyStats(
     avgDensity: averageDensity(allSamples),
     nokDays: nokDays.size,
   };
+}
+
+/** KPIs del mes: registros, muestras, densidad promedio y días con NOK. */
+export async function getMonthlyStats(
+  year: number,
+  month: number,
+): Promise<MonthlyStats> {
+  return computeStats(await listMonthlyRecords(year, month));
 }
 
 // ─── Registro individual + 20 muestras ───────────────────────────────────────────

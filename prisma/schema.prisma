@@ -107,6 +107,7 @@ model User {
   incidents     Incident[]
   auditLogs     AuditLog[]
   inventoryCounts InventoryCount[]
+  stockAdjustments StockAdjustment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -233,6 +234,7 @@ model Zone {
 
   warehouse Warehouse @relation(fields: [warehouseId], references: [id])
   sacks     Sack[]
+  stockAdjustments StockAdjustment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -262,6 +264,7 @@ model Material {
   qualityRangeSet   QualityRangeSet? @relation(fields: [qualityRangeSetId], references: [id])
 
   sacks          Sack[]
+  stockAdjustments StockAdjustment[]
   productionLots ProductionLot[]
   qualityRecords QualityRecord[]
   // Consumibles (sacas, capuchones…) que se cargan por defecto al producir
@@ -398,6 +401,13 @@ model Sack {
   consumables SackConsumable[]
   inventoryScans InventoryScan[]
 
+  // Altas y bajas manuales de inventario: el alta que creó la saca (stock
+  // inicial, material sin contenedor…) y la baja que la sacó del stock.
+  stockEntryId String?
+  stockExitId  String?
+  stockEntry   StockAdjustment? @relation("StockEntrySacks", fields: [stockEntryId], references: [id])
+  stockExit    StockAdjustment? @relation("StockExitSacks", fields: [stockExitId], references: [id])
+
   notes       String?
   batchNumber String? // nº saca dentro del contenedor (ej: 1/50)
 
@@ -414,6 +424,8 @@ model Sack {
   @@index([containerId])
   @@index([materialId])
   @@index([lotId])
+  @@index([stockEntryId])
+  @@index([stockExitId])
   @@map("sacks")
 }
 
@@ -821,6 +833,41 @@ model BrokenPalletMovement {
   @@index([buyerId])
   @@index([createdAt])
   @@map("broken_pallet_movements")
+}
+
+// ─── Altas y bajas manuales de inventario ─────────────────────────────────────
+
+enum StockAdjustmentType {
+  ALTA
+  BAJA
+}
+
+// Movimiento manual de stock de sacas: un alta crea N sacas en almacén (con su
+// QR y etiqueta); una baja pasa N sacas del producto a BAJA. Sirve para el
+// stock inicial y para corregir el inventario fuera de los flujos normales.
+model StockAdjustment {
+  id            String              @id @default(cuid())
+  type          StockAdjustmentType
+  materialId    String
+  zoneId        String?             // alta: ubicación de las sacas creadas · baja: zona de la que se retiran (opcional)
+  numSacks      Int
+  weightPerSack Float?              // alta: peso de cada saca (kg)
+  totalWeight   Float               // kg que entran o salen
+  date          DateTime            // fecha de alta/baja indicada por el usuario
+  notes         String?             // "stock inicial", BLs de origen…
+  userId        String?
+
+  material     Material @relation(fields: [materialId], references: [id])
+  zone         Zone?    @relation(fields: [zoneId], references: [id])
+  user         User?    @relation(fields: [userId], references: [id])
+  createdSacks Sack[]   @relation("StockEntrySacks")
+  removedSacks Sack[]   @relation("StockExitSacks")
+
+  createdAt DateTime @default(now())
+
+  @@index([materialId])
+  @@index([date])
+  @@map("stock_adjustments")
 }
 
 // ─── Inventario por escaneo de sacas ──────────────────────────────────────────

@@ -20,6 +20,7 @@ const TABLES = [
   "sack_consumables",
   "inventory_scans",
   "inventory_counts",
+  "stock_adjustments",
   "provider_shipments",
   "purchase_orders",
   "shipment_sacks",

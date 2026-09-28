@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { type SackStatus } from "@prisma/client";
+import { type Prisma, type SackStatus } from "@prisma/client";
+import type { LabelData } from "@/lib/integrations/qr-printer";
+import { formatSackNumber } from "@/lib/utils";
 
 /**
  * Servicio de Gestión QR — lecturas para buscar una saca y reimprimir su etiqueta.
@@ -42,8 +44,9 @@ export interface QrSackDetail {
   lotSequence: number | null;
   containerReference: string | null;
   billOfLading: string | null;
-  /** Fecha de recepción o producción, ya formateada (es-ES). */
+  /** Fecha de recepción, producción o alta manual, ya formateada (es-ES). */
   fecha: string | null;
+  notes: string | null;
   createdAt: Date;
 }
 
@@ -61,36 +64,31 @@ function formatDate(date: Date | null | undefined): string | null {
   return date.toLocaleDateString("es-ES");
 }
 
-/** Busca una saca por su `qrCode` (SACK-…) o por su `id`. `null` si no existe. */
-export async function findSackByQrOrId(
-  query: string,
-): Promise<QrSackDetail | null> {
-  const q = query.trim();
-  if (!q) return null;
-
-  const sack = await prisma.sack.findFirst({
-    where: { OR: [{ qrCode: q }, { id: q }] },
-    include: {
-      material: { select: { name: true, code: true } },
-      zone: { select: { name: true, warehouse: { select: { name: true } } } },
-      container: {
-        select: {
-          reference: true,
-          billOfLading: true,
-          arrivedAt: true,
-          registeredAt: true,
-        },
-      },
-      lot: { select: { lotNumber: true, producedAt: true } },
+const SACK_DETAIL_INCLUDE = {
+  material: { select: { name: true, code: true } },
+  zone: { select: { name: true, warehouse: { select: { name: true } } } },
+  container: {
+    select: {
+      reference: true,
+      billOfLading: true,
+      arrivedAt: true,
+      registeredAt: true,
     },
-  });
+  },
+  lot: { select: { lotNumber: true, producedAt: true } },
+  stockEntry: { select: { date: true } },
+} satisfies Prisma.SackInclude;
 
-  if (!sack) return null;
+type SackWithDetail = Prisma.SackGetPayload<{
+  include: typeof SACK_DETAIL_INCLUDE;
+}>;
 
+function toDetail(sack: SackWithDetail): QrSackDetail {
   const fecha =
     formatDate(sack.lot?.producedAt) ??
     formatDate(sack.container?.arrivedAt) ??
     formatDate(sack.container?.registeredAt) ??
+    formatDate(sack.stockEntry?.date) ??
     formatDate(sack.createdAt);
 
   return {
@@ -109,7 +107,59 @@ export async function findSackByQrOrId(
     containerReference: sack.container?.reference ?? null,
     billOfLading: sack.container?.billOfLading ?? null,
     fecha,
+    notes: sack.notes,
     createdAt: sack.createdAt,
+  };
+}
+
+/** Busca una saca por su `qrCode` (SACK-…) o por su `id`. `null` si no existe. */
+export async function findSackByQrOrId(
+  query: string,
+): Promise<QrSackDetail | null> {
+  const q = query.trim();
+  if (!q) return null;
+
+  const sack = await prisma.sack.findFirst({
+    where: { OR: [{ qrCode: q }, { id: q }] },
+    include: SACK_DETAIL_INCLUDE,
+  });
+  return sack ? toDetail(sack) : null;
+}
+
+/** Sacas creadas por un alta manual de inventario, en orden de numeración. */
+export async function listStockEntrySacks(
+  stockEntryId: string,
+): Promise<QrSackDetail[]> {
+  const sacks = await prisma.sack.findMany({
+    where: { stockEntryId },
+    include: SACK_DETAIL_INCLUDE,
+    orderBy: { createdAt: "asc" },
+  });
+  // createMany deja el mismo createdAt a todas: se ordena por el «N/total».
+  return sacks
+    .map(toDetail)
+    .sort(
+      (a, b) =>
+        Number(a.batchNumber?.split("/")[0] ?? 0) -
+        Number(b.batchNumber?.split("/")[0] ?? 0),
+    );
+}
+
+/** Datos de la etiqueta física de una saca (plantilla A5). */
+export function sackLabel(sack: QrSackDetail): LabelData {
+  return {
+    qrCode: sack.qrCode,
+    codigoProducto: sack.materialCode,
+    tipoProducto: sack.tipoProducto,
+    nombreProducto: sack.materialName,
+    loteOSaca: sack.lotNumber
+      ? formatSackNumber(sack.lotSequence, sack.lotNumber)
+      : (sack.batchNumber ?? sack.id),
+    contenedor: sack.containerReference ?? undefined,
+    bl: sack.billOfLading ?? undefined,
+    fecha: sack.fecha ?? undefined,
+    pesoNetoKg: sack.weight,
+    notas: sack.notes ?? undefined,
   };
 }
 

@@ -17,8 +17,10 @@ import { QualityResultBadge } from "@/components/ui/status-badge";
 import { formatDate } from "@/lib/utils";
 import type { QualityResult } from "@prisma/client";
 import {
-  listMonthlyRecords,
-  getMonthlyStats,
+  listRecords,
+  listQualityClients,
+  computeStats,
+  monthBounds,
   getQualityRanges,
   resolveAllMaterialRanges,
   toRecordSummary,
@@ -31,6 +33,7 @@ import {
   MonthYearNav,
   type EditorRecordData,
 } from "./quality-editor";
+import { QualityFilters } from "./quality-filters";
 
 const MONTHS = [
   "Enero",
@@ -53,30 +56,80 @@ function clampMonth(n: number): number {
     : new Date().getMonth() + 1;
 }
 
-function monthHref(year: number, month: number): string {
-  return `/calidad?year=${year}&month=${month}`;
+/** Un parámetro repetible de la URL siempre como lista de valores. */
+function asList(value: string | string[] | undefined): string[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+/** Fecha local de un "YYYY-MM-DD" de la URL; null si no es válida. */
+function parseDay(value: string | undefined): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const d = new Date(`${value}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export default async function CalidadPage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string; month?: string }>;
+  searchParams: Promise<{
+    year?: string;
+    month?: string;
+    desde?: string;
+    hasta?: string;
+    cliente?: string | string[];
+    producto?: string | string[];
+  }>;
 }): Promise<React.JSX.Element> {
   const params = await searchParams;
   const now = new Date();
   const year = Number(params.year) || now.getFullYear();
   const month = clampMonth(Number(params.month) || now.getMonth() + 1);
+  const clients = asList(params.cliente);
+  const materialIds = asList(params.producto);
 
-  const [records, stats, ranges, rangesByMaterial, allMaterials] =
+  // Con fechas, el periodo es ese rango (ambos extremos incluidos); sin ellas,
+  // el mes elegido. Un solo extremo deja el otro abierto.
+  const fromDay = parseDay(params.desde);
+  const toDay = parseDay(params.hasta);
+  const byRange = fromDay != null || toDay != null;
+  const period = byRange
+    ? {
+        from: fromDay ?? new Date(2000, 0, 1),
+        to: toDay
+          ? new Date(toDay.getFullYear(), toDay.getMonth(), toDay.getDate() + 1)
+          : new Date(9999, 0, 1),
+      }
+    : monthBounds(year, month);
+
+  const [records, ranges, rangesByMaterial, allMaterials, clientOptions] =
     await Promise.all([
-      listMonthlyRecords(year, month),
-      getMonthlyStats(year, month),
+      listRecords({ ...period, clients, materialIds }),
       getQualityRanges(),
       resolveAllMaterialRanges(),
       listMaterials(),
+      listQualityClients(),
     ]);
 
+  const stats = computeStats(records);
   const summaries = records.map(toRecordSummary);
+  const hasFilters = clients.length > 0 || materialIds.length > 0;
+
+  /** Enlace a otro mes conservando cliente/producto (sin rango de fechas). */
+  function monthHref(y: number, m: number): string {
+    const qs = new URLSearchParams({ year: String(y), month: String(m) });
+    for (const c of clients) qs.append("cliente", c);
+    for (const id of materialIds) qs.append("producto", id);
+    return `/calidad?${qs.toString()}`;
+  }
+
+  const periodLabel = byRange
+    ? fromDay && toDay
+      ? `del ${formatDate(fromDay)} al ${formatDate(toDay)}`
+      : fromDay
+        ? `desde el ${formatDate(fromDay)}`
+        : `hasta el ${formatDate(toDay as Date)}`
+    : `de ${MONTHS[month - 1]} ${year}`;
   const materials = allMaterials
     .filter((m) => m.active)
     .map((m) => ({ id: m.id, name: m.name }));
@@ -95,6 +148,8 @@ export default async function CalidadPage({
         description="Registros de calidad por día, turno y cliente con hoja de 20 muestras."
         actions={<NewRecordDialog materials={materials} />}
       />
+
+      <QualityFilters clients={clientOptions} materials={materials} />
 
       {/* Navegación por mes/año */}
       <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -152,7 +207,7 @@ export default async function CalidadPage({
       {/* Tabla de registros del mes */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-foreground)]">
-          Registros de {MONTHS[month - 1]} {year}
+          Registros {periodLabel}
           <span className="ml-2 font-normal text-[var(--color-muted)]">
             {summaries.length}
           </span>
@@ -160,8 +215,16 @@ export default async function CalidadPage({
         {summaries.length === 0 ? (
           <EmptyState
             icon={ClipboardCheck}
-            title="No hay registros para este mes"
-            description="Crea un registro con el botón «Nuevo Registro»."
+            title={
+              byRange || hasFilters
+                ? "No hay registros con estos filtros"
+                : "No hay registros para este mes"
+            }
+            description={
+              byRange || hasFilters
+                ? "Cambia las fechas, el cliente o el producto, o limpia los filtros."
+                : "Crea un registro con el botón «Nuevo Registro»."
+            }
           />
         ) : (
           <div className="overflow-x-auto">

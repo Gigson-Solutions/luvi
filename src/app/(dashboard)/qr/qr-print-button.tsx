@@ -26,6 +26,7 @@ export interface QrPrintJob {
   contenedor?: string;
   bl?: string;
   fecha?: string;
+  notas?: string;
 }
 
 type Feedback =

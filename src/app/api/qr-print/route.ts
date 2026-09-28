@@ -25,6 +25,7 @@ interface PrintJob {
   bl?: string;
   proyecto?: string;
   fecha?: string;
+  notas?: string;
 }
 
 /** Mapea un trabajo de impresión a los datos de etiqueta (LabelData). */
@@ -40,6 +41,7 @@ function toLabel(job: PrintJob): LabelData {
     proyecto: job.proyecto,
     fecha: job.fecha,
     pesoNetoKg: job.weight,
+    notas: job.notas,
   };
 }
 

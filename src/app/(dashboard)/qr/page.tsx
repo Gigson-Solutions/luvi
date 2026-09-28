@@ -75,6 +75,7 @@ function toPrintJob(sack: QrSackDetail): QrPrintJob {
     contenedor: sack.containerReference ?? undefined,
     bl: sack.billOfLading ?? undefined,
     fecha: sack.fecha ?? undefined,
+    notas: sack.notes ?? undefined,
   };
 }
 
@@ -183,6 +184,7 @@ function SackPanel({ sack }: { sack: QrSackDetail }): React.JSX.Element {
             <Field label="Almacén" value={sack.warehouseName} />
             <Field label="Ubicación" value={sack.zoneName} />
             <Field label="Contenedor" value={sack.containerReference} />
+            {sack.notes && <Field label="Notas" value={sack.notes} />}
           </dl>
         </CardContent>
       </Card>

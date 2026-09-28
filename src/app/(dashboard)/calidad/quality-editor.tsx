@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
   Pencil,
@@ -94,12 +94,19 @@ export function MonthYearNav({
   month: number;
 }): React.JSX.Element {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
   if (!years.includes(year)) years.push(year);
 
+  /** Cambia de mes conservando cliente/producto; el rango de fechas se quita. */
   function go(nextYear: number, nextMonth: number): void {
-    router.push(`/calidad?year=${nextYear}&month=${nextMonth}`);
+    const qs = new URLSearchParams(searchParams.toString());
+    qs.delete("desde");
+    qs.delete("hasta");
+    qs.set("year", String(nextYear));
+    qs.set("month", String(nextMonth));
+    router.push(`/calidad?${qs.toString()}`);
   }
 
   return (
