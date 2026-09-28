@@ -403,9 +403,9 @@ export async function listQualityClients(): Promise<string[]> {
     select: { client: true },
     orderBy: { client: "asc" },
   });
-  return rows
-    .map((r) => r.client?.trim() ?? "")
-    .filter((c): c is string => c !== "");
+  // Sin repetidos aunque un mismo cliente se escribiera con espacios de más.
+  const names = rows.map((r) => r.client?.trim() ?? "").filter((c) => c !== "");
+  return [...new Set(names)];
 }
 
 export interface MonthlyStats {

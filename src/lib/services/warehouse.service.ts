@@ -98,6 +98,7 @@ export type SackDetail = Prisma.SackGetPayload<{
     zone: { include: { warehouse: true } };
     container: { include: { supplier: true } };
     lot: { include: { material: true } };
+    stockEntry: { select: { date: true; notes: true } };
   };
 }>;
 
@@ -348,6 +349,7 @@ export function getSackDetail(sackId: string): Promise<SackDetail | null> {
       zone: { include: { warehouse: true } },
       container: { include: { supplier: true } },
       lot: { include: { material: true } },
+      stockEntry: { select: { date: true, notes: true } },
     },
   });
 }
