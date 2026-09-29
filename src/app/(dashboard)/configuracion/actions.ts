@@ -49,6 +49,11 @@ function requireSession(): Promise<CurrentUser> {
   return requireModule("configuracion");
 }
 
+/** Los rangos de calidad también los gestiona el rol Calidad. */
+function requireQualityConfig(): Promise<CurrentUser> {
+  return requireModule("configuracion-calidad");
+}
+
 function fail(e: unknown, fallback: string): ActionState {
   return { ok: false, error: e instanceof Error ? e.message : fallback };
 }
@@ -533,7 +538,7 @@ export async function saveQualityRangesAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const actor = await requireSession();
+    const actor = await requireQualityConfig();
     const ranges: Record<SampleMeasureKey, ParamRange> = {} as Record<
       SampleMeasureKey,
       ParamRange
@@ -595,7 +600,7 @@ export async function saveQualityRangeSetAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const actor = await requireSession();
+    const actor = await requireQualityConfig();
     const id = String(formData.get("id") ?? "");
     const materialIds = formData.getAll("materialIds").map(String);
     const categoryIds = formData.getAll("categoryIds").map(String);
@@ -639,7 +644,7 @@ export async function deleteQualityRangeSetAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const actor = await requireSession();
+    const actor = await requireQualityConfig();
     const id = String(formData.get("id") ?? "");
     if (!id) return { ok: false, error: "Conjunto inválido" };
     await deleteQualityRangeSet(id);
@@ -663,7 +668,7 @@ export async function setCategoryRangeSetAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const actor = await requireSession();
+    const actor = await requireQualityConfig();
     const id = String(formData.get("id") ?? "");
     const setId = String(formData.get("qualityRangeSetId") ?? "");
     if (!id) return { ok: false, error: "Tipo de material inválido" };

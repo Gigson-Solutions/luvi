@@ -9,6 +9,7 @@ import { type Tone } from "@/components/ui/badge";
 export const ROLES: UserRole[] = [
   UserRole.OPERARIO,
   UserRole.ADMINISTRACION,
+  UserRole.CALIDAD,
   UserRole.MANAGER,
   UserRole.ADMIN,
 ];
@@ -16,16 +17,18 @@ export const ROLES: UserRole[] = [
 export const ROLE_LABELS: Record<UserRole, string> = {
   OPERARIO: "Operario",
   ADMINISTRACION: "Administración",
+  CALIDAD: "Calidad",
   MANAGER: "Manager",
   ADMIN: "Administrador",
 };
 
 // Colores alineados con el prototipo Emergent: operario gris/slate,
-// administración azul, manager púrpura, admin verde. (No hay "slate" en el
+// administración azul, calidad celeste, manager púrpura, admin verde. (No hay "slate" en el
 // Badge → se usa "gray" como neutro gris equivalente.)
 export const ROLE_TONES: Record<UserRole, Tone> = {
   OPERARIO: "gray",
   ADMINISTRACION: "blue",
+  CALIDAD: "sky",
   MANAGER: "purple",
   ADMIN: "green",
 };

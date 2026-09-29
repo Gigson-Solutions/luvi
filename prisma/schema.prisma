@@ -13,6 +13,7 @@ enum UserRole {
   ADMINISTRACION
   MANAGER
   ADMIN
+  CALIDAD
 }
 
 enum SackStatus {

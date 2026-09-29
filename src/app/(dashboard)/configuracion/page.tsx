@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
-import { auth } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/rbac";
+import { canAccess } from "@/lib/permissions";
 import {
   listMaterials,
   listSuppliers,
@@ -73,7 +74,13 @@ export default async function ConfiguracionPage({
   searchParams: Promise<{ tab?: string }>;
 }): Promise<React.JSX.Element> {
   const { tab } = await searchParams;
-  const activeTab: TabKey = isTabKey(tab) ? tab : "proveedores";
+  const user = await getCurrentUser();
+  // Sin acceso a la configuración completa (rol Calidad) solo se ve la pestaña
+  // de calidad; el proxy ya deja fuera al resto de roles.
+  const fullAccess = !!user && canAccess(user.role, "configuracion");
+  const tabs = fullAccess ? TABS : TABS.filter((t) => t.key === "calidad");
+  const activeTab: TabKey =
+    isTabKey(tab) && tabs.some((t) => t.key === tab) ? tab : tabs[0].key;
 
   const [
     materials,
@@ -87,7 +94,6 @@ export default async function ConfiguracionPage({
     qualityRangeSets,
     consumables,
     costs,
-    session,
   ] = await Promise.all([
     listMaterials(),
     listMaterialCategories(),
@@ -100,9 +106,8 @@ export default async function ConfiguracionPage({
     listQualityRangeSets(),
     listConsumables(),
     getCostsConfig(),
-    auth(),
   ]);
-  const currentUserId = session?.user?.id ?? "";
+  const currentUserId = user?.id ?? "";
   const consumableOptions = consumables.map((c) => ({
     id: c.id,
     name: c.name,
@@ -119,7 +124,7 @@ export default async function ConfiguracionPage({
 
       {/* Pestañas por ?tab= */}
       <div className="flex flex-wrap items-center gap-1.5 mb-6 border-b border-[var(--color-border)]">
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const active = t.key === activeTab;
           const Icon = t.icon;
           return (

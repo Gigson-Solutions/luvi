@@ -17,6 +17,7 @@ export type ActionState = { ok: boolean; error?: string; message?: string };
 const roleValues = [
   UserRole.OPERARIO,
   UserRole.ADMINISTRACION,
+  UserRole.CALIDAD,
   UserRole.MANAGER,
   UserRole.ADMIN,
 ] as const;

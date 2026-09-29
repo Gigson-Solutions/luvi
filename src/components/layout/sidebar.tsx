@@ -22,7 +22,7 @@ import {
   X,
   LogOut,
 } from "lucide-react";
-import { canAccess } from "@/lib/permissions";
+import { canAccess, type Module } from "@/lib/permissions";
 import { UserRole } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { logoutAction } from "@/app/(dashboard)/logout";
@@ -76,7 +76,8 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
-  module: Parameters<typeof canAccess>[1];
+  /** Visible si el rol accede a alguno de estos módulos. */
+  module: Module | Module[];
 }
 
 // Orden del menú alineado con el prototipo de referencia (Emergent).
@@ -143,7 +144,7 @@ const NAV_ITEMS: NavItem[] = [
     label: "Configuración",
     href: "/configuracion",
     icon: Settings,
-    module: "configuracion",
+    module: ["configuracion", "configuracion-calidad"],
   },
 ];
 
@@ -215,7 +216,7 @@ export function Sidebar({
   const [open, setOpen] = useState(false);
 
   const visibleItems = NAV_ITEMS.filter((item) =>
-    canAccess(userRole, item.module),
+    [item.module].flat().some((m) => canAccess(userRole, m)),
   );
 
   return (

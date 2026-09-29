@@ -40,12 +40,16 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/dashboards",
     "/usuarios",
   ],
+  // /configuracion queda limitado a la pestaña de calidad (ver la página).
+  CALIDAD: ["/calidad", "/incidencias", "/configuracion"],
   ADMIN: [], // acceso a todo
 };
 
 // Página de inicio según rol (el operario tiene su vista móvil propia).
 function homeFor(role?: UserRole): string {
-  return role === UserRole.OPERARIO ? "/operario" : "/dashboards";
+  if (role === UserRole.OPERARIO) return "/operario";
+  if (role === UserRole.CALIDAD) return "/calidad";
+  return "/dashboards";
 }
 
 export default auth(

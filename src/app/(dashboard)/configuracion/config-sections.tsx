@@ -1320,6 +1320,7 @@ export function WarehousesSection({
 const ROLE_LABELS: Record<UserRole, string> = {
   OPERARIO: "Operario",
   ADMINISTRACION: "Administración",
+  CALIDAD: "Calidad",
   MANAGER: "Manager",
   ADMIN: "Admin",
 };
@@ -1327,6 +1328,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const ROLE_TONES: Record<UserRole, Tone> = {
   OPERARIO: "sky",
   ADMINISTRACION: "amber",
+  CALIDAD: "green",
   MANAGER: "purple",
   ADMIN: "red",
 };

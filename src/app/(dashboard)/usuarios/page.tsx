@@ -23,6 +23,7 @@ const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
     "Acceso reducido, móvil-first: recepciones, producción, trazabilidad y almacén (lectura).",
   ADMINISTRACION:
     "Expediciones, consumibles y aprovisionamiento, además de la operativa de planta.",
+  CALIDAD: "Módulo de calidad, sus rangos en configuración e incidencias.",
   MANAGER: "Acceso completo excepto la configuración de sistema.",
   ADMIN:
     "Control total del sistema, incluida la gestión de usuarios y la configuración.",

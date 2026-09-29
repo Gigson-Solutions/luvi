@@ -14,7 +14,8 @@ export type Module =
   | "incidencias"
   | "dashboards"
   | "usuarios"
-  | "configuracion";
+  | "configuracion"
+  | "configuracion-calidad";
 
 const PERMISSIONS: Record<Module, UserRole[]> = {
   recepciones: [
@@ -44,17 +45,25 @@ const PERMISSIONS: Record<Module, UserRole[]> = {
     UserRole.MANAGER,
     UserRole.ADMIN,
   ],
-  calidad: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
+  calidad: [
+    UserRole.ADMINISTRACION,
+    UserRole.CALIDAD,
+    UserRole.MANAGER,
+    UserRole.ADMIN,
+  ],
   consumibles: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
   incidencias: [
     UserRole.OPERARIO,
     UserRole.ADMINISTRACION,
+    UserRole.CALIDAD,
     UserRole.MANAGER,
     UserRole.ADMIN,
   ],
   dashboards: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
   usuarios: [UserRole.MANAGER, UserRole.ADMIN],
   configuracion: [UserRole.ADMIN],
+  // Solo la pestaña de rangos de calidad dentro de /configuracion.
+  "configuracion-calidad": [UserRole.CALIDAD, UserRole.ADMIN],
 };
 
 export function canAccess(role: UserRole, module: Module): boolean {
