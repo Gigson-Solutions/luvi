@@ -22,6 +22,7 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/expediciones",
     "/consumibles",
     "/aprovisionamiento",
+    "/calidad",
     "/trazabilidad",
     "/dashboards",
     "/incidencias",

@@ -44,7 +44,7 @@ const PERMISSIONS: Record<Module, UserRole[]> = {
     UserRole.MANAGER,
     UserRole.ADMIN,
   ],
-  calidad: [UserRole.MANAGER, UserRole.ADMIN],
+  calidad: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
   consumibles: [UserRole.ADMINISTRACION, UserRole.MANAGER, UserRole.ADMIN],
   incidencias: [
     UserRole.OPERARIO,
