@@ -1,6 +1,7 @@
 import { Package, AlertTriangle, Boxes, History, Truck } from "lucide-react";
 import { ConsumableType } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportButton } from "@/components/ui/export-button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -63,6 +64,7 @@ export default async function ConsumiblesPage(): Promise<React.JSX.Element> {
       <PageHeader
         title="Consumibles"
         description="Stock de palés, sacas vacías y capuchones. Palés retornables por comprador."
+        actions={<ExportButton module="consumibles" />}
       />
 
       {/* KPIs */}

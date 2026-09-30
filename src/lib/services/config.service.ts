@@ -68,6 +68,8 @@ export interface MaterialInput {
   categoryId?: string;
   /** Conjunto de rangos de calidad propio (null/undefined = hereda categoría). */
   qualityRangeSetId?: string;
+  /** Coste de producción (€) de cada saca de salida de este material. */
+  processingCost?: number;
   /** Si viene, reemplaza la lista de consumibles predeterminados del producto. */
   defaultConsumables?: DefaultConsumableInput[];
 }
@@ -104,6 +106,7 @@ export async function createMaterial(
       description: input.description ?? null,
       categoryId: input.categoryId ?? null,
       qualityRangeSetId: input.qualityRangeSetId ?? null,
+      processingCost: input.processingCost ?? 0,
     },
     select: { id: true },
   });
@@ -127,6 +130,9 @@ export async function updateMaterial(
       description: input.description ?? null,
       categoryId: input.categoryId ?? null,
       qualityRangeSetId: input.qualityRangeSetId ?? null,
+      ...(input.processingCost != null
+        ? { processingCost: input.processingCost }
+        : {}),
     },
     select: { id: true },
   });

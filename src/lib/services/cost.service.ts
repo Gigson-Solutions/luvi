@@ -4,19 +4,19 @@ import { getConfig } from "@/lib/services/config.service";
 /**
  * Configuración de costes fijos (persistida en `config.costs`).
  *
- * - `processingPerSack`: coste de procesado imputado a cada saca de PT (€).
  * - `palletCost`: coste de un palé (€).
  * - `emptySackCost`: coste de una saca vacía (€).
+ *
+ * El coste de procesado ya no es fijo: cada material tiene el suyo
+ * (`Material.processingCost`).
  */
 export interface CostsConfig {
-  processingPerSack: number;
   palletCost: number;
   emptySackCost: number;
 }
 
 /** Valores por defecto validados con el cliente. */
 export const DEFAULT_COSTS: CostsConfig = {
-  processingPerSack: 31,
   palletCost: 0,
   emptySackCost: 0,
 };
@@ -25,10 +25,6 @@ export const DEFAULT_COSTS: CostsConfig = {
 export async function getCostsConfig(): Promise<CostsConfig> {
   const stored = await getConfig<Partial<CostsConfig>>("costs", {});
   return {
-    processingPerSack:
-      typeof stored.processingPerSack === "number"
-        ? stored.processingPerSack
-        : DEFAULT_COSTS.processingPerSack,
     palletCost:
       typeof stored.palletCost === "number"
         ? stored.palletCost

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Truck, Scale, Package } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportButton } from "@/components/ui/export-button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -51,12 +52,18 @@ export default async function RecepcionesPage({
         title="Recepciones"
         description="Contenedores y camiones pendientes de recibir. Pesaje con Gestruck o manual."
         actions={
-          <NewReceptionDialog
-            suppliers={formData.suppliers}
-            materials={formData.materials}
-            zones={formData.zones}
-            warehouses={formData.warehouses}
-          />
+          <>
+            <ExportButton
+              module="recepciones"
+              query={tabHref(activeTab).split("?")[1]}
+            />
+            <NewReceptionDialog
+              suppliers={formData.suppliers}
+              materials={formData.materials}
+              zones={formData.zones}
+              warehouses={formData.warehouses}
+            />
+          </>
         }
       />
 

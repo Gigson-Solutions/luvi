@@ -37,7 +37,7 @@ function openLotOptions(lots: AvailableOutputLot[]): OpenLotOption[] {
 
 const eur = (n: number): string => `${n.toFixed(2)}€`;
 
-/** Las 4 cajas de coste del lote (Material / Procesado / Consumibles / Total). */
+/** Las 4 cajas de coste del lote (Material / Producción / Consumibles / Total). */
 function CostBoxes({ costs }: { costs: LotCosts }): React.JSX.Element {
   return (
     <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -46,7 +46,7 @@ function CostBoxes({ costs }: { costs: LotCosts }): React.JSX.Element {
         <p className="font-bold text-slate-800">{eur(costs.material)}</p>
       </div>
       <div className="rounded border border-yellow-300 bg-white/70 px-2 py-1">
-        <p className="text-slate-500">Procesado</p>
+        <p className="text-slate-500">Producción</p>
         <p className="font-bold text-slate-800">{eur(costs.processing)}</p>
       </div>
       <div className="rounded border border-yellow-300 bg-white/70 px-2 py-1">

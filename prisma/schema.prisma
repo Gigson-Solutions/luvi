@@ -264,6 +264,10 @@ model Material {
   qualityRangeSetId String?
   qualityRangeSet   QualityRangeSet? @relation(fields: [qualityRangeSetId], references: [id])
 
+  // Coste de producción (€) imputado a cada saca de salida de este material.
+  // Sustituye al coste de procesado fijo que había en Configuración → Costes.
+  processingCost Float @default(0)
+
   sacks          Sack[]
   stockAdjustments StockAdjustment[]
   productionLots ProductionLot[]

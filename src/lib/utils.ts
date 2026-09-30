@@ -22,7 +22,10 @@ export function formatEuro(amount: number | null | undefined): string {
 /** Formatea fecha en locale es-ES */
 export function formatDate(date: Date | string, includeTime = false): string {
   const d = typeof date === "string" ? new Date(date) : date;
+  // Siempre en hora de Madrid: el servidor corre en UTC y los turnos de
+  // planta se cuentan en hora local.
   const options: Intl.DateTimeFormatOptions = {
+    timeZone: "Europe/Madrid",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

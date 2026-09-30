@@ -69,6 +69,10 @@ const materialSchema = z.object({
   description: z.string().optional(),
   categoryId: z.string().optional(),
   qualityRangeSetId: z.string().optional(),
+  processingCost: z.coerce
+    .number()
+    .min(0, "El coste de producción no puede ser negativo")
+    .default(0),
 });
 
 /**
@@ -691,12 +695,11 @@ export async function setCategoryRangeSetAction(
 // ─── Costes ────────────────────────────────────────────────────────────────────
 
 const costsSchema = z.object({
-  processingPerSack: z.coerce.number().min(0, "El coste no puede ser negativo"),
   palletCost: z.coerce.number().min(0, "El coste no puede ser negativo"),
   emptySackCost: z.coerce.number().min(0, "El coste no puede ser negativo"),
 });
 
-/** Guarda los costes fijos (procesado, palé, saca vacía) en `config.costs`. */
+/** Guarda los costes fijos (palé, saca vacía) en `config.costs`. */
 export async function saveCostsAction(
   _prev: ActionState,
   formData: FormData,

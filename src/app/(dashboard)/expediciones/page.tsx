@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Truck, Package, FileText } from "lucide-react";
 import { ShipmentStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportButton } from "@/components/ui/export-button";
 import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -96,10 +97,16 @@ export default async function ExpedicionesPage({
         title="Expediciones"
         description="Envíos, expedición y generación de albaranes en Holded. La app es la única fuente de verdad."
         actions={
-          <NewShipmentDialog
-            buyers={formData.buyers}
-            carriers={formData.carriers}
-          />
+          <>
+            <ExportButton
+              module="expediciones"
+              query={`tab=${activeTab}${activeTab === "envios" && filter ? `&status=${filter}` : ""}`}
+            />
+            <NewShipmentDialog
+              buyers={formData.buyers}
+              carriers={formData.carriers}
+            />
+          </>
         }
       />
 

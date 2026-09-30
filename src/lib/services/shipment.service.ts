@@ -161,7 +161,7 @@ export interface AvailableLotSack {
 export interface LotCosts {
   /** Coste de materia prima: Σ (€/t de compra × toneladas) de las sacas de entrada. */
   material: number;
-  /** Coste de procesado: Σ sacas de entrada consumidas × coste/saca. */
+  /** Coste de producción: Σ coste de producción del material de cada saca. */
   processing: number;
   /** Coste de consumibles: nº sacas × (coste palé + coste saca vacía). */
   consumable: number;
@@ -205,11 +205,12 @@ export interface AvailableOutputLots {
  * GL-36 — coste total de un lote a partir de sus sacas de salida y las sacas de
  * entrada que las conformaron (trazabilidad GL-37):
  *   · material   = Σ (€/t de compra de la saca de entrada × sus toneladas)
- *   · procesado  = nº sacas de entrada consumidas × coste/saca configurado
+ *   · procesado  = Σ coste de producción del material de cada saca de salida
  *   · consumible = nº sacas de salida × (coste palé + coste saca vacía)
  */
 function computeLotCosts(
   outputSacks: {
+    material: { processingCost: number };
     composedOf: {
       inputSack: {
         weight: number;
@@ -236,9 +237,12 @@ function computeLotCosts(
       material += pricePerTon * (c.inputSack.weight / 1000);
     }
   }
-  // GL-55: el procesado es el coste por SACA DE SALIDA (nº sacas del lote ×
-  // coste/saca), no por sacas de entrada procesadas. Ej: 22 sacas × 31 €.
-  const processing = sackCount * costs.processingPerSack;
+  // GL-55: el procesado es el coste por SACA DE SALIDA, no por sacas de
+  // entrada procesadas. Cada saca aporta el coste de producción de su material.
+  const processing = outputSacks.reduce(
+    (sum, s) => sum + s.material.processingCost,
+    0,
+  );
   // Consumibles: solo los que el operario dejó marcados en cada saca. Las sacas
   // anteriores a los consumibles por producto no tienen ninguno registrado, así
   // que siguen valorándose con los costes fijos de configuración.
@@ -262,6 +266,7 @@ function computeLotCosts(
 }
 
 const lotCostSackSelect = {
+  material: { select: { name: true, processingCost: true } },
   consumables: { select: { quantity: true, unitCost: true } },
   composedOf: {
     select: {
@@ -304,7 +309,6 @@ async function availableLotsByType(
           id: true,
           qrCode: true,
           weight: true,
-          material: { select: { name: true } },
           ...lotCostSackSelect,
         },
         orderBy: { createdAt: "asc" },
@@ -953,7 +957,8 @@ export async function getPackingList(
     buyerName: shipment.buyer.name,
     carrierName: shipment.carrier?.name ?? null,
     vehiclePlate: shipment.vehiclePlate,
-    loadDate: shipment.expeditedAt ?? shipment.scheduledAt ?? shipment.createdAt,
+    loadDate:
+      shipment.expeditedAt ?? shipment.scheduledAt ?? shipment.createdAt,
     rows,
     totalWeightKg: rows.reduce((sum, r) => sum + r.weightKg, 0),
   };

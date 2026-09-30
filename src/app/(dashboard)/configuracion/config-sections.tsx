@@ -245,6 +245,23 @@ function MaterialFields({
         </Select>
       </div>
       <div>
+        <Label htmlFor="mat-processing-cost">
+          Coste de producción por saca (€)
+        </Label>
+        <Input
+          id="mat-processing-cost"
+          name="processingCost"
+          type="number"
+          step="0.01"
+          min={0}
+          defaultValue={material?.processingCost ?? 0}
+        />
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          Se imputa a cada saca de salida de este material al calcular el coste
+          del lote.
+        </p>
+      </div>
+      <div>
         <Label htmlFor="mat-ranges">Rangos de calidad</Label>
         <Select
           id="mat-ranges"
@@ -1795,12 +1812,6 @@ const COST_FIELDS: {
   color: string;
 }[] = [
   {
-    name: "processingPerSack",
-    label: "Coste de Procesado por Saca (€)",
-    hint: "Coste fijo aplicado a cada saca de producto terminado.",
-    color: "#f59e0b", // amber
-  },
-  {
     name: "palletCost",
     label: "Coste de palé (€)",
     hint: "Se autocalcula con la última compra de palés en Consumibles.",
@@ -1815,7 +1826,7 @@ const COST_FIELDS: {
 ];
 
 /**
- * Costes fijos de procesado y consumibles. Editable y persistente en
+ * Costes fijos de consumibles. Editable y persistente en
  * `config.costs`. Se usan para calcular el coste total de cada saca y lote.
  */
 export function CostsSection({
@@ -1832,10 +1843,11 @@ export function CostsSection({
           action={<SubmitButton>Guardar costes</SubmitButton>}
         />
         <p className="mb-4 text-sm text-[var(--color-muted)]">
-          Costes de procesado y consumibles usados para calcular el coste total
-          de cada saca y de cada lote de salida.
+          Costes de consumibles usados para calcular el coste total de cada saca
+          y de cada lote de salida. El coste de producción se define en cada
+          material.
         </p>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {COST_FIELDS.map((c) => (
             <div
               key={c.name}
@@ -1874,8 +1886,8 @@ export function CostsSection({
             Fórmula del coste de lote
           </h3>
           <p className="font-mono text-sm text-[var(--color-muted)]">
-            Total lote = Σ (coste materia prima) + Σ (procesado × nº sacas) + (1
-            × palé) + (nº sacas × saca vacía)
+            Total lote = Σ (coste materia prima) + Σ (coste de producción del
+            material de cada saca) + (1 × palé) + (nº sacas × saca vacía)
           </p>
         </div>
       </form>

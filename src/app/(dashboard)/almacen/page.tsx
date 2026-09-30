@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { SackStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportButton } from "@/components/ui/export-button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -125,6 +126,17 @@ export default async function AlmacenPage({
       <PageHeader
         title="Almacén"
         description="Ocupación por zona, inventario de sacas y traslados entre zonas."
+        actions={
+          <ExportButton
+            module="almacen"
+            query={buildQuery({
+              status: statusFilter,
+              material: materialFilter,
+              zone: zoneFilter,
+              q: searchQuery,
+            }).slice(1)}
+          />
+        }
       />
 
       {/* StatCards — totales globales */}

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { LotType } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportButton } from "@/components/ui/export-button";
 import { StatCard } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -21,7 +22,9 @@ import {
   type OutputSack,
   type HopperSack,
 } from "@/lib/services/production.service";
+import { parseProductionPeriod, hasPeriod } from "@/lib/shifts";
 import { HopperEntry, OutputSackDialog } from "./production-client";
+import { ProductionFilters } from "./production-filters";
 
 type Tab = "entrada" | "pt" | "subproducto" | "rechazo";
 
@@ -62,22 +65,27 @@ function isTab(v: string | undefined): v is Tab {
 export default async function ProduccionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; dia?: string; turno?: string }>;
 }): Promise<React.JSX.Element> {
-  const { tab } = await searchParams;
-  const activeTab: Tab = isTab(tab) ? tab : "entrada";
+  const params = await searchParams;
+  const activeTab: Tab = isTab(params.tab) ? params.tab : "entrada";
+  const period = parseProductionPeriod(params);
+  // Al cambiar de pestaña se conservan el día y el turno elegidos.
+  const periodQs = new URLSearchParams();
+  if (period.day) periodQs.set("dia", period.day);
+  if (period.shift) periodQs.set("turno", period.shift);
 
   const [stats, formData, counts, hopperSacks, outputSacks] = await Promise.all(
     [
       getProductionStats(),
       getProductionFormData(),
-      getOutputCounts(),
+      getOutputCounts(period),
       activeTab === "entrada"
-        ? listHopperSacks()
+        ? listHopperSacks(period)
         : Promise.resolve<HopperSack[]>([]),
       activeTab === "entrada"
         ? Promise.resolve<OutputSack[]>([])
-        : listOutputSacksByType(TAB_TYPE[activeTab]),
+        : listOutputSacksByType(TAB_TYPE[activeTab], period),
     ],
   );
 
@@ -106,10 +114,16 @@ export default async function ProduccionPage({
         title="Producción"
         description="Entrada a tolva, sacas de salida y lotes autogenerados."
         actions={
-          <OutputSackDialog
-            materialsByType={formData.materialsByType}
-            consumablesByMaterial={formData.consumablesByMaterial}
-          />
+          <>
+            <ExportButton
+              module="produccion"
+              query={`tab=${activeTab}${periodQs.size > 0 ? `&${periodQs}` : ""}`}
+            />
+            <OutputSackDialog
+              materialsByType={formData.materialsByType}
+              consumablesByMaterial={formData.consumablesByMaterial}
+            />
+          </>
         }
       />
 
@@ -160,7 +174,7 @@ export default async function ProduccionPage({
           return (
             <Link
               key={t.value}
-              href={`/produccion?tab=${t.value}`}
+              href={`/produccion?tab=${t.value}${periodQs.size > 0 ? `&${periodQs}` : ""}`}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
                 active
@@ -174,6 +188,8 @@ export default async function ProduccionPage({
           );
         })}
       </div>
+
+      <ProductionFilters />
 
       {activeTab === "entrada" ? (
         <section>
@@ -195,7 +211,11 @@ export default async function ProduccionPage({
           />
         </section>
       ) : (
-        <OutputTab meta={OUTPUT_META[activeTab]} sacks={outputSacks} />
+        <OutputTab
+          meta={OUTPUT_META[activeTab]}
+          sacks={outputSacks}
+          filtered={hasPeriod(period)}
+        />
       )}
     </div>
   );
@@ -204,13 +224,21 @@ export default async function ProduccionPage({
 function OutputTab({
   meta,
   sacks,
+  filtered,
 }: {
   meta: { title: string; description: string; icon: React.ElementType };
   sacks: OutputSack[];
+  filtered: boolean;
 }): React.JSX.Element {
   const Icon = meta.icon;
   if (sacks.length === 0) {
-    return (
+    return filtered ? (
+      <EmptyState
+        icon={Icon}
+        title={`No hay sacas de ${meta.title.toLowerCase()} en ese día o turno`}
+        description="Cambia el día o el turno, o limpia los filtros."
+      />
+    ) : (
       <EmptyState
         icon={Icon}
         title={`Todavía no hay sacas de ${meta.title.toLowerCase()}`}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { PurchaseOrderStatus } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportButton } from "@/components/ui/export-button";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -264,11 +265,7 @@ function orderCostLines(
   order: PurchaseOrderPivot["order"],
 ): { label: string; value: string }[] {
   const lines: { label: string; value: string }[] = [];
-  const push = (
-    label: string,
-    amount: number | null,
-    unit: string,
-  ): void => {
+  const push = (label: string, amount: number | null, unit: string): void => {
     if (amount == null) return;
     lines.push({ label, value: `${formatEuro(amount)}${unit}` });
   };
@@ -459,10 +456,16 @@ export default async function AprovisionamientoPage({
         title="Aprovisionamiento"
         description="Órdenes de compra, tránsito marítimo y tracking de llegadas de materia prima."
         actions={
-          <NewPurchaseOrderDialog
-            suppliers={formData.suppliers}
-            materials={formData.materials}
-          />
+          <>
+            <ExportButton
+              module="aprovisionamiento"
+              query={filter ? `status=${filter}` : undefined}
+            />
+            <NewPurchaseOrderDialog
+              suppliers={formData.suppliers}
+              materials={formData.materials}
+            />
+          </>
         }
       />
 

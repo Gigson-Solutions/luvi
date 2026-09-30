@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { SackStatus, LotType, MaterialKind, type Prisma } from "@prisma/client";
+import { SackStatus, LotType, MaterialKind, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { generateLotNumber } from "@/lib/utils";
 import { getMaterialsByKind } from "@/lib/services/material.service";
+import { SHIFTS, hasPeriod, type ProductionPeriod } from "@/lib/shifts";
 
 /**
  * Servicio de Producción — lógica de negocio sobre Sack + ProductionLot +
@@ -49,6 +50,42 @@ function startOfToday(): Date {
   return d;
 }
 
+/**
+ * Condición SQL "el instante `column` cae en el periodo" (día y/o turno). Las
+ * fechas se guardan en UTC y los turnos son horas de Madrid, así que se
+ * compara con la hora local de Madrid. El turno de noche de un día va de las
+ * 22:00 de ese día a las 06:00 del siguiente.
+ */
+function periodSql(column: Prisma.Sql, period: ProductionPeriod): Prisma.Sql {
+  const local = Prisma.sql`((${column}) AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Madrid')`;
+  const shift = period.shift ? SHIFTS[period.shift] : null;
+  if (period.day && shift) {
+    const to = shift.to <= shift.from ? shift.to + 24 : shift.to;
+    return Prisma.sql`${local} >= ${period.day}::date + make_interval(hours => ${shift.from}::int)
+      AND ${local} < ${period.day}::date + make_interval(hours => ${to}::int)`;
+  }
+  if (period.day) return Prisma.sql`${local}::date = ${period.day}::date`;
+  if (shift) {
+    const hour = Prisma.sql`EXTRACT(HOUR FROM ${local})`;
+    return shift.from < shift.to
+      ? Prisma.sql`${hour} >= ${shift.from} AND ${hour} < ${shift.to}`
+      : Prisma.sql`(${hour} >= ${shift.from} OR ${hour} < ${shift.to})`;
+  }
+  return Prisma.sql`TRUE`;
+}
+
+/** Ids de las sacas de salida de un estado creadas dentro del periodo. */
+async function outputSackIdsInPeriod(
+  status: SackStatus,
+  period: ProductionPeriod,
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT s.id FROM sacks s
+    WHERE s.status::text = ${status}
+      AND ${periodSql(Prisma.sql`s."createdAt"`, period)}`;
+  return rows.map((r) => r.id);
+}
+
 /** GL-36: nº máximo de sacas de salida por lote. Al alcanzarlo, el lote se cierra. */
 export const MAX_SACKS_PER_LOT = 22;
 
@@ -84,9 +121,24 @@ export interface HopperSack {
  * Sacas en la tolva (EN_PRODUCCION). GL-47: la última en entrar se muestra
  * ARRIBA (orden por hora de entrada descendente) y se registra esa hora.
  */
-export async function listHopperSacks(limit = 100): Promise<HopperSack[]> {
+export async function listHopperSacks(
+  period: ProductionPeriod = { day: null, shift: null },
+  limit = 100,
+): Promise<HopperSack[]> {
+  // Con día/turno solo las que entraron a tolva en ese periodo.
+  const idFilter = hasPeriod(period)
+    ? {
+        id: {
+          in: (
+            await prisma.$queryRaw<{ sackId: string }[]>`
+              SELECT DISTINCT ti."sackId" FROM transformation_inputs ti
+              WHERE ${periodSql(Prisma.sql`ti."enteredAt"`, period)}`
+          ).map((r) => r.sackId),
+        },
+      }
+    : {};
   const sacks = await prisma.sack.findMany({
-    where: { status: SackStatus.EN_PRODUCCION },
+    where: { status: SackStatus.EN_PRODUCCION, ...idFilter },
     include: {
       material: { select: { name: true } },
       zone: { select: { name: true } },
@@ -148,12 +200,17 @@ export function listTodayOutput(): Promise<OutputSack[]> {
  * Sacas de salida de un tipo concreto (Producto Terminado / Subproducto /
  * Rechazo), todas las creadas (no solo las de hoy). Para las pestañas.
  */
-export function listOutputSacksByType(
+export async function listOutputSacksByType(
   type: LotType,
-  limit = 100,
+  period: ProductionPeriod = { day: null, shift: null },
+  limit: number | undefined = 100,
 ): Promise<OutputSack[]> {
+  const status = OUTPUT_STATUS[type];
+  const idFilter = hasPeriod(period)
+    ? { id: { in: await outputSackIdsInPeriod(status, period) } }
+    : {};
   return prisma.sack.findMany({
-    where: { status: OUTPUT_STATUS[type] },
+    where: { status, ...idFilter },
     include: {
       material: true,
       lot: true,
@@ -168,13 +225,25 @@ export function listOutputSacksByType(
 }
 
 /** Nº total de sacas de salida por tipo (para los contadores de las pestañas). */
-export async function getOutputCounts(): Promise<Record<LotType, number>> {
-  const grouped = await prisma.sack.groupBy({
-    by: ["status"],
-    where: { status: { in: OUTPUT_STATUSES } },
-    _count: { _all: true },
-  });
-  const byStatus = new Map(grouped.map((g) => [g.status, g._count._all]));
+export async function getOutputCounts(
+  period: ProductionPeriod = { day: null, shift: null },
+): Promise<Record<LotType, number>> {
+  const byStatus = new Map<string, number>();
+  if (hasPeriod(period)) {
+    const rows = await prisma.$queryRaw<{ status: string; n: number }[]>`
+      SELECT s.status::text AS status, COUNT(*)::int AS n FROM sacks s
+      WHERE s.status::text IN (${Prisma.join(OUTPUT_STATUSES)})
+        AND ${periodSql(Prisma.sql`s."createdAt"`, period)}
+      GROUP BY 1`;
+    for (const r of rows) byStatus.set(r.status, r.n);
+  } else {
+    const grouped = await prisma.sack.groupBy({
+      by: ["status"],
+      where: { status: { in: OUTPUT_STATUSES } },
+      _count: { _all: true },
+    });
+    for (const g of grouped) byStatus.set(g.status, g._count._all);
+  }
   return {
     [LotType.PRODUCTO_TERMINADO]:
       byStatus.get(SackStatus.PRODUCTO_TERMINADO) ?? 0,
