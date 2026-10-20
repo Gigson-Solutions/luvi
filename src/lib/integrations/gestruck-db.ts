@@ -1,7 +1,8 @@
 /**
  * Lectura directa de la base de datos de Gestruck (Gesnet2, MySQL) como fuente
  * de pesajes. Se usa como:
- *   - FALLBACK del camión (BASCULA) cuando la API REST no responde.
+ *   - Fuente PRINCIPAL del camión (BASCULA) en recepciones: el nº de contenedor
+ *     solo está en las observaciones de la pesada, que la API no filtra.
  *   - Fuente ÚNICA de la PLATAFORMA (sacas de salida): la API no expone la
  *     plataforma; sus pesadas viven en `pesadalinia` con IdDeviceSystem=2.
  *
@@ -43,45 +44,73 @@ export interface DbWeight {
   material?: string; // material de la línea (plataforma)
 }
 
-interface TruckRow extends RowDataPacket {
-  PesEntrada: number | null;
-  PesSortida: number | null;
-  PesNet: number | null;
-  DataSortida: string | null;
-}
-
 interface PlatformRow extends RowDataPacket {
   PesNet: number | null;
   DataEntrada: string | null;
   material: string | null;
 }
 
+interface TruckByReferenceRow extends RowDataPacket {
+  PesEntrada: number | null;
+  PesSortida: number | null;
+  PesNet: number | null;
+  DataEntrada: string | null;
+  DataSortida: string | null;
+}
+
+/** Normaliza una referencia para comparar: mayúsculas, sin espacios ni guiones. */
+export function normalizeReference(ref: string): string {
+  return ref.toUpperCase().replace(/[\s\-./]/g, "");
+}
+
+/** Mismo normalizado que `normalizeReference`, en SQL sobre la columna dada. */
+const sqlNormalized = (col: string): string =>
+  `REPLACE(REPLACE(REPLACE(REPLACE(UPPER(COALESCE(${col}, '')), ' ', ''), '-', ''), '.', ''), '/', '')`;
+
 /**
- * FALLBACK camión: última pesada completada (2 pesadas) de una matrícula en la
- * báscula puente (IdDeviceSystem=1). bruto=mayor, tara=menor, neto=PesNet.
+ * Pesada de camión (báscula puente, IdDeviceSystem=1) de una RECEPCIÓN por su
+ * referencia. En Gestruck el vehículo es la matrícula del camión y el nº de
+ * contenedor se apunta como texto libre en `pesada.Observacions`, así que se
+ * busca en los dos sitios. Se miran los últimos días (el contenedor suele
+ * pesarse antes de registrar la recepción) y se coge la pesada más reciente.
+ * `inProgress` = solo tiene la 1ª pesada (falta la de salida → sin neto).
  */
-export async function readTruckWeightFromDb(
-  matricula: string,
-): Promise<DbWeight | null> {
+export async function readTruckWeightByReferenceFromDb(
+  reference: string,
+): Promise<(DbWeight & { inProgress: boolean }) | null> {
   const p = getPool();
-  if (!p || !matricula) return null;
-  const [rows] = await p.query<TruckRow[]>(
-    `SELECT l.PesEntrada, l.PesSortida, l.PesNet, l.DataSortida
+  const ref = normalizeReference(reference);
+  if (!p || ref.length < 4) return null;
+  const [rows] = await p.query<TruckByReferenceRow[]>(
+    `SELECT l.PesEntrada, l.PesSortida, l.PesNet, l.DataEntrada, l.DataSortida
        FROM pesadalinia l
        JOIN pesada pe ON pe.IdPesada = l.IdPesadaFK
-       JOIN vehicle v ON v.IdVehicle = pe.IdVehicleFK
-      WHERE v.Matricula = ?
-        AND l.IdDeviceSystem1aPesadaFK = 1
-        AND l.PesSortida IS NOT NULL AND l.PesSortida <> 0
+       LEFT JOIN vehicle v ON v.IdVehicle = pe.IdVehicleFK
+      WHERE l.IdDeviceSystem1aPesadaFK = 1
+        AND COALESCE(pe.IsDeleted, 0) = 0
+        AND COALESCE(l.IsDeleted, 0) = 0
+        AND pe.DataCreacio >= NOW() - INTERVAL 30 DAY
+        AND (${sqlNormalized("pe.Observacions")} LIKE CONCAT('%', ?, '%')
+             OR ${sqlNormalized("v.Matricula")} = ?)
       ORDER BY l.IdPesadaLinia DESC
       LIMIT 1`,
-    [matricula],
+    [ref, ref],
   );
   const r = rows[0];
-  if (!r || r.PesEntrada == null || r.PesSortida == null) return null;
+  if (!r || r.PesEntrada == null) return null;
   const a = Number(r.PesEntrada);
+  const hasSecond =
+    r.DataSortida != null && r.PesSortida != null && Number(r.PesSortida) !== 0;
+  if (!hasSecond) {
+    return {
+      inProgress: true,
+      weight: a,
+      weighedAt: r.DataEntrada ?? undefined,
+    };
+  }
   const b = Number(r.PesSortida);
   return {
+    inProgress: false,
     weight: Math.max(a, b),
     tare: Math.min(a, b),
     net: r.PesNet != null ? Number(r.PesNet) : Math.abs(a - b),

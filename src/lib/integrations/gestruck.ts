@@ -21,11 +21,15 @@
  * `{ manual: true }` para que el operario introduzca el peso a mano. La báscula
  * nunca debe bloquear la operativa.
  *
- * FUENTES (GL báscula): camión (BASCULA) por API, y si la API no responde →
- * BBDD (fallback). Plataforma (sacas de salida) → BBDD directa (la API no la
- * expone). Ver `gestruck-db.ts`.
+ * FUENTES (GL báscula): camión (BASCULA) primero por BBDD, que tiene el nº de
+ * contenedor en las observaciones de la pesada, y si no → API (solo matrícula).
+ * Plataforma (sacas de salida) → BBDD directa (la API no la expone). Ver
+ * `gestruck-db.ts`.
  */
-import { readTruckWeightFromDb, readPlatformWeightFromDb } from "./gestruck-db";
+import {
+  readTruckWeightByReferenceFromDb,
+  readPlatformWeightFromDb,
+} from "./gestruck-db";
 
 export interface WeightReading {
   manual: boolean;
@@ -74,18 +78,52 @@ interface WeighingSearchResponse {
 
 const TIMEOUT_MS = 3000;
 
-/** Lee el último pesaje de un vehículo/matrícula. Fallback a manual si falla. */
+/**
+ * Lee el pesaje de camión de una recepción. `vehicle` es la referencia de la
+ * recepción: nº de contenedor o matrícula. Fallback a manual si falla.
+ *
+ * 1) BBDD de Gestruck: busca la referencia en las observaciones de la pesada
+ *    (ahí apuntan el nº de contenedor) o en la matrícula, últimos 30 días.
+ * 2) API REST: solo filtra por matrícula y pesajes de hoy.
+ */
 export async function readWeight(params: {
   vehicle?: string;
   scaleId?: string;
 }): Promise<WeightReading> {
+  if (params.vehicle) {
+    try {
+      const db = await readTruckWeightByReferenceFromDb(params.vehicle);
+      if (db?.inProgress) {
+        return {
+          manual: true,
+          inProgress: true,
+          reason:
+            "El pesaje está a medias: se ha pesado con carga pero falta la pesada sin carga. Espera a que terminen de pesar o introduce el peso a mano.",
+        };
+      }
+      if (db && db.weight != null) {
+        return {
+          manual: false,
+          weight: db.weight,
+          tare: db.tare,
+          net: db.net,
+          weighedAt: db.weighedAt,
+          scaleId: params.scaleId,
+        };
+      }
+    } catch (err) {
+      console.error("[gestruck] BBDD no disponible, pruebo API:", err);
+    }
+  }
+
   const url = process.env.GESTRUCK_API_URL;
   const key = process.env.GESTRUCK_API_KEY;
 
   if (!url || !key) {
     return {
       manual: true,
-      reason: "La báscula no está conectada. Introduce el peso a mano.",
+      reason:
+        "La báscula no tiene ningún pesaje con esta referencia (nº de contenedor o matrícula). Introduce el peso a mano.",
     };
   }
 
@@ -173,25 +211,7 @@ export async function readWeight(params: {
       scaleId: params.scaleId,
     };
   } catch (err) {
-    // La API no responde → FALLBACK a la BBDD de Gestruck (mismo camión).
-    console.error("[gestruck] API no disponible, pruebo BBDD:", err);
-    try {
-      if (params.vehicle) {
-        const db = await readTruckWeightFromDb(params.vehicle);
-        if (db && db.weight != null) {
-          return {
-            manual: false,
-            weight: db.weight,
-            tare: db.tare,
-            net: db.net,
-            weighedAt: db.weighedAt,
-            scaleId: params.scaleId,
-          };
-        }
-      }
-    } catch (dbErr) {
-      console.error("[gestruck] BBDD tampoco disponible:", dbErr);
-    }
+    console.error("[gestruck] API no disponible:", err);
     return {
       manual: true,
       reason:
