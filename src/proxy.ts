@@ -85,5 +85,9 @@ export default auth(
 );
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Fuera los ficheros estáticos de public/ (logo, iconos, wasm del escáner):
+  // sin esto, sin sesión el logo del login redirigía a /login y salía roto.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|wasm)$).*)",
+  ],
 };

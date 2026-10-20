@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enqueueLabels, type LabelData } from "@/lib/integrations/qr-printer";
+import { getCurrentUser } from "@/lib/rbac";
 
 /**
  * Cola de impresión de etiquetas QR (Zebra / ZPL).
@@ -46,6 +47,10 @@ function toLabel(job: PrintJob): LabelData {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // El proxy deja pasar /api/* sin sesión: se exige aquí.
+  if (!(await getCurrentUser())) {
+    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  }
   const body = (await req.json()) as PrintJob | PrintJob[];
   const jobs = Array.isArray(body) ? body : [body];
 
