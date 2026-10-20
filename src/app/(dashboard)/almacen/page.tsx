@@ -48,6 +48,7 @@ function isSackStatus(value: string | undefined): value is SackStatus {
  */
 function buildQuery(params: {
   status?: string;
+  tipo?: string;
   material?: string;
   zone?: string;
   q?: string;
@@ -55,6 +56,7 @@ function buildQuery(params: {
 }): string {
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
+  if (params.tipo) qs.set("tipo", params.tipo);
   if (params.material) qs.set("material", params.material);
   if (params.zone) qs.set("zone", params.zone);
   if (params.q) qs.set("q", params.q);
@@ -68,6 +70,7 @@ export default async function AlmacenPage({
 }: {
   searchParams: Promise<{
     status?: string;
+    tipo?: string;
     material?: string;
     zone?: string;
     q?: string;
@@ -81,6 +84,7 @@ export default async function AlmacenPage({
   const statusFilter = isSackStatus(params.status)
     ? params.status
     : SackStatus.EN_ALMACEN;
+  const categoryFilter = params.tipo || undefined;
   const materialFilter = params.material || undefined;
   const zoneFilter = params.zone || undefined;
   const searchQuery = params.q?.trim() || undefined;
@@ -91,6 +95,7 @@ export default async function AlmacenPage({
 
   const sackFilters = {
     status: statusFilter,
+    categoryId: categoryFilter,
     materialId: materialFilter,
     zoneId: zoneFilter,
     search: searchQuery,
@@ -102,6 +107,10 @@ export default async function AlmacenPage({
       listSacksPage(sackFilters, requestedPage),
       getWarehouseFilterData(),
     ]);
+
+  const visibleMaterials = categoryFilter
+    ? filterData.materials.filter((m) => m.categoryId === categoryFilter)
+    : filterData.materials;
 
   const totalPages = Math.max(1, Math.ceil(totalMatching / SACK_PAGE_SIZE));
   // Si la página pedida se sale del rango (p.ej. tras filtrar), la acotamos.
@@ -131,6 +140,7 @@ export default async function AlmacenPage({
             module="almacen"
             query={buildQuery({
               status: statusFilter,
+              tipo: categoryFilter,
               material: materialFilter,
               zone: zoneFilter,
               q: searchQuery,
@@ -168,6 +178,7 @@ export default async function AlmacenPage({
           icon={Filter}
           hint={
             statusFilter !== SackStatus.EN_ALMACEN ||
+            categoryFilter ||
             materialFilter ||
             zoneFilter ||
             searchQuery
@@ -333,6 +344,9 @@ export default async function AlmacenPage({
           {statusFilter && (
             <input type="hidden" name="status" value={statusFilter} />
           )}
+          {categoryFilter && (
+            <input type="hidden" name="tipo" value={categoryFilter} />
+          )}
           {materialFilter && (
             <input type="hidden" name="material" value={materialFilter} />
           )}
@@ -353,6 +367,7 @@ export default async function AlmacenPage({
             <Link
               href={`/almacen${buildQuery({
                 status: statusFilter,
+                tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
               })}`}
@@ -374,6 +389,7 @@ export default async function AlmacenPage({
               key={s}
               href={buildQuery({
                 status: s,
+                tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
                 q: searchQuery,
@@ -384,11 +400,11 @@ export default async function AlmacenPage({
           ))}
         </div>
 
-        {/* Filtro por material */}
-        {filterData.materials.length > 0 && (
+        {/* Filtro por tipo de material — cambiarlo descarta el material elegido */}
+        {filterData.categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
             <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
-              Material:
+              Tipo:
             </span>
             <FilterChip
               href={buildQuery({
@@ -396,14 +412,47 @@ export default async function AlmacenPage({
                 zone: zoneFilter,
                 q: searchQuery,
               })}
+              active={!categoryFilter}
+              label="Todos"
+            />
+            {filterData.categories.map((c) => (
+              <FilterChip
+                key={c.id}
+                href={buildQuery({
+                  status: statusFilter,
+                  tipo: c.id,
+                  zone: zoneFilter,
+                  q: searchQuery,
+                })}
+                active={categoryFilter === c.id}
+                label={c.name}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Filtro por material (solo los del tipo elegido) */}
+        {visibleMaterials.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
+              Material:
+            </span>
+            <FilterChip
+              href={buildQuery({
+                status: statusFilter,
+                tipo: categoryFilter,
+                zone: zoneFilter,
+                q: searchQuery,
+              })}
               active={!materialFilter}
               label="Todos"
             />
-            {filterData.materials.map((m) => (
+            {visibleMaterials.map((m) => (
               <FilterChip
                 key={m.id}
                 href={buildQuery({
                   status: statusFilter,
+                  tipo: categoryFilter,
                   material: m.id,
                   zone: zoneFilter,
                   q: searchQuery,
@@ -424,6 +473,7 @@ export default async function AlmacenPage({
             <FilterChip
               href={buildQuery({
                 status: statusFilter,
+                tipo: categoryFilter,
                 material: materialFilter,
                 q: searchQuery,
               })}
@@ -435,6 +485,7 @@ export default async function AlmacenPage({
                 key={z.id}
                 href={buildQuery({
                   status: statusFilter,
+                  tipo: categoryFilter,
                   material: materialFilter,
                   zone: z.id,
                   q: searchQuery,
@@ -533,6 +584,7 @@ export default async function AlmacenPage({
             hrefFor={(p) =>
               `/almacen${buildQuery({
                 status: statusFilter,
+                tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
                 q: searchQuery,

@@ -89,6 +89,7 @@ const almacen: Builder = async (params) => {
       status: (Object.values(SackStatus) as string[]).includes(status ?? "")
         ? (status as SackStatus)
         : SackStatus.EN_ALMACEN,
+      categoryId: param(params, "tipo"),
       materialId: param(params, "material"),
       zoneId: param(params, "zone"),
       search: param(params, "q"),

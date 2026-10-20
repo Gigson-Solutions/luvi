@@ -22,8 +22,10 @@ import {
   createStockExit,
   MAX_SACKS_PER_ADJUSTMENT,
 } from "@/lib/services/stock-adjustment.service";
-import { listStockEntrySacks, sackLabel } from "@/lib/services/qr.service";
-import { enqueueLabels } from "@/lib/integrations/qr-printer";
+import {
+  listStockEntrySacks,
+  printSackLabels,
+} from "@/lib/services/qr.service";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = {
@@ -367,9 +369,6 @@ export async function createStockExitAction(
   }
 }
 
-/** Etiquetas por trabajo de impresión. */
-const LABEL_BATCH = 25;
-
 /** Imprime las etiquetas QR de todas las sacas de un alta manual. */
 export async function printStockEntryLabelsAction(
   stockEntryId: string,
@@ -380,34 +379,7 @@ export async function printStockEntryLabelsAction(
     if (sacks.length === 0) {
       return { ok: false, message: "Este alta no tiene sacas." };
     }
-    // Por tandas: un trabajo con cientos de etiquetas tarda en llegar a la
-    // Zebra por el túnel y, si falla, se sabe cuántas han salido ya.
-    const labels = sacks.map(sackLabel);
-    let sent = 0;
-    for (let i = 0; i < labels.length; i += LABEL_BATCH) {
-      const batch = labels.slice(i, i + LABEL_BATCH);
-      const result = await enqueueLabels(batch);
-      if (result.simulated) {
-        return {
-          ok: true,
-          status: "simulated",
-          message: `Impresora no configurada — ${labels.length} etiquetas generadas, sin impresión física.`,
-        };
-      }
-      if (result.error) {
-        return {
-          ok: false,
-          status: "error",
-          message: `${result.error}. Enviadas ${sent} de ${labels.length}; comprueba que la Zebra esté encendida y con papel.`,
-        };
-      }
-      sent += batch.length;
-    }
-    return {
-      ok: true,
-      status: "queued",
-      message: `${sent} etiquetas enviadas a la impresora.`,
-    };
+    return await printSackLabels(sacks);
   } catch (e) {
     return {
       ok: false,

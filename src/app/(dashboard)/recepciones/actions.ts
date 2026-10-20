@@ -11,6 +11,11 @@ import {
 } from "@/lib/services/reception.service";
 import { logAudit } from "@/lib/services/audit.service";
 import { readWeight } from "@/lib/integrations/gestruck";
+import {
+  listContainerSacks,
+  printSackLabels,
+  type PrintLabelsResult,
+} from "@/lib/services/qr.service";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
@@ -177,6 +182,33 @@ export async function weighAndConfirmAction(
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Error al confirmar",
+    };
+  }
+}
+
+/** Imprime las etiquetas QR de todas las sacas de un contenedor recibido. */
+export async function printContainerLabelsAction(
+  containerId: string,
+): Promise<PrintLabelsResult> {
+  try {
+    await requireSession();
+    const sacks = await listContainerSacks(containerId);
+    if (sacks.length === 0) {
+      return {
+        ok: false,
+        status: "error",
+        message: "Este contenedor no tiene sacas.",
+      };
+    }
+    return await printSackLabels(sacks);
+  } catch (e) {
+    return {
+      ok: false,
+      status: "error",
+      message:
+        e instanceof Error
+          ? e.message
+          : "No se pudieron imprimir las etiquetas",
     };
   }
 }

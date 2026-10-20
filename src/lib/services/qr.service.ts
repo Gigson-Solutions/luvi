@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { type Prisma, type SackStatus } from "@prisma/client";
-import type { LabelData } from "@/lib/integrations/qr-printer";
+import { enqueueLabels, type LabelData } from "@/lib/integrations/qr-printer";
 import { formatSackNumber } from "@/lib/utils";
 
 /**
@@ -126,12 +126,12 @@ export async function findSackByQrOrId(
   return sack ? toDetail(sack) : null;
 }
 
-/** Sacas creadas por un alta manual de inventario, en orden de numeración. */
-export async function listStockEntrySacks(
-  stockEntryId: string,
+/** Sacas que cumplen `where`, en orden de numeración («N/total»). */
+async function listNumberedSacks(
+  where: Prisma.SackWhereInput,
 ): Promise<QrSackDetail[]> {
   const sacks = await prisma.sack.findMany({
-    where: { stockEntryId },
+    where,
     include: SACK_DETAIL_INCLUDE,
     orderBy: { createdAt: "asc" },
   });
@@ -143,6 +143,63 @@ export async function listStockEntrySacks(
         Number(a.batchNumber?.split("/")[0] ?? 0) -
         Number(b.batchNumber?.split("/")[0] ?? 0),
     );
+}
+
+/** Sacas creadas por un alta manual de inventario, en orden de numeración. */
+export function listStockEntrySacks(
+  stockEntryId: string,
+): Promise<QrSackDetail[]> {
+  return listNumberedSacks({ stockEntryId });
+}
+
+/** Sacas generadas al recibir un contenedor, en orden de numeración. */
+export function listContainerSacks(
+  containerId: string,
+): Promise<QrSackDetail[]> {
+  return listNumberedSacks({ containerId });
+}
+
+/** Etiquetas por trabajo de impresión. */
+const LABEL_BATCH = 25;
+
+export interface PrintLabelsResult {
+  ok: boolean;
+  status: "queued" | "simulated" | "error";
+  message: string;
+}
+
+/** Envía a la impresora las etiquetas de un conjunto de sacas. */
+export async function printSackLabels(
+  sacks: QrSackDetail[],
+): Promise<PrintLabelsResult> {
+  // Por tandas: un trabajo con cientos de etiquetas tarda en llegar a la
+  // Zebra por el túnel y, si falla, se sabe cuántas han salido ya.
+  const labels = sacks.map(sackLabel);
+  let sent = 0;
+  for (let i = 0; i < labels.length; i += LABEL_BATCH) {
+    const batch = labels.slice(i, i + LABEL_BATCH);
+    const result = await enqueueLabels(batch);
+    if (result.simulated) {
+      return {
+        ok: true,
+        status: "simulated",
+        message: `Impresora no configurada — ${labels.length} etiquetas generadas, sin impresión física.`,
+      };
+    }
+    if (result.error) {
+      return {
+        ok: false,
+        status: "error",
+        message: `${result.error}. Enviadas ${sent} de ${labels.length}; comprueba que la Zebra esté encendida y con papel.`,
+      };
+    }
+    sent += batch.length;
+  }
+  return {
+    ok: true,
+    status: "queued",
+    message: `${sent} etiquetas enviadas a la impresora.`,
+  };
 }
 
 /** Datos de la etiqueta física de una saca (plantilla A5). */

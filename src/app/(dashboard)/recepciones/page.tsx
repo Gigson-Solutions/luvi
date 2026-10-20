@@ -13,7 +13,9 @@ import {
   getReceptionFormData,
 } from "@/lib/services/reception.service";
 import { sackTypeLabel } from "@/lib/reception-sack-types";
+import { PrintLabelsButton } from "@/components/ui/print-labels-button";
 import { NewReceptionDialog, ReceiveDialog } from "./reception-dialogs";
+import { printContainerLabelsAction } from "./actions";
 
 type Tab = "pendientes" | "pesados";
 
@@ -212,6 +214,7 @@ export default async function RecepcionesPage({
               <TH>Neto</TH>
               <TH>Sacas</TH>
               <TH>Origen peso</TH>
+              <TH className="text-right">Etiquetas</TH>
             </TR>
           </THead>
           <TBody>
@@ -232,6 +235,14 @@ export default async function RecepcionesPage({
                   >
                     {c.weightSource === "gestruck" ? "Gestruck" : "Manual"}
                   </Badge>
+                </TD>
+                <TD className="text-right">
+                  {c.sacks.length > 0 && (
+                    <PrintLabelsButton
+                      print={printContainerLabelsAction.bind(null, c.id)}
+                      count={c.sacks.length}
+                    />
+                  )}
                 </TD>
               </TR>
             ))}

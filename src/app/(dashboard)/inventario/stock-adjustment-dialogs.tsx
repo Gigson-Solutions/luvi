@@ -1,14 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import {
-  PackagePlus,
-  PackageMinus,
-  Printer,
-  Check,
-  AlertTriangle,
-} from "lucide-react";
+import { PackagePlus, PackageMinus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PrintLabelsButton } from "@/components/ui/print-labels-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -65,59 +60,12 @@ export function PrintStockEntryLabelsButton({
   count: number;
   size?: "sm" | "md";
 }): React.JSX.Element {
-  const [pending, setPending] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    ok: boolean;
-    status?: string;
-    message: string;
-  } | null>(null);
-
-  async function print(): Promise<void> {
-    setPending(true);
-    setFeedback(null);
-    try {
-      setFeedback(await printStockEntryLabelsAction(stockEntryId));
-    } catch {
-      setFeedback({
-        ok: false,
-        message: "No se pudieron imprimir las etiquetas. Inténtalo de nuevo.",
-      });
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
-    <div className="space-y-1">
-      <Button
-        type="button"
-        variant="outline"
-        size={size}
-        onClick={print}
-        disabled={pending}
-      >
-        <Printer className="w-3.5 h-3.5" />
-        {pending ? "Enviando…" : `Imprimir ${count} etiquetas`}
-      </Button>
-      {feedback && (
-        <p
-          className={
-            !feedback.ok
-              ? "flex items-center gap-1.5 text-xs text-[var(--color-status-rechazo)]"
-              : feedback.status === "simulated"
-                ? "flex items-center gap-1.5 text-xs text-[var(--color-warning)]"
-                : "flex items-center gap-1.5 text-xs text-[var(--color-primary)]"
-          }
-        >
-          {feedback.ok && feedback.status !== "simulated" ? (
-            <Check className="w-3.5 h-3.5" />
-          ) : (
-            <AlertTriangle className="w-3.5 h-3.5" />
-          )}
-          {feedback.message}
-        </p>
-      )}
-    </div>
+    <PrintLabelsButton
+      print={() => printStockEntryLabelsAction(stockEntryId)}
+      count={count}
+      size={size}
+    />
   );
 }
 

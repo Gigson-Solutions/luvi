@@ -246,6 +246,8 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
 
 export interface SackFilters {
   status?: SackStatus;
+  /** Tipo de material (`MaterialCategory`). */
+  categoryId?: string;
   materialId?: string;
   zoneId?: string;
   /** Texto libre: busca por ID de saca, código QR o nº de lote. */
@@ -269,6 +271,9 @@ function buildSackWhere(filters: SackFilters): Prisma.SackWhereInput {
   const where: Prisma.SackWhereInput = {};
   if (filters.status) where.status = filters.status;
   if (filters.materialId) where.materialId = filters.materialId;
+  if (filters.categoryId) {
+    where.material = { is: { categoryId: filters.categoryId } };
+  }
   if (filters.zoneId) where.zoneId = filters.zoneId;
 
   const q = filters.search?.trim();
@@ -542,13 +547,24 @@ export async function transferSacks(
 // ─── Datos auxiliares para filtros / formularios ────────────────────────────
 
 export function getWarehouseFilterData(): Promise<{
-  materials: { id: string; name: string; code: string }[];
+  categories: { id: string; name: string }[];
+  materials: {
+    id: string;
+    name: string;
+    code: string;
+    categoryId: string | null;
+  }[];
   zones: { id: string; name: string; code: string; warehouseName: string }[];
 }> {
   return Promise.all([
+    prisma.materialCategory.findMany({
+      where: { active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
     prisma.material.findMany({
       where: { active: true },
-      select: { id: true, name: true, code: true },
+      select: { id: true, name: true, code: true, categoryId: true },
       orderBy: { name: "asc" },
     }),
     prisma.zone.findMany({
@@ -560,7 +576,8 @@ export function getWarehouseFilterData(): Promise<{
       },
       orderBy: { code: "asc" },
     }),
-  ]).then(([materials, zones]) => ({
+  ]).then(([categories, materials, zones]) => ({
+    categories,
     materials,
     zones: zones.map((z) => ({
       id: z.id,
