@@ -619,7 +619,7 @@ model PurchaseOrder {
 model ProviderShipment {
   id              String   @id @default(cuid())
   purchaseOrderId String?
-  billOfLading    String?  @unique
+  billOfLading    String?  // BL del primer contenedor; un mismo BL puede repartirse en varios envíos
   origin          String?  // puerto origen
   vessel          String?  // nombre del barco
   departureDate   DateTime? // fecha de salida de origen
@@ -639,6 +639,7 @@ model ProviderShipment {
   updatedAt DateTime @updatedAt
 
   @@index([purchaseOrderId])
+  @@index([billOfLading])
   @@map("provider_shipments")
 }
 
