@@ -1,0 +1,28 @@
+# main es producción: los PRs van siempre a staging.
+# Lo único que puede entrar en main es la promoción de staging (merge --ff-only
+# desde local) o un hotfix/*. Este check rechaza cualquier otro PR contra main.
+name: Base del PR
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [main]
+
+jobs:
+  base-correcta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar la rama de origen
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            staging|hotfix/*)
+              echo "OK: '$HEAD_REF' puede ir contra main."
+              exit 0
+              ;;
+          esac
+          echo "::error::'$HEAD_REF' no puede ir contra main (producción)."
+          echo "Los PRs van a staging. Cambia la base de este PR a 'staging'."
+          echo "A main solo llegan la promoción desde staging y las ramas hotfix/*."
+          exit 1
