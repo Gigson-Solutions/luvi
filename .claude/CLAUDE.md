@@ -164,13 +164,24 @@ Usuarios ──HTTPS──▶ Caddy ──▶ Next.js (localhost:3000) ──▶
 
 ### Entornos desplegados
 
-| Entorno  | Directorio          | Servicio        | Puerto |
-| -------- | ------------------- | --------------- | ------ |
-| prod     | `/opt/luvi-prod`    | `luvi-prod`     | 3000   |
-| staging  | `/opt/luvi-staging` | `luvi-staging`  | 3001   |
+**Una rama por entorno:** `main` es producción y `staging` es staging. Las ramas
+de trabajo salen de `staging` y se mergean a `staging`; `main` solo avanza con
+`merge --ff-only` desde `staging` y nunca se commitea directamente.
 
-Deploy con `/root/deploy-luvi.sh` (hace `reset --hard origin/main`, instala,
-migra, hace seed y compila) y después `systemctl restart <servicio>`.
+**Los PRs van siempre a `staging`, nunca a `main`.** La rama por defecto del
+repo sigue siendo `main`, así que al abrir un PR hay que cambiar la base a mano
+(`gh pr create --base staging`); un workflow rechaza los PRs contra `main` que
+no vengan de `staging` o de un `hotfix/*`.
+
+| Entorno  | Rama        | Directorio          | Servicio        | Puerto |
+| -------- | ----------- | ------------------- | --------------- | ------ |
+| prod     | `main`      | `/opt/luvi-prod`    | `luvi-prod`     | 3000   |
+| staging  | `staging`   | `/opt/luvi-staging` | `luvi-staging`  | 3001   |
+
+Deploy con `/root/deploy-luvi.sh` (deduce la rama del nombre del entorno, hace
+`reset --hard origin/<rama>`, instala, migra, hace seed y compila) y después
+`systemctl restart <servicio>`. Flujo completo, promoción, hotfix y rollback:
+`docs/entornos.md`.
 
 ---
 
