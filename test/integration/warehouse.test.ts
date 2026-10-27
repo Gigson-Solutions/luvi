@@ -149,6 +149,30 @@ describe("Almacén — listado de sacas con filtros (listSacks)", () => {
     );
   });
 
+  it("admite varios valores por criterio (cualquiera de ellos)", async () => {
+    await seedSacks(base.zoneAId, 2, { status: SackStatus.EN_ALMACEN });
+    await seedSacks(base.zoneCId, 3, { status: SackStatus.EN_PRODUCCION });
+    await seedSacks(base.zoneCId, 4, { status: SackStatus.ENTREGADA });
+
+    const byStatus = await listSacks({
+      status: [SackStatus.EN_ALMACEN, SackStatus.EN_PRODUCCION],
+    });
+    expect(byStatus).toHaveLength(5);
+
+    const byZone = await listSacks({ zoneId: [base.zoneAId, base.zoneCId] });
+    expect(byZone).toHaveLength(9);
+
+    // Los criterios distintos se combinan entre sí (AND).
+    const both = await listSacks({
+      status: [SackStatus.EN_PRODUCCION, SackStatus.ENTREGADA],
+      zoneId: [base.zoneCId],
+    });
+    expect(both).toHaveLength(7);
+
+    // Una lista vacía equivale a no filtrar.
+    expect(await listSacks({ status: [] })).toHaveLength(9);
+  });
+
   it("respeta el límite (take)", async () => {
     await seedSacks(base.zoneAId, 10);
     const limited = await listSacks({}, 4);

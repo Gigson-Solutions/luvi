@@ -244,12 +244,15 @@ export async function getWarehouseOverview(): Promise<WarehouseOverview> {
 
 // ─── 2. Listado de sacas con filtros ────────────────────────────────────────
 
+/** Un valor o varios: con varios, la saca debe cumplir cualquiera de ellos. */
+type OneOrMany<T> = T | T[];
+
 export interface SackFilters {
-  status?: SackStatus;
+  status?: OneOrMany<SackStatus>;
   /** Tipo de material (`MaterialCategory`). */
-  categoryId?: string;
-  materialId?: string;
-  zoneId?: string;
+  categoryId?: OneOrMany<string>;
+  materialId?: OneOrMany<string>;
+  zoneId?: OneOrMany<string>;
   /** Texto libre: busca por ID de saca, código QR o nº de lote. */
   search?: string;
 }
@@ -266,15 +269,24 @@ export interface SacksPage {
   total: number;
 }
 
+function toList<T>(value: OneOrMany<T> | undefined): T[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 /** Construye el `where` de Prisma compartido por `listSacks` y `countSacks`. */
 function buildSackWhere(filters: SackFilters): Prisma.SackWhereInput {
   const where: Prisma.SackWhereInput = {};
-  if (filters.status) where.status = filters.status;
-  if (filters.materialId) where.materialId = filters.materialId;
-  if (filters.categoryId) {
-    where.material = { is: { categoryId: filters.categoryId } };
+  const status = toList(filters.status);
+  const materialIds = toList(filters.materialId);
+  const categoryIds = toList(filters.categoryId);
+  const zoneIds = toList(filters.zoneId);
+  if (status.length > 0) where.status = { in: status };
+  if (materialIds.length > 0) where.materialId = { in: materialIds };
+  if (categoryIds.length > 0) {
+    where.material = { is: { categoryId: { in: categoryIds } } };
   }
-  if (filters.zoneId) where.zoneId = filters.zoneId;
+  if (zoneIds.length > 0) where.zoneId = { in: zoneIds };
 
   const q = filters.search?.trim();
   if (q) {

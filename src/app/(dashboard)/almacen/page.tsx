@@ -34,31 +34,37 @@ import {
   SACK_PAGE_SIZE,
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
+import { ALL_STATUSES, WarehouseFilters } from "./warehouse-filters";
 
 const STATUS_VALUES = Object.values(SackStatus);
 
-function isSackStatus(value: string | undefined): value is SackStatus {
-  return value !== undefined && (STATUS_VALUES as string[]).includes(value);
+function isSackStatus(value: string): value is SackStatus {
+  return (STATUS_VALUES as string[]).includes(value);
+}
+
+/** `?x=a&x=b` llega como string o string[]; lo normaliza a lista sin vacíos. */
+function asList(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return (Array.isArray(value) ? value : [value]).filter((v) => v !== "");
 }
 
 /**
  * Construye una query string preservando los filtros no modificados. `page` solo
  * se serializa a partir de la 2 (la 1 es el estado por defecto, sin parámetro).
- * Los chips de filtro no la pasan, de modo que cambiar un filtro vuelve a page 1.
  */
 function buildQuery(params: {
-  status?: string;
-  tipo?: string;
-  material?: string;
-  zone?: string;
+  status: string[];
+  tipo: string[];
+  material: string[];
+  zone: string[];
   q?: string;
   page?: number;
 }): string {
   const qs = new URLSearchParams();
-  if (params.status) qs.set("status", params.status);
-  if (params.tipo) qs.set("tipo", params.tipo);
-  if (params.material) qs.set("material", params.material);
-  if (params.zone) qs.set("zone", params.zone);
+  for (const v of params.status) qs.append("status", v);
+  for (const v of params.tipo) qs.append("tipo", v);
+  for (const v of params.material) qs.append("material", v);
+  for (const v of params.zone) qs.append("zone", v);
   if (params.q) qs.set("q", params.q);
   if (params.page && params.page > 1) qs.set("page", String(params.page));
   const s = qs.toString();
@@ -69,10 +75,10 @@ export default async function AlmacenPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    status?: string;
-    tipo?: string;
-    material?: string;
-    zone?: string;
+    status?: string | string[];
+    tipo?: string | string[];
+    material?: string | string[];
+    zone?: string | string[];
     q?: string;
     page?: string;
   }>;
@@ -81,12 +87,21 @@ export default async function AlmacenPage({
   // Almacén muestra solo materia prima ubicada (EN_ALMACEN) por defecto.
   // Las sacas de salida (PT/Subproducto/Rechazo) y demás estados viven en
   // Producción/Expediciones; se pueden consultar aquí pinchando su pill.
-  const statusFilter = isSackStatus(params.status)
-    ? params.status
-    : SackStatus.EN_ALMACEN;
-  const categoryFilter = params.tipo || undefined;
-  const materialFilter = params.material || undefined;
-  const zoneFilter = params.zone || undefined;
+  // `status=all` = sin filtrar por estado; sin parámetro, solo EN_ALMACEN.
+  const rawStatus = asList(params.status);
+  const validStatuses = rawStatus.filter(isSackStatus);
+  const statusFilter: SackStatus[] = rawStatus.includes(ALL_STATUSES)
+    ? []
+    : validStatuses.length > 0
+      ? validStatuses
+      : [SackStatus.EN_ALMACEN];
+  const categoryFilter = asList(params.tipo);
+  const materialFilter = asList(params.material);
+  const zoneFilter = asList(params.zone);
+  // Forma serializable del estado: "sin filtro" se escribe `all`, porque sin
+  // parámetro la página vuelve al valor por defecto (solo EN_ALMACEN).
+  const statusParam: string[] =
+    statusFilter.length > 0 ? statusFilter : [ALL_STATUSES];
   const searchQuery = params.q?.trim() || undefined;
 
   const parsedPage = Number.parseInt(params.page ?? "", 10);
@@ -107,10 +122,6 @@ export default async function AlmacenPage({
       listSacksPage(sackFilters, requestedPage),
       getWarehouseFilterData(),
     ]);
-
-  const visibleMaterials = categoryFilter
-    ? filterData.materials.filter((m) => m.categoryId === categoryFilter)
-    : filterData.materials;
 
   const totalPages = Math.max(1, Math.ceil(totalMatching / SACK_PAGE_SIZE));
   // Si la página pedida se sale del rango (p.ej. tras filtrar), la acotamos.
@@ -139,7 +150,7 @@ export default async function AlmacenPage({
           <ExportButton
             module="almacen"
             query={buildQuery({
-              status: statusFilter,
+              status: statusParam,
               tipo: categoryFilter,
               material: materialFilter,
               zone: zoneFilter,
@@ -177,10 +188,11 @@ export default async function AlmacenPage({
           value={totalMatching}
           icon={Filter}
           hint={
-            statusFilter !== SackStatus.EN_ALMACEN ||
-            categoryFilter ||
-            materialFilter ||
-            zoneFilter ||
+            statusFilter.length !== 1 ||
+            statusFilter[0] !== SackStatus.EN_ALMACEN ||
+            categoryFilter.length > 0 ||
+            materialFilter.length > 0 ||
+            zoneFilter.length > 0 ||
             searchQuery
               ? "Con los filtros aplicados"
               : "En almacén"
@@ -229,7 +241,12 @@ export default async function AlmacenPage({
                       <div key={z.id}>
                         <div className="flex items-center justify-between text-sm mb-1">
                           <Link
-                            href={`/almacen${buildQuery({ zone: z.id })}`}
+                            href={`/almacen${buildQuery({
+                              status: [],
+                              tipo: [],
+                              material: [],
+                              zone: [z.id],
+                            })}`}
                             scroll={false}
                             className="font-medium text-[var(--color-foreground)] hover:underline"
                           >
@@ -341,16 +358,18 @@ export default async function AlmacenPage({
 
         {/* Buscador libre (ID / QR / lote) */}
         <form action="/almacen" method="get" className="mb-3 flex gap-2">
-          {statusFilter && (
-            <input type="hidden" name="status" value={statusFilter} />
-          )}
-          {categoryFilter && (
-            <input type="hidden" name="tipo" value={categoryFilter} />
-          )}
-          {materialFilter && (
-            <input type="hidden" name="material" value={materialFilter} />
-          )}
-          {zoneFilter && <input type="hidden" name="zone" value={zoneFilter} />}
+          {statusParam.map((v) => (
+            <input key={`s-${v}`} type="hidden" name="status" value={v} />
+          ))}
+          {categoryFilter.map((v) => (
+            <input key={`t-${v}`} type="hidden" name="tipo" value={v} />
+          ))}
+          {materialFilter.map((v) => (
+            <input key={`m-${v}`} type="hidden" name="material" value={v} />
+          ))}
+          {zoneFilter.map((v) => (
+            <input key={`z-${v}`} type="hidden" name="zone" value={v} />
+          ))}
           <div className="relative flex-1 max-w-sm">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
             <Input
@@ -366,7 +385,7 @@ export default async function AlmacenPage({
           {searchQuery && (
             <Link
               href={`/almacen${buildQuery({
-                status: statusFilter,
+                status: statusParam,
                 tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
@@ -379,123 +398,16 @@ export default async function AlmacenPage({
           )}
         </form>
 
-        {/* Filtro por estado */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
-            Estado:
-          </span>
-          {STATUS_VALUES.map((s) => (
-            <FilterChip
-              key={s}
-              href={buildQuery({
-                status: s,
-                tipo: categoryFilter,
-                material: materialFilter,
-                zone: zoneFilter,
-                q: searchQuery,
-              })}
-              active={statusFilter === s}
-              label={SACK_LABELS[s]}
-            />
-          ))}
-        </div>
-
-        {/* Filtro por tipo de material — cambiarlo descarta el material elegido */}
-        {filterData.categories.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
-              Tipo:
-            </span>
-            <FilterChip
-              href={buildQuery({
-                status: statusFilter,
-                zone: zoneFilter,
-                q: searchQuery,
-              })}
-              active={!categoryFilter}
-              label="Todos"
-            />
-            {filterData.categories.map((c) => (
-              <FilterChip
-                key={c.id}
-                href={buildQuery({
-                  status: statusFilter,
-                  tipo: c.id,
-                  zone: zoneFilter,
-                  q: searchQuery,
-                })}
-                active={categoryFilter === c.id}
-                label={c.name}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Filtro por material (solo los del tipo elegido) */}
-        {visibleMaterials.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
-              Material:
-            </span>
-            <FilterChip
-              href={buildQuery({
-                status: statusFilter,
-                tipo: categoryFilter,
-                zone: zoneFilter,
-                q: searchQuery,
-              })}
-              active={!materialFilter}
-              label="Todos"
-            />
-            {visibleMaterials.map((m) => (
-              <FilterChip
-                key={m.id}
-                href={buildQuery({
-                  status: statusFilter,
-                  tipo: categoryFilter,
-                  material: m.id,
-                  zone: zoneFilter,
-                  q: searchQuery,
-                })}
-                active={materialFilter === m.id}
-                label={m.name}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Filtro por zona */}
-        {filterData.zones.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-4">
-            <span className="text-xs font-medium text-[var(--color-muted)] mr-1">
-              Zona:
-            </span>
-            <FilterChip
-              href={buildQuery({
-                status: statusFilter,
-                tipo: categoryFilter,
-                material: materialFilter,
-                q: searchQuery,
-              })}
-              active={!zoneFilter}
-              label="Todas"
-            />
-            {filterData.zones.map((z) => (
-              <FilterChip
-                key={z.id}
-                href={buildQuery({
-                  status: statusFilter,
-                  tipo: categoryFilter,
-                  material: materialFilter,
-                  zone: z.id,
-                  q: searchQuery,
-                })}
-                active={zoneFilter === z.id}
-                label={`${z.warehouseName} · ${z.name}`}
-              />
-            ))}
-          </div>
-        )}
+        <WarehouseFilters
+          statuses={STATUS_VALUES.map((v) => ({ id: v, name: SACK_LABELS[v] }))}
+          categories={filterData.categories}
+          materials={filterData.materials}
+          zones={filterData.zones.map((z) => ({
+            id: z.id,
+            name: `${z.warehouseName} · ${z.name}`,
+          }))}
+          selectedStatuses={statusParam}
+        />
 
         {sacks.length === 0 ? (
           <EmptyState
@@ -583,7 +495,7 @@ export default async function AlmacenPage({
             total={totalMatching}
             hrefFor={(p) =>
               `/almacen${buildQuery({
-                status: statusFilter,
+                status: statusParam,
                 tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
@@ -789,30 +701,5 @@ function Pagination({
         </span>
       )}
     </nav>
-  );
-}
-
-function FilterChip({
-  href,
-  active,
-  label,
-}: {
-  href: string;
-  active: boolean;
-  label: string;
-}): React.JSX.Element {
-  return (
-    <Link
-      href={`/almacen${href}`}
-      scroll={false}
-      className={cn(
-        "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
-        active
-          ? "bg-[var(--color-primary)] text-white"
-          : "bg-[var(--color-surface-hover)] text-[var(--color-foreground)] hover:bg-[var(--color-border)]",
-      )}
-    >
-      {label}
-    </Link>
   );
 }

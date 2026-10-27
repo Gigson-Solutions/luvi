@@ -82,16 +82,24 @@ function param(params: URLSearchParams, key: string): string | undefined {
 // ─── Almacén ─────────────────────────────────────────────────────────────────
 
 const almacen: Builder = async (params) => {
-  const status = param(params, "status");
+  // Igual que la página: cada filtro admite varios valores; sin estado, solo
+  // materia prima ubicada, y `status=all` lista cualquier estado.
+  const statuses = params
+    .getAll("status")
+    .filter((v) =>
+      (Object.values(SackStatus) as string[]).includes(v),
+    ) as SackStatus[];
+  const anyStatus = params.getAll("status").includes("all");
   const sacks = await listSacks(
     {
-      // Igual que la página: por defecto solo materia prima ubicada.
-      status: (Object.values(SackStatus) as string[]).includes(status ?? "")
-        ? (status as SackStatus)
-        : SackStatus.EN_ALMACEN,
-      categoryId: param(params, "tipo"),
-      materialId: param(params, "material"),
-      zoneId: param(params, "zone"),
+      status: anyStatus
+        ? undefined
+        : statuses.length > 0
+          ? statuses
+          : SackStatus.EN_ALMACEN,
+      categoryId: params.getAll("tipo").filter(Boolean),
+      materialId: params.getAll("material").filter(Boolean),
+      zoneId: params.getAll("zone").filter(Boolean),
       search: param(params, "q"),
     },
     EXPORT_LIMIT,
