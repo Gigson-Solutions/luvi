@@ -34,7 +34,8 @@ import {
   SACK_PAGE_SIZE,
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
-import { ALL_STATUSES, WarehouseFilters } from "./warehouse-filters";
+import { ALL_STATUSES } from "./filter-params";
+import { WarehouseFilters } from "./warehouse-filters";
 
 const STATUS_VALUES = Object.values(SackStatus);
 

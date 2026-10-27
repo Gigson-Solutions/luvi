@@ -7,9 +7,7 @@ import {
   MultiSelect,
   type MultiSelectOption,
 } from "@/components/ui/multi-select";
-
-/** Valor de `?status=` que significa "sin filtrar por estado". */
-export const ALL_STATUSES = "all";
+import { ALL_STATUSES } from "./filter-params";
 
 type Key = "status" | "tipo" | "material" | "zone";
 
