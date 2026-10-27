@@ -114,6 +114,45 @@ git reset --hard <commit-bueno>
 git push --force-with-lease origin main
 ```
 
+## Refrescar staging con los datos de producción
+
+Staging solo sirve para validar si sus datos se parecen a los de producción: con
+un catálogo de pruebas, un fallo que dependa de un material, una zona o un
+comprador reales no aparece. **En datos manda siempre producción.**
+
+```bash
+ssh luvi
+sudo /root/refresh-staging.sh --dry-run     # comprueba sin tocar nada
+sudo /root/refresh-staging.sh --confirmar   # ejecuta el refresco
+sudo /root/refresh-staging.sh --confirmar --sin-seed
+```
+
+Sin argumentos no hace nada: hay que pasar uno de los dos explícitamente.
+
+El refresco restaura el último `pg_dump` de `luvi` sobre `luvi_staging`,
+reejecuta el seed, recrea la cuenta de operario de pruebas y espeja los uploads.
+**Nunca escribe en producción**: solo lee su dump.
+
+### Lo que hay que saber antes de lanzarlo
+
+- **Borra los datos actuales de staging.** Antes de tocar nada deja copia de la
+  base de datos y de los uploads en `/root/backups-manual`, que queda fuera de
+  la rotación de 14 días de `/root/backups`.
+- **Restaura el backup nocturno de las 03:30**, así que staging queda hasta un
+  día por detrás de producción. Para acercarlo, lanza `/root/backup-luvi.sh`
+  justo antes.
+- **Staging pasa a contener datos reales de negocio.** Mientras no esté
+  confirmado que la clave de Holded de staging es de una cuenta de pruebas,
+  conviene no confirmar expediciones allí: la confirmación genera albarán.
+
+### La cuenta de operario de pruebas
+
+En los datos de producción no hay ningún usuario con rol `OPERARIO`, y el seed
+tampoco lo crea: usa `update: {}`, que no cambia el rol de un usuario que ya
+existe. Sin esa cuenta no habría forma de probar el módulo de producción en
+staging, así que el refresco la recrea en cada ejecución y la imprime al
+terminar, junto a las demás cuentas de prueba que lista el seed.
+
 ## Lo que los dos entornos comparten
 
 Separar las ramas no separa las integraciones. Hoy staging apunta a los mismos
