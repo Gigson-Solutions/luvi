@@ -69,6 +69,9 @@ El `--ff-only` es intencionado: si falla, es que `main` tiene commits que
 `staging` no tiene (normalmente un hotfix sin reintegrar) y hay que resolverlo
 antes de seguir.
 
+El push a `main` despliega producción solo (ver
+[Deploy automático de producción](#deploy-automático-de-producción)).
+
 ## Desplegar
 
 El script es el mismo para los dos entornos; cambian los argumentos:
@@ -114,13 +117,41 @@ sudo systemctl stop luvi-autodeploy-staging.timer
 sudo systemctl start luvi-autodeploy-staging.timer
 ```
 
-**Producción no se despliega sola, a propósito.** El script tiene el entorno
-fijado y no puede tocar `main` ni `/opt/luvi-prod`: a producción se llega
-promocionando y lanzando el deploy a mano.
+El script tiene el entorno fijado y no puede tocar `main` ni `/opt/luvi-prod`.
 
 Un `flock` evita que dos ejecuciones del timer se solapen si un deploy tarda más
 de 5 minutos. Un deploy lanzado a mano no toma ese lock, así que conviene no
 ejecutarlo justo cuando salta el timer.
+
+### Deploy automático de producción
+
+**Producción se despliega al avanzar `main`.** El workflow
+`.github/workflows/deploy-prod.yml` salta con cada push a `main` (la promoción
+desde `staging`, un hotfix o un rollback) y lanza el deploy en el servidor. Si
+falla, el run sale en rojo en la pestaña Actions de GitHub y llega el correo de
+fallo.
+
+El workflow no tiene shell en el servidor. Entra con una clave dedicada
+(secret `PROD_DEPLOY_SSH_KEY`) que en `/root/.ssh/authorized_keys` está atada a
+un único comando:
+
+```
+command="/root/luvi-deploy-prod-ci.sh",restrict ssh-ed25519 AAAA... github-actions-luvi-prod
+```
+
+`/root/luvi-deploy-prod-ci.sh` toma un `flock`, ejecuta `deploy-luvi.sh prod`,
+reinicia `luvi-prod` y comprueba que responde en el puerto 3000. Ignora lo que
+le pase el cliente: con esa clave solo se puede desplegar `main` en producción.
+
+```bash
+# relanzar el último deploy: Actions → "Deploy producción" → Re-run jobs
+
+# cortar el deploy automático: borrar la línea de la clave en authorized_keys
+# (o desactivar el workflow en GitHub). El deploy a mano sigue funcionando.
+```
+
+Un deploy a mano no toma el `flock` del workflow: conviene no lanzarlo mientras
+haya un run de "Deploy producción" en marcha.
 
 ### Hotfix directo a producción
 
@@ -141,6 +172,8 @@ git checkout main
 git reset --hard <commit-bueno>
 git push --force-with-lease origin main
 ```
+
+El push dispara el deploy automático de producción, que despliega ese commit.
 
 ## Refrescar staging con los datos de producción
 
