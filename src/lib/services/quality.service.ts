@@ -299,6 +299,61 @@ export function monthBounds(
   return { from: new Date(year, month - 1, 1), to: new Date(year, month, 1) };
 }
 
+/** Fecha local de un "YYYY-MM-DD" de la URL; null si no es válida. */
+function parseDay(value: string | undefined): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const d = new Date(`${value}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export interface QualityPeriod {
+  year: number;
+  /** 1..12 */
+  month: number;
+  fromDay: Date | null;
+  toDay: Date | null;
+  /** true si el periodo es el rango `desde`/`hasta` en vez del mes. */
+  byRange: boolean;
+  /** Rango [from, to) que se consulta. */
+  from: Date;
+  to: Date;
+}
+
+/**
+ * Periodo que muestra la página de Calidad (y su exportación a Excel). Con
+ * fechas, es ese rango (ambos extremos incluidos; un solo extremo deja el otro
+ * abierto); sin ellas, el mes elegido, por defecto el actual.
+ */
+export function resolveQualityPeriod(
+  params: {
+    year?: string;
+    month?: string;
+    desde?: string;
+    hasta?: string;
+  },
+  now: Date = new Date(),
+): QualityPeriod {
+  const year = Number(params.year) || now.getFullYear();
+  const rawMonth = Number(params.month) || now.getMonth() + 1;
+  const month =
+    Number.isInteger(rawMonth) && rawMonth >= 1 && rawMonth <= 12
+      ? rawMonth
+      : now.getMonth() + 1;
+
+  const fromDay = parseDay(params.desde);
+  const toDay = parseDay(params.hasta);
+  const byRange = fromDay != null || toDay != null;
+  const bounds = byRange
+    ? {
+        from: fromDay ?? new Date(2000, 0, 1),
+        to: toDay
+          ? new Date(toDay.getFullYear(), toDay.getMonth(), toDay.getDate() + 1)
+          : new Date(9999, 0, 1),
+      }
+    : monthBounds(year, month);
+  return { year, month, fromDay, toDay, byRange, ...bounds };
+}
+
 // ─── Derivados de un registro ────────────────────────────────────────────────────
 
 type SampleLike = { density: number | null; status: string | null };
