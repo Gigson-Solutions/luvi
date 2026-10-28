@@ -94,6 +94,34 @@ El script hace `fetch` + `reset --hard` del ref correspondiente, regenera el
 siembra y compila. Imprime el ref y el commit que despliega, y termina en
 `DEPLOY OK (<ref>)`.
 
+### Deploy automático de staging
+
+**Staging se despliega solo.** `luvi-autodeploy-staging.timer` comprueba cada 5
+minutos si la rama `staging` ha avanzado respecto a lo desplegado y, solo en ese
+caso, lanza el deploy y reinicia el servicio. Si no hay novedad no hace nada ni
+escribe en el log.
+
+Es decir: al mergear un PR a `staging`, el cambio aparece en
+https://staging.luvi.178.104.136.83.nip.io en unos minutos, sin tocar nada.
+Lanzar el deploy a mano sigue funcionando y es la forma de no esperar.
+
+```bash
+# qué ha hecho el autodeploy
+sudo journalctl -u luvi-autodeploy-staging.service -n 50
+
+# pararlo temporalmente / volver a activarlo
+sudo systemctl stop luvi-autodeploy-staging.timer
+sudo systemctl start luvi-autodeploy-staging.timer
+```
+
+**Producción no se despliega sola, a propósito.** El script tiene el entorno
+fijado y no puede tocar `main` ni `/opt/luvi-prod`: a producción se llega
+promocionando y lanzando el deploy a mano.
+
+Un `flock` evita que dos ejecuciones del timer se solapen si un deploy tarda más
+de 5 minutos. Un deploy lanzado a mano no toma ese lock, así que conviene no
+ejecutarlo justo cuando salta el timer.
+
 ### Hotfix directo a producción
 
 Un sexto argumento fuerza el ref. Se usa solo para urgencias, y el cambio se
