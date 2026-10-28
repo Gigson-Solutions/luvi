@@ -9,7 +9,13 @@ import {
   SACK_LABELS,
   SHIPMENT_LABELS,
   PO_LABELS,
+  QUALITY_LABELS,
 } from "@/components/ui/status-badge";
+import {
+  listRecords,
+  resolveQualityPeriod,
+  toRecordSummary,
+} from "@/lib/services/quality.service";
 import { sackTypeLabel } from "@/lib/reception-sack-types";
 import { parseProductionPeriod } from "@/lib/shifts";
 import { listSacks } from "@/lib/services/warehouse.service";
@@ -595,6 +601,110 @@ const expediciones: Builder = async (params) => {
   };
 };
 
+// ─── Calidad ─────────────────────────────────────────────────────────────────
+
+const calidad: Builder = async (params) => {
+  const period = resolveQualityPeriod({
+    year: param(params, "year"),
+    month: param(params, "month"),
+    desde: param(params, "desde"),
+    hasta: param(params, "hasta"),
+  });
+  const records = await listRecords({
+    from: period.from,
+    to: period.to,
+    clients: params.getAll("cliente").filter(Boolean),
+    materialIds: params.getAll("producto").filter(Boolean),
+  });
+
+  // calidad_2026-10.xlsx  ·  calidad_2026-10-01_2026-10-15.xlsx
+  const day = (d: Date): string =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const suffix = period.byRange
+    ? [period.fromDay, period.toDay].map((d) => (d ? day(d) : "...")).join("_")
+    : `${period.year}-${String(period.month).padStart(2, "0")}`;
+
+  const summaries = records.map(toRecordSummary);
+  return {
+    filename: `calidad_${suffix}`,
+    sheets: [
+      {
+        name: "Registros",
+        columns: [
+          { header: "Fecha", key: "date", width: 12 },
+          { header: "Turno", key: "shift", width: 12 },
+          { header: "Cliente", key: "client", width: 24 },
+          { header: "Producto", key: "material", width: 24 },
+          { header: "Muestras", key: "samples", numFmt: NUM.int },
+          { header: "Densidad prom. (g)", key: "density", numFmt: NUM.kg },
+          { header: "Estado", key: "status", width: 12 },
+          { header: "Notas", key: "notes", width: 40 },
+        ],
+        rows: summaries.map((s) => ({
+          date: xDate(s.date),
+          shift: s.shift,
+          client: s.client,
+          material: s.materialName,
+          samples: s.sampleCount,
+          density: s.avgDensity,
+          status: QUALITY_LABELS[s.status],
+          notes: s.notes,
+        })),
+      },
+      {
+        name: "Muestras",
+        columns: [
+          { header: "Fecha", key: "date", width: 12 },
+          { header: "Turno", key: "shift", width: 12 },
+          { header: "Cliente", key: "client", width: 24 },
+          { header: "Producto", key: "material", width: 24 },
+          { header: "Nº muestra", key: "index", numFmt: NUM.int },
+          { header: "Densidad", key: "density", numFmt: NUM.kg },
+          { header: "PVC", key: "pvc", numFmt: NUM.kg },
+          { header: "Cola", key: "cola", numFmt: NUM.kg },
+          { header: "Multicapas", key: "multicapas", numFmt: NUM.kg },
+          { header: "Metal", key: "metal", numFmt: NUM.kg },
+          { header: "Otros", key: "otros", numFmt: NUM.kg },
+          { header: "Estado", key: "status", width: 12 },
+          { header: "Comentario", key: "comment", width: 40 },
+        ],
+        // Solo las muestras con algún dato: la hoja de 20 filas vacías no aporta.
+        rows: records.flatMap((r) =>
+          r.samples
+            .filter(
+              (m) =>
+                m.density != null ||
+                m.pvc != null ||
+                m.cola != null ||
+                m.multicapas != null ||
+                m.metal != null ||
+                m.otros != null ||
+                !!m.comment,
+            )
+            .map((m) => ({
+              date: xDate(r.date),
+              shift: r.shift,
+              client: r.client,
+              material: r.material?.name ?? null,
+              index: m.index,
+              density: m.density,
+              pvc: m.pvc,
+              cola: m.cola,
+              multicapas: m.multicapas,
+              metal: m.metal,
+              otros: m.otros,
+              status:
+                QUALITY_LABELS[
+                  (m.status ?? "PENDIENTE") as keyof typeof QUALITY_LABELS
+                ],
+              comment: m.comment,
+            })),
+        ),
+      },
+    ],
+  };
+};
+
 /** Módulos exportables → constructor del Excel. */
 export const EXPORTS: Partial<Record<Module, Builder>> = {
   almacen,
@@ -603,4 +713,5 @@ export const EXPORTS: Partial<Record<Module, Builder>> = {
   consumibles,
   aprovisionamiento,
   expediciones,
+  calidad,
 };

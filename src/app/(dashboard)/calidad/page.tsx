@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { ExportButton } from "@/components/ui/export-button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/card";
@@ -20,7 +21,7 @@ import {
   listRecords,
   listQualityClients,
   computeStats,
-  monthBounds,
+  resolveQualityPeriod,
   getQualityRanges,
   resolveAllMaterialRanges,
   toRecordSummary,
@@ -50,23 +51,10 @@ const MONTHS = [
   "Diciembre",
 ];
 
-function clampMonth(n: number): number {
-  return Number.isInteger(n) && n >= 1 && n <= 12
-    ? n
-    : new Date().getMonth() + 1;
-}
-
 /** Un parámetro repetible de la URL siempre como lista de valores. */
 function asList(value: string | string[] | undefined): string[] {
   if (value == null) return [];
   return Array.isArray(value) ? value : [value];
-}
-
-/** Fecha local de un "YYYY-MM-DD" de la URL; null si no es válida. */
-function parseDay(value: string | undefined): Date | null {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const d = new Date(`${value}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export default async function CalidadPage({
@@ -83,28 +71,16 @@ export default async function CalidadPage({
 }): Promise<React.JSX.Element> {
   const params = await searchParams;
   const now = new Date();
-  const year = Number(params.year) || now.getFullYear();
-  const month = clampMonth(Number(params.month) || now.getMonth() + 1);
   const clients = asList(params.cliente);
   const materialIds = asList(params.producto);
 
-  // Con fechas, el periodo es ese rango (ambos extremos incluidos); sin ellas,
-  // el mes elegido. Un solo extremo deja el otro abierto.
-  const fromDay = parseDay(params.desde);
-  const toDay = parseDay(params.hasta);
-  const byRange = fromDay != null || toDay != null;
-  const period = byRange
-    ? {
-        from: fromDay ?? new Date(2000, 0, 1),
-        to: toDay
-          ? new Date(toDay.getFullYear(), toDay.getMonth(), toDay.getDate() + 1)
-          : new Date(9999, 0, 1),
-      }
-    : monthBounds(year, month);
+  // Con fechas, el periodo es ese rango; sin ellas, el mes elegido.
+  const period = resolveQualityPeriod(params, now);
+  const { year, month, fromDay, toDay, byRange } = period;
 
   const [records, ranges, rangesByMaterial, allMaterials, clientOptions] =
     await Promise.all([
-      listRecords({ ...period, clients, materialIds }),
+      listRecords({ from: period.from, to: period.to, clients, materialIds }),
       getQualityRanges(),
       resolveAllMaterialRanges(),
       listMaterials(),
@@ -122,6 +98,19 @@ export default async function CalidadPage({
     for (const id of materialIds) qs.append("producto", id);
     return `/calidad?${qs.toString()}`;
   }
+
+  // El Excel lleva el mismo periodo y filtros que se están viendo.
+  const exportParams = new URLSearchParams();
+  if (byRange) {
+    if (params.desde) exportParams.set("desde", params.desde);
+    if (params.hasta) exportParams.set("hasta", params.hasta);
+  } else {
+    exportParams.set("year", String(year));
+    exportParams.set("month", String(month));
+  }
+  for (const c of clients) exportParams.append("cliente", c);
+  for (const id of materialIds) exportParams.append("producto", id);
+  const exportQuery = exportParams.toString();
 
   const periodLabel = byRange
     ? fromDay && toDay
@@ -146,7 +135,12 @@ export default async function CalidadPage({
         icon={ClipboardCheck}
         title="Calidad"
         description="Registros de calidad por día, turno y cliente con hoja de 20 muestras."
-        actions={<NewRecordDialog materials={materials} />}
+        actions={
+          <>
+            <ExportButton module="calidad" query={exportQuery} />
+            <NewRecordDialog materials={materials} />
+          </>
+        }
       />
 
       <QualityFilters clients={clientOptions} materials={materials} />
