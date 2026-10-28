@@ -1,0 +1,33 @@
+# Despliega producción cada vez que main avanza (promoción desde staging,
+# hotfix o rollback). El deploy lo hace el servidor: la clave de este workflow
+# solo puede ejecutar /root/luvi-deploy-prod-ci.sh (command= en authorized_keys),
+# no abre shell. Detalle en docs/entornos.md.
+name: Deploy producción
+
+on:
+  push:
+    branches: [main]
+
+# Un deploy detrás de otro, nunca dos a la vez ni cancelando uno a medias.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Desplegar en Hetzner
+        env:
+          SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: 178.104.136.83 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIqTh/uMpicXthK1KJbI9oHU2jIo38cJWUQfK3uJszvO
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/key"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/key" \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 \
+            root@178.104.136.83
