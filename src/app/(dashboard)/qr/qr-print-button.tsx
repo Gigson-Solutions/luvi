@@ -51,16 +51,19 @@ export function QrPrintButton({ job }: { job: QrPrintJob }): React.JSX.Element {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { status: string; message: string };
       setFeedback(
-        data.status === "simulated"
-          ? {
-              kind: "simulated",
-              message:
-                "Impresora no configurada — etiqueta generada, sin impresión física.",
-            }
-          : {
-              kind: "queued",
-              message: "Etiqueta enviada a la cola de impresión.",
-            },
+        data.status === "error"
+          ? // La impresora no respondió: el endpoint ya explica qué revisar.
+            { kind: "error", message: data.message }
+          : data.status === "simulated"
+            ? {
+                kind: "simulated",
+                message:
+                  "Impresora no configurada — etiqueta generada, sin impresión física.",
+              }
+            : {
+                kind: "queued",
+                message: "Etiqueta enviada a la cola de impresión.",
+              },
       );
     } catch {
       setFeedback({
