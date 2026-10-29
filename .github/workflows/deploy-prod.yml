@@ -7,11 +7,16 @@ name: Deploy producción
 on:
   push:
     branches: [main]
+  # Para relanzar el deploy de main sin tener que empujar nada.
+  workflow_dispatch:
 
 # Un deploy detrás de otro, nunca dos a la vez ni cancelando uno a medias.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
+
+# El deploy lo hace el servidor: aquí no se usa el GITHUB_TOKEN para nada.
+permissions: {}
 
 jobs:
   deploy:
@@ -23,11 +28,20 @@ jobs:
           SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: 178.104.136.83 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIqTh/uMpicXthK1KJbI9oHU2jIo38cJWUQfK3uJszvO
         run: |
+          # Sin esto, un secreto ausente falla con "error in libcrypto", que no
+          # dice nada de lo que pasa realmente.
+          if [ -z "$SSH_KEY" ]; then
+            echo "::error::Falta el secreto PROD_DEPLOY_SSH_KEY en el repositorio."
+            exit 1
+          fi
           install -m 600 /dev/null "$RUNNER_TEMP/key"
           printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/key"
           printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
-          ssh -i "$RUNNER_TEMP/key" \
+          # BatchMode: si la clave no sirve, falla ya en vez de pedir contrasena
+          # y quedarse colgado hasta el timeout.
+          ssh -n -i "$RUNNER_TEMP/key" \
             -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
             -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
             -o ServerAliveInterval=30 \
             root@178.104.136.83
