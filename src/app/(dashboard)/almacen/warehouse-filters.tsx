@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/multi-select";
 import { ALL_STATUSES } from "./filter-params";
 
-type Key = "status" | "tipo" | "material" | "zone";
+type Key = "status" | "tipo" | "material" | "zone" | "proveedor";
 
 type MaterialOption = MultiSelectOption & { categoryId: string | null };
 
@@ -39,12 +39,15 @@ export function WarehouseFilters({
   categories,
   materials,
   zones,
+  suppliers,
   selectedStatuses,
 }: {
   statuses: MultiSelectOption[];
   categories: MultiSelectOption[];
   materials: MaterialOption[];
   zones: MultiSelectOption[];
+  /** Incluye la opción «Sin proveedor» (sacas sin contenedor). */
+  suppliers: MultiSelectOption[];
   /** Estados efectivos (ya con el valor por defecto aplicado). */
   selectedStatuses: string[];
 }): React.JSX.Element {
@@ -56,6 +59,7 @@ export function WarehouseFilters({
     tipo: searchParams.getAll("tipo"),
     material: searchParams.getAll("material"),
     zone: searchParams.getAll("zone"),
+    proveedor: searchParams.getAll("proveedor"),
   };
   const visibleMaterials = materialsOfTypes(materials, selected.tipo);
 
@@ -109,7 +113,13 @@ export function WarehouseFilters({
 
   function clear(): void {
     const params = new URLSearchParams(searchParams.toString());
-    for (const key of ["status", "tipo", "material", "zone"] as const) {
+    for (const key of [
+      "status",
+      "tipo",
+      "material",
+      "zone",
+      "proveedor",
+    ] as const) {
       params.delete(key);
     }
     push(params);
@@ -119,6 +129,7 @@ export function WarehouseFilters({
     selected.tipo.length > 0 ||
     selected.material.length > 0 ||
     selected.zone.length > 0 ||
+    selected.proveedor.length > 0 ||
     !(selectedStatuses.length === 1 && selectedStatuses[0] === "EN_ALMACEN");
 
   return (
@@ -154,6 +165,12 @@ export function WarehouseFilters({
           onToggle={(id) => toggle("zone", id)}
         />
       )}
+      <MultiSelect
+        label="Proveedor"
+        options={suppliers}
+        selected={selected.proveedor}
+        onToggle={(id) => toggle("proveedor", id)}
+      />
       {hasFilters && (
         <Button variant="ghost" size="sm" onClick={clear}>
           <X className="w-3.5 h-3.5" /> Restablecer filtros

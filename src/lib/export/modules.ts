@@ -106,6 +106,7 @@ const almacen: Builder = async (params) => {
       categoryId: params.getAll("tipo").filter(Boolean),
       materialId: params.getAll("material").filter(Boolean),
       zoneId: params.getAll("zone").filter(Boolean),
+      supplierId: params.getAll("proveedor").filter(Boolean),
       search: param(params, "q"),
     },
     EXPORT_LIMIT,
