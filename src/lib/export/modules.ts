@@ -119,6 +119,7 @@ const almacen: Builder = async (params) => {
         columns: [
           { header: "QR", key: "qr", width: 18 },
           { header: "Material", key: "material", width: 24 },
+          { header: "Tipo", key: "category", width: 24 },
           { header: "Peso (kg)", key: "weight", numFmt: NUM.kg },
           { header: "Estado", key: "status", width: 18 },
           { header: "Almacén", key: "warehouse", width: 18 },
@@ -130,6 +131,7 @@ const almacen: Builder = async (params) => {
         rows: sacks.map((s) => ({
           qr: s.qrCode,
           material: s.material.name,
+          category: s.material.category?.name ?? "Sin categoría",
           weight: s.weight,
           status: SACK_LABELS[s.status],
           warehouse: s.zone?.warehouse.name,

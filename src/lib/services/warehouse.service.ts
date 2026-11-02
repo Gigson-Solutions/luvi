@@ -86,7 +86,7 @@ export interface WarehouseOverview {
 
 export type SackWithRefs = Prisma.SackGetPayload<{
   include: {
-    material: true;
+    material: { include: { category: true } };
     zone: { include: { warehouse: true } };
     container: true;
     lot: true;
@@ -325,7 +325,7 @@ export function listSacks(
   return prisma.sack.findMany({
     where: buildSackWhere(filters),
     include: {
-      material: true,
+      material: { include: { category: true } },
       zone: { include: { warehouse: true } },
       container: true,
       lot: true,
@@ -359,7 +359,7 @@ export async function listSacksPage(
     prisma.sack.findMany({
       where,
       include: {
-        material: true,
+        material: { include: { category: true } },
         zone: { include: { warehouse: true } },
         container: true,
         lot: true,
@@ -464,7 +464,7 @@ export async function moveSack(input: MoveSackInput): Promise<SackWithRefs> {
   return prisma.sack.findUniqueOrThrow({
     where: { id: input.sackId },
     include: {
-      material: true,
+      material: { include: { category: true } },
       zone: { include: { warehouse: true } },
       container: true,
       lot: true,
