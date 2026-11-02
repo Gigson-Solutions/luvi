@@ -34,6 +34,7 @@ import {
   SACK_PAGE_SIZE,
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
+import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 import { ALL_STATUSES } from "./filter-params";
 import { WarehouseFilters } from "./warehouse-filters";
 
@@ -58,6 +59,7 @@ function buildQuery(params: {
   tipo: string[];
   material: string[];
   zone: string[];
+  proveedor?: string[];
   q?: string;
   page?: number;
 }): string {
@@ -66,6 +68,7 @@ function buildQuery(params: {
   for (const v of params.tipo) qs.append("tipo", v);
   for (const v of params.material) qs.append("material", v);
   for (const v of params.zone) qs.append("zone", v);
+  for (const v of params.proveedor ?? []) qs.append("proveedor", v);
   if (params.q) qs.set("q", params.q);
   if (params.page && params.page > 1) qs.set("page", String(params.page));
   const s = qs.toString();
@@ -80,6 +83,7 @@ export default async function AlmacenPage({
     tipo?: string | string[];
     material?: string | string[];
     zone?: string | string[];
+    proveedor?: string | string[];
     q?: string;
     page?: string;
   }>;
@@ -99,6 +103,7 @@ export default async function AlmacenPage({
   const categoryFilter = asList(params.tipo);
   const materialFilter = asList(params.material);
   const zoneFilter = asList(params.zone);
+  const proveedorFilter = asList(params.proveedor);
   // Forma serializable del estado: "sin filtro" se escribe `all`, porque sin
   // parámetro la página vuelve al valor por defecto (solo EN_ALMACEN).
   const statusParam: string[] =
@@ -114,6 +119,7 @@ export default async function AlmacenPage({
     categoryId: categoryFilter,
     materialId: materialFilter,
     zoneId: zoneFilter,
+    supplierId: proveedorFilter,
     search: searchQuery,
   };
 
@@ -155,6 +161,7 @@ export default async function AlmacenPage({
               tipo: categoryFilter,
               material: materialFilter,
               zone: zoneFilter,
+              proveedor: proveedorFilter,
               q: searchQuery,
             }).slice(1)}
           />
@@ -194,6 +201,7 @@ export default async function AlmacenPage({
             categoryFilter.length > 0 ||
             materialFilter.length > 0 ||
             zoneFilter.length > 0 ||
+            proveedorFilter.length > 0 ||
             searchQuery
               ? "Con los filtros aplicados"
               : "En almacén"
@@ -371,6 +379,9 @@ export default async function AlmacenPage({
           {zoneFilter.map((v) => (
             <input key={`z-${v}`} type="hidden" name="zone" value={v} />
           ))}
+          {proveedorFilter.map((v) => (
+            <input key={`p-${v}`} type="hidden" name="proveedor" value={v} />
+          ))}
           <div className="relative flex-1 max-w-sm">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
             <Input
@@ -390,6 +401,7 @@ export default async function AlmacenPage({
                 tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
+                proveedor: proveedorFilter,
               })}`}
               scroll={false}
               className="inline-flex items-center rounded-lg px-3 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
@@ -407,6 +419,10 @@ export default async function AlmacenPage({
             id: z.id,
             name: `${z.warehouseName} · ${z.name}`,
           }))}
+          suppliers={[
+            { id: NO_SUPPLIER, name: "Sin proveedor" },
+            ...filterData.suppliers,
+          ]}
           selectedStatuses={statusParam}
         />
 
@@ -500,6 +516,7 @@ export default async function AlmacenPage({
                 tipo: categoryFilter,
                 material: materialFilter,
                 zone: zoneFilter,
+                proveedor: proveedorFilter,
                 q: searchQuery,
                 page: p,
               })}`

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { SackStatus, type Prisma } from "@prisma/client";
 import { createAlbaran } from "@/lib/integrations/holded";
+import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 
 /**
  * Servicio de Almacén / Inventario — lógica de negocio sobre Zone + Sack.
@@ -253,6 +254,11 @@ export interface SackFilters {
   categoryId?: OneOrMany<string>;
   materialId?: OneOrMany<string>;
   zoneId?: OneOrMany<string>;
+  /**
+   * Proveedor del contenedor de origen. `NO_SUPPLIER` ("none") = sacas sin
+   * contenedor (altas manuales…); se puede combinar con ids de proveedor.
+   */
+  supplierId?: OneOrMany<string>;
   /** Texto libre: busca por ID de saca, código QR o nº de lote. */
   search?: string;
 }
@@ -287,6 +293,18 @@ function buildSackWhere(filters: SackFilters): Prisma.SackWhereInput {
     where.material = { is: { categoryId: { in: categoryIds } } };
   }
   if (zoneIds.length > 0) where.zoneId = { in: zoneIds };
+
+  const supplierIds = toList(filters.supplierId);
+  if (supplierIds.length > 0) {
+    const real = supplierIds.filter((id) => id !== NO_SUPPLIER);
+    const clauses: Prisma.SackWhereInput[] = [];
+    if (real.length > 0) {
+      clauses.push({ container: { is: { supplierId: { in: real } } } });
+    }
+    if (real.length < supplierIds.length) clauses.push({ containerId: null });
+    // En AND: `where.OR` ya lo usa el buscador libre.
+    where.AND = [{ OR: clauses }];
+  }
 
   const q = filters.search?.trim();
   if (q) {
@@ -567,6 +585,7 @@ export function getWarehouseFilterData(): Promise<{
     categoryId: string | null;
   }[];
   zones: { id: string; name: string; code: string; warehouseName: string }[];
+  suppliers: { id: string; name: string }[];
 }> {
   return Promise.all([
     prisma.materialCategory.findMany({
@@ -588,9 +607,14 @@ export function getWarehouseFilterData(): Promise<{
       },
       orderBy: { code: "asc" },
     }),
-  ]).then(([categories, materials, zones]) => ({
+    prisma.supplier.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]).then(([categories, materials, zones, suppliers]) => ({
     categories,
     materials,
+    suppliers,
     zones: zones.map((z) => ({
       id: z.id,
       name: z.name,

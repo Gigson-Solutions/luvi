@@ -188,7 +188,10 @@ async function getLotOriginSuppliers(): Promise<
     },
   });
 
-  const tally = new Map<string, Map<string, { id: string | null; n: number }>>();
+  const tally = new Map<
+    string,
+    Map<string, { id: string | null; n: number }>
+  >();
   for (const i of inputs) {
     const lotId = i.transformation.lotId;
     const provider = i.sack.container?.supplier.name ?? SIN_PROVEEDOR;
@@ -396,6 +399,8 @@ export async function getConsumptionStats(
 
 export interface ProviderLocation {
   provider: string;
+  /** Id del proveedor; null en "Sin proveedor" (sacas sin contenedor). */
+  supplierId: string | null;
   totalCount: number;
   totalWeightKg: number;
   warehouses: { warehouse: string; count: number; weightKg: number }[];
@@ -423,7 +428,7 @@ export async function getLocationStats(
     },
     select: {
       weight: true,
-      container: { select: { supplier: { select: { name: true } } } },
+      container: { select: { supplier: { select: { id: true, name: true } } } },
       zone: { select: { warehouse: { select: { name: true } } } },
     },
   });
@@ -431,6 +436,7 @@ export async function getLocationStats(
   const byProvider = new Map<
     string,
     {
+      supplierId: string | null;
       totalCount: number;
       totalWeightKg: number;
       warehouses: Map<string, { count: number; weightKg: number }>;
@@ -441,6 +447,7 @@ export async function getLocationStats(
     const provider = s.container?.supplier.name ?? SIN_PROVEEDOR;
     const warehouse = s.zone?.warehouse.name ?? "Sin ubicar";
     const entry = byProvider.get(provider) ?? {
+      supplierId: s.container?.supplier.id ?? null,
       totalCount: 0,
       totalWeightKg: 0,
       warehouses: new Map(),
@@ -457,6 +464,7 @@ export async function getLocationStats(
   return [...byProvider.entries()]
     .map(([provider, e]) => ({
       provider,
+      supplierId: e.supplierId,
       totalCount: e.totalCount,
       totalWeightKg: e.totalWeightKg,
       warehouses: [...e.warehouses.entries()]

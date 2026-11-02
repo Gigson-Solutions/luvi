@@ -7,6 +7,7 @@ import {
   getSackDetail,
   moveSack,
 } from "@/lib/services/warehouse.service";
+import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 
 let base: Baseline;
 let qrSeq = 0;
@@ -171,6 +172,42 @@ describe("Almacén — listado de sacas con filtros (listSacks)", () => {
 
     // Una lista vacía equivale a no filtrar.
     expect(await listSacks({ status: [] })).toHaveLength(9);
+  });
+
+  it("filtra por proveedor, incluida la opción «sin proveedor»", async () => {
+    const container = await prisma.container.create({
+      data: { reference: "CONT-PROV-1", supplierId: base.supplierId },
+    });
+    // 3 sacas de un contenedor con proveedor y 4 sin contenedor (alta manual).
+    await prisma.sack.createMany({
+      data: Array.from({ length: 3 }, (_, i) => ({
+        qrCode: `SACK-PROV-${i}`,
+        status: SackStatus.EN_ALMACEN,
+        weight: 1000,
+        materialId: base.materialId,
+        zoneId: base.zoneAId,
+        containerId: container.id,
+      })),
+    });
+    await seedSacks(base.zoneAId, 4);
+
+    const withSupplier = await listSacks({ supplierId: base.supplierId });
+    expect(withSupplier).toHaveLength(3);
+
+    const noSupplier = await listSacks({ supplierId: NO_SUPPLIER });
+    expect(noSupplier).toHaveLength(4);
+    expect(noSupplier.every((s) => s.containerId === null)).toBe(true);
+
+    // Ambos a la vez = todas; y se combina con el buscador libre.
+    expect(
+      await listSacks({ supplierId: [base.supplierId, NO_SUPPLIER] }),
+    ).toHaveLength(7);
+    expect(
+      await listSacks({ supplierId: NO_SUPPLIER, search: "SACK-PROV" }),
+    ).toHaveLength(0);
+    expect(
+      await listSacks({ supplierId: base.supplierId, search: "SACK-PROV" }),
+    ).toHaveLength(3);
   });
 
   it("respeta el límite (take)", async () => {

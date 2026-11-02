@@ -42,6 +42,7 @@ import {
   type InventoryFilters as InventoryFiltersType,
 } from "@/lib/services/inventory.service";
 import { InventoryFilters } from "./inventory-filters";
+import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 import {
   findOpenCount,
   getCountDetail,
@@ -585,6 +586,12 @@ async function UbicacionTab({
               <span className="text-sm text-[var(--color-muted)]">
                 ({formatKg(p.totalWeightKg)})
               </span>
+              <Link
+                href={`/almacen?status=EN_ALMACEN&proveedor=${encodeURIComponent(p.supplierId ?? NO_SUPPLIER)}`}
+                className="ml-auto text-sm font-medium text-[var(--color-primary)] hover:underline"
+              >
+                Ver estas sacas en Almacén →
+              </Link>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               {p.warehouses.map((w) => (
