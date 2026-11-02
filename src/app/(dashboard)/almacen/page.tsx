@@ -438,6 +438,7 @@ export default async function AlmacenPage({
               <TR>
                 <TH>QR</TH>
                 <TH>Material</TH>
+                <TH>Tipo</TH>
                 <TH>Peso</TH>
                 <TH>Estado</TH>
                 <TH>Zona</TH>
@@ -460,6 +461,9 @@ export default async function AlmacenPage({
                     <Badge tone={materialTone(s.material.name)}>
                       {s.material.name}
                     </Badge>
+                  </TD>
+                  <TD className="text-[var(--color-muted)]">
+                    {s.material.category?.name ?? "Sin categoría"}
                   </TD>
                   <TD>{formatKg(s.weight)}</TD>
                   <TD>

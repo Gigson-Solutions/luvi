@@ -82,6 +82,7 @@ describe("Exportación a Excel", () => {
     expect(rows[0]).toEqual([
       "QR",
       "Material",
+      "Tipo",
       "Peso (kg)",
       "Estado",
       "Almacén",
@@ -91,7 +92,9 @@ describe("Exportación a Excel", () => {
       "Alta",
     ]);
     expect(rows).toHaveLength(61);
-    expect(rows[1][3]).toBe("En almacén");
+    expect(rows[1][4]).toBe("En almacén");
+    // El material de prueba no tiene categoría asignada.
+    expect(rows[1][2]).toBe("Sin categoría");
 
     // Con un estado sin sacas no sale ninguna fila.
     const empty = await roundTrip(await exportOf("almacen", "status=BAJA"));
