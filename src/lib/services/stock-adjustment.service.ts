@@ -34,6 +34,8 @@ export interface StockEntryInput {
   date: Date;
   notes?: string;
   userId?: string;
+  /** Proveedor de las sacas (opcional): como no tienen contenedor, se guarda en cada saca. */
+  supplierId?: string;
 }
 
 function assertSackCount(numSacks: number): void {
@@ -80,6 +82,7 @@ export async function createStockEntry(
         weight: weightPerSack,
         materialId: input.materialId,
         zoneId: input.zoneId,
+        supplierId: input.supplierId ?? null,
         stockEntryId: adjustment.id,
         batchNumber: `${i + 1}/${input.numSacks}`,
         notes,

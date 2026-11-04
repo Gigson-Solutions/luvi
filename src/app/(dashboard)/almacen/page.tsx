@@ -35,14 +35,11 @@ import {
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
 import { NO_SUPPLIER } from "@/lib/warehouse-filters";
-import { ALL_STATUSES } from "./filter-params";
+import { ALL_STATUSES, resolveStatusFilter } from "./filter-params";
 import { WarehouseFilters } from "./warehouse-filters";
+import { AssignSupplierBulkDialog } from "./supplier-dialogs";
 
 const STATUS_VALUES = Object.values(SackStatus);
-
-function isSackStatus(value: string): value is SackStatus {
-  return (STATUS_VALUES as string[]).includes(value);
-}
 
 /** `?x=a&x=b` llega como string o string[]; lo normaliza a lista sin vacíos. */
 function asList(value: string | string[] | undefined): string[] {
@@ -93,13 +90,7 @@ export default async function AlmacenPage({
   // Las sacas de salida (PT/Subproducto/Rechazo) y demás estados viven en
   // Producción/Expediciones; se pueden consultar aquí pinchando su pill.
   // `status=all` = sin filtrar por estado; sin parámetro, solo EN_ALMACEN.
-  const rawStatus = asList(params.status);
-  const validStatuses = rawStatus.filter(isSackStatus);
-  const statusFilter: SackStatus[] = rawStatus.includes(ALL_STATUSES)
-    ? []
-    : validStatuses.length > 0
-      ? validStatuses
-      : [SackStatus.EN_ALMACEN];
+  const statusFilter = resolveStatusFilter(asList(params.status));
   const categoryFilter = asList(params.tipo);
   const materialFilter = asList(params.material);
   const zoneFilter = asList(params.zone);
@@ -357,12 +348,37 @@ export default async function AlmacenPage({
               {totalMatching}
             </span>
           </h2>
-          {movableSacks.length > 0 && (
-            <TransferSacksDialog
-              movableSacks={movableSacks}
-              zones={filterData.zones}
-            />
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Solo mientras se ven las sacas «Sin proveedor». */}
+            {proveedorFilter.length === 1 &&
+              proveedorFilter[0] === NO_SUPPLIER &&
+              totalMatching > 0 && (
+                <AssignSupplierBulkDialog
+                  count={totalMatching}
+                  suppliers={filterData.suppliers}
+                  filters={[
+                    ...statusParam.map((v) => ({ name: "status", value: v })),
+                    ...categoryFilter.map((v) => ({ name: "tipo", value: v })),
+                    ...materialFilter.map((v) => ({
+                      name: "material",
+                      value: v,
+                    })),
+                    ...zoneFilter.map((v) => ({ name: "zone", value: v })),
+                    ...proveedorFilter.map((v) => ({
+                      name: "proveedor",
+                      value: v,
+                    })),
+                    ...(searchQuery ? [{ name: "q", value: searchQuery }] : []),
+                  ]}
+                />
+              )}
+            {movableSacks.length > 0 && (
+              <TransferSacksDialog
+                movableSacks={movableSacks}
+                zones={filterData.zones}
+              />
+            )}
+          </div>
         </div>
 
         {/* Buscador libre (ID / QR / lote) */}

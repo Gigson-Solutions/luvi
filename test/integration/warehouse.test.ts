@@ -6,7 +6,14 @@ import {
   listSacks,
   getSackDetail,
   moveSack,
+  setSackSupplier,
+  setSuppliersForFilteredSacks,
 } from "@/lib/services/warehouse.service";
+import { createStockEntry } from "@/lib/services/stock-adjustment.service";
+import {
+  getExpectedStock,
+  getLocationStats,
+} from "@/lib/services/inventory.service";
 import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 
 let base: Baseline;
@@ -324,5 +331,230 @@ describe("Almacén — traslado de sacas entre zonas (moveSack)", () => {
 
     const moved = await moveSack({ sackId: sack.id, zoneId: base.zoneCId });
     expect(moved.zoneId).toBe(base.zoneCId);
+  });
+});
+
+describe("Almacén — proveedor propio de las sacas sin contenedor", () => {
+  async function otherSupplier(): Promise<string> {
+    const s = await prisma.supplier.create({
+      data: { name: "Otro proveedor", code: "OTRO" },
+    });
+    return s.id;
+  }
+
+  it("el alta manual guarda el proveedor (opcional) en cada saca", async () => {
+    const conProveedor = await createStockEntry({
+      materialId: base.materialId,
+      zoneId: base.zoneAId,
+      numSacks: 3,
+      weightPerSack: 900,
+      date: new Date(),
+      supplierId: base.supplierId,
+    });
+    const sinProveedor = await createStockEntry({
+      materialId: base.materialId,
+      zoneId: base.zoneAId,
+      numSacks: 2,
+      weightPerSack: 900,
+      date: new Date(),
+    });
+    expect(conProveedor.numSacks).toBe(3);
+    expect(sinProveedor.numSacks).toBe(2);
+
+    expect(await listSacks({ supplierId: base.supplierId })).toHaveLength(3);
+    expect(await listSacks({ supplierId: NO_SUPPLIER })).toHaveLength(2);
+  });
+
+  it("el filtro de proveedor cuenta el del contenedor o, si no hay, el propio", async () => {
+    const container = await prisma.container.create({
+      data: { reference: "CONT-PROP-1", supplierId: base.supplierId },
+    });
+    await prisma.sack.create({
+      data: {
+        qrCode: "SACK-PROP-C",
+        status: SackStatus.EN_ALMACEN,
+        weight: 1000,
+        materialId: base.materialId,
+        zoneId: base.zoneAId,
+        containerId: container.id,
+      },
+    });
+    await prisma.sack.create({
+      data: {
+        qrCode: "SACK-PROP-P",
+        status: SackStatus.EN_ALMACEN,
+        weight: 1000,
+        materialId: base.materialId,
+        zoneId: base.zoneAId,
+        supplierId: base.supplierId,
+      },
+    });
+    await seedSacks(base.zoneAId, 2);
+
+    expect(await listSacks({ supplierId: base.supplierId })).toHaveLength(2);
+    expect(await listSacks({ supplierId: NO_SUPPLIER })).toHaveLength(2);
+    expect(
+      await listSacks({ supplierId: [base.supplierId, NO_SUPPLIER] }),
+    ).toHaveLength(4);
+  });
+
+  it("setSackSupplier asigna y quita, y rechaza las sacas con contenedor", async () => {
+    await seedSacks(base.zoneAId, 1);
+    const [sack] = await listSacks({ supplierId: NO_SUPPLIER });
+
+    await setSackSupplier(sack.id, base.supplierId);
+    expect((await getSackDetail(sack.id))?.supplier?.id).toBe(base.supplierId);
+    expect(await listSacks({ supplierId: NO_SUPPLIER })).toHaveLength(0);
+
+    await setSackSupplier(sack.id, null);
+    expect((await getSackDetail(sack.id))?.supplier).toBeNull();
+
+    const container = await prisma.container.create({
+      data: { reference: "CONT-PROP-2", supplierId: base.supplierId },
+    });
+    const withContainer = await prisma.sack.create({
+      data: {
+        qrCode: "SACK-PROP-X",
+        status: SackStatus.EN_ALMACEN,
+        weight: 1000,
+        materialId: base.materialId,
+        zoneId: base.zoneAId,
+        containerId: container.id,
+      },
+    });
+    await expect(
+      setSackSupplier(withContainer.id, await otherSupplier()),
+    ).rejects.toThrow(/contenedor/);
+  });
+
+  it("asignar en bloque solo toca las sacas filtradas y sin contenedor", async () => {
+    const container = await prisma.container.create({
+      data: { reference: "CONT-PROP-3", supplierId: base.supplierId },
+    });
+    await prisma.sack.create({
+      data: {
+        qrCode: "SACK-PROP-K",
+        status: SackStatus.EN_ALMACEN,
+        weight: 1000,
+        materialId: base.materialId,
+        zoneId: base.zoneAId,
+        containerId: container.id,
+      },
+    });
+    await seedSacks(base.zoneAId, 3);
+    await seedSacks(base.zoneCId, 2);
+    const nuevo = await otherSupplier();
+
+    // Solo las 3 sin proveedor de la zona A (las de la zona C no entran).
+    const count = await setSuppliersForFilteredSacks(
+      { supplierId: NO_SUPPLIER, zoneId: base.zoneAId },
+      nuevo,
+    );
+    expect(count).toBe(3);
+    expect(await listSacks({ supplierId: nuevo })).toHaveLength(3);
+    expect(await listSacks({ supplierId: NO_SUPPLIER })).toHaveLength(2);
+
+    // La saca con contenedor conserva el de su contenedor.
+    const kept = (await listSacks({ search: "SACK-PROP-K" }))[0];
+    expect(kept.supplierId).toBeNull();
+    expect(kept.containerId).toBe(container.id);
+  });
+
+  it("Inventario → Ubicación agrupa por el proveedor propio de la saca", async () => {
+    const nuevo = await otherSupplier();
+    await createStockEntry({
+      materialId: base.materialId,
+      zoneId: base.zoneAId,
+      numSacks: 4,
+      weightPerSack: 500,
+      date: new Date(),
+      supplierId: nuevo,
+    });
+    await seedSacks(base.zoneAId, 2);
+
+    const stats = await getLocationStats();
+    const otro = stats.find((p) => p.supplierId === nuevo);
+    expect(otro?.provider).toBe("Otro proveedor");
+    expect(otro?.totalCount).toBe(4);
+    const sin = stats.find((p) => p.supplierId === null);
+    expect(sin?.provider).toBe("Sin proveedor");
+    expect(sin?.totalCount).toBe(2);
+
+    // El filtro de proveedor de Inventario también lo reconoce.
+    const filtrado = await getLocationStats({
+      supplierIds: [nuevo],
+      warehouseIds: [],
+      materialIds: [],
+      categoryIds: [],
+    });
+    expect(filtrado).toHaveLength(1);
+    expect(filtrado[0].totalCount).toBe(4);
+  });
+});
+
+describe("Inventario — filtro por Tipo de material", () => {
+  it("filtra Ubicación y Stock esperado por la categoría de los materiales", async () => {
+    const caliente = await prisma.materialCategory.create({
+      data: { name: "MATERIA PRIMA CALIENTE" },
+    });
+    const fria = await prisma.materialCategory.create({
+      data: { name: "MATERIA PRIMA FRÍA" },
+    });
+    const matCaliente = await prisma.material.create({
+      data: {
+        name: "MP caliente",
+        code: "MP-C-T",
+        type: "PELLET_PE",
+        categoryId: caliente.id,
+      },
+    });
+    const matFria = await prisma.material.create({
+      data: {
+        name: "MP fría",
+        code: "MP-F-T",
+        type: "PELLET_PE",
+        categoryId: fria.id,
+      },
+    });
+    await seedSacks(base.zoneAId, 3, { materialId: matCaliente.id });
+    await seedSacks(base.zoneAId, 5, { materialId: matFria.id });
+    await seedSacks(base.zoneAId, 2); // material de prueba, sin categoría
+
+    const total = (await getLocationStats()).reduce(
+      (acc, p) => acc + p.totalCount,
+      0,
+    );
+    expect(total).toBe(10);
+
+    const filters = {
+      supplierIds: [],
+      warehouseIds: [],
+      materialIds: [],
+    };
+    const soloCaliente = await getLocationStats({
+      ...filters,
+      categoryIds: [caliente.id],
+    });
+    expect(soloCaliente.reduce((a, p) => a + p.totalCount, 0)).toBe(3);
+
+    const ambas = await getLocationStats({
+      ...filters,
+      categoryIds: [caliente.id, fria.id],
+    });
+    expect(ambas.reduce((a, p) => a + p.totalCount, 0)).toBe(8);
+
+    // Tipo + producto: la intersección (el producto frío no es caliente).
+    const interseccion = await getLocationStats({
+      ...filters,
+      categoryIds: [caliente.id],
+      materialIds: [matFria.id],
+    });
+    expect(interseccion).toHaveLength(0);
+
+    const stock = await getExpectedStock({
+      ...filters,
+      categoryIds: [fria.id],
+    });
+    expect(stock.totals.currentCount).toBe(5);
   });
 });

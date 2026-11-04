@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { SackStatus, type Prisma } from "@prisma/client";
 import { createAlbaran } from "@/lib/integrations/holded";
 import { NO_SUPPLIER } from "@/lib/warehouse-filters";
+import { SACK_WITHOUT_SUPPLIER, sackSupplierIn } from "@/lib/sack-supplier";
 
 /**
  * Servicio de Almacén / Inventario — lógica de negocio sobre Zone + Sack.
@@ -98,6 +99,7 @@ export type SackDetail = Prisma.SackGetPayload<{
     material: true;
     zone: { include: { warehouse: true } };
     container: { include: { supplier: true } };
+    supplier: true;
     lot: { include: { material: true } };
     stockEntry: { select: { date: true; notes: true } };
   };
@@ -298,10 +300,8 @@ function buildSackWhere(filters: SackFilters): Prisma.SackWhereInput {
   if (supplierIds.length > 0) {
     const real = supplierIds.filter((id) => id !== NO_SUPPLIER);
     const clauses: Prisma.SackWhereInput[] = [];
-    if (real.length > 0) {
-      clauses.push({ container: { is: { supplierId: { in: real } } } });
-    }
-    if (real.length < supplierIds.length) clauses.push({ containerId: null });
+    if (real.length > 0) clauses.push(sackSupplierIn(real));
+    if (real.length < supplierIds.length) clauses.push(SACK_WITHOUT_SUPPLIER);
     // En AND: `where.OR` ya lo usa el buscador libre.
     where.AND = [{ OR: clauses }];
   }
@@ -383,10 +383,52 @@ export function getSackDetail(sackId: string): Promise<SackDetail | null> {
       material: true,
       zone: { include: { warehouse: true } },
       container: { include: { supplier: true } },
+      supplier: true,
       lot: { include: { material: true } },
       stockEntry: { select: { date: true, notes: true } },
     },
   });
+}
+
+/**
+ * Asigna (o quita, con `null`) el proveedor propio de una saca. Solo las sacas
+ * sin contenedor lo admiten: si vienen de un contenedor, su proveedor es el de
+ * éste y se corrige en el contenedor.
+ */
+export async function setSackSupplier(
+  sackId: string,
+  supplierId: string | null,
+): Promise<void> {
+  const sack = await prisma.sack.findUniqueOrThrow({
+    where: { id: sackId },
+    select: { containerId: true },
+  });
+  if (sack.containerId) {
+    throw new Error(
+      "Esta saca viene de un contenedor: su proveedor es el del contenedor.",
+    );
+  }
+  if (supplierId) {
+    await prisma.supplier.findUniqueOrThrow({ where: { id: supplierId } });
+  }
+  await prisma.sack.update({ where: { id: sackId }, data: { supplierId } });
+}
+
+/**
+ * Asigna un proveedor a TODAS las sacas sin contenedor que cumplan los filtros
+ * (no solo a la página visible). Las que vienen de un contenedor no se tocan.
+ * Devuelve cuántas se han actualizado.
+ */
+export async function setSuppliersForFilteredSacks(
+  filters: SackFilters,
+  supplierId: string,
+): Promise<number> {
+  await prisma.supplier.findUniqueOrThrow({ where: { id: supplierId } });
+  const result = await prisma.sack.updateMany({
+    where: { AND: [buildSackWhere(filters), { containerId: null }] },
+    data: { supplierId },
+  });
+  return result.count;
 }
 
 // ─── 4. Traslado de sacas entre zonas ───────────────────────────────────────

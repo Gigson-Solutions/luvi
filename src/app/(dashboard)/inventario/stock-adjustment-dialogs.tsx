@@ -73,13 +73,16 @@ export function PrintStockEntryLabelsButton({
 export function StockEntryDialog({
   materials,
   zones,
+  suppliers,
 }: {
   materials: Option[];
   zones: Option[];
+  suppliers: Option[];
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [materialId, setMaterialId] = useState("");
   const [zoneId, setZoneId] = useState("");
+  const [supplierId, setSupplierId] = useState("");
   const [numSacks, setNumSacks] = useState("");
   const [weightPerSack, setWeightPerSack] = useState("");
   const [date, setDate] = useState(today);
@@ -112,6 +115,7 @@ export function StockEntryDialog({
   function reset(): void {
     setMaterialId("");
     setZoneId("");
+    setSupplierId("");
     setNumSacks("");
     setWeightPerSack("");
     setDate(today());
@@ -202,6 +206,22 @@ export function StockEntryDialog({
                 {zones.map((z) => (
                   <option key={z.id} value={z.id}>
                     {z.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="sa-in-supplier">Proveedor (opcional)</Label>
+              <Select
+                id="sa-in-supplier"
+                name="supplierId"
+                value={supplierId}
+                onChange={(e) => touch(setSupplierId)(e.target.value)}
+              >
+                <option value="">Sin indicar</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </Select>
