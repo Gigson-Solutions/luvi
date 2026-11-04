@@ -15,8 +15,10 @@ import {
   getShipmentFormData,
   getAvailableOutputLots,
   getLooseOutputSacks,
+  listStockMaterialsForLots,
   type AvailableOutputLot,
 } from "@/lib/services/shipment.service";
+import { listZoneOptions } from "@/lib/services/stock-adjustment.service";
 import {
   NewShipmentDialog,
   ExpediteShipmentButton,
@@ -72,14 +74,23 @@ export default async function ExpedicionesPage({
   const filter = isShipmentStatus(status) ? status : undefined;
   const activeTab: Tab = tab === "envios" ? "envios" : "lotes";
 
-  const [shipments, stats, formData, outputLots, looseSacks] =
-    await Promise.all([
-      listShipments(filter),
-      getShipmentStats(),
-      getShipmentFormData(),
-      getAvailableOutputLots(),
-      getLooseOutputSacks(),
-    ]);
+  const [
+    shipments,
+    stats,
+    formData,
+    outputLots,
+    looseSacks,
+    stockMaterials,
+    zones,
+  ] = await Promise.all([
+    listShipments(filter),
+    getShipmentStats(),
+    getShipmentFormData(),
+    getAvailableOutputLots(),
+    getLooseOutputSacks(),
+    listStockMaterialsForLots(),
+    listZoneOptions(),
+  ]);
 
   // Lotes sin asignar (abiertos o cerrados) candidatos a asignar a un envío.
   // Se permite enviar un lote parcial (<22): al expedir se cierra (isOpen=false).
@@ -151,7 +162,11 @@ export default async function ExpedicionesPage({
       </div>
 
       {activeTab === "lotes" ? (
-        <OutputLotsPanel lots={outputLots} loose={looseSacks} />
+        <OutputLotsPanel
+          lots={outputLots}
+          loose={looseSacks}
+          stock={{ materials: stockMaterials, zones }}
+        />
       ) : (
         <>
           {/* Filtro por estado */}

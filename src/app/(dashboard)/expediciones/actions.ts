@@ -15,6 +15,8 @@ import {
   createManualLot,
   addSacksToLot,
   removeSackFromLot,
+  listStockSacksForLot,
+  type StockSackForLot,
 } from "@/lib/services/shipment.service";
 import type { CurrentUser } from "@/lib/rbac";
 
@@ -261,6 +263,9 @@ export async function createManualLotAction(
       payload: { lotNumber: lot.lotNumber, sackCount: lot.sackCount },
     });
     revalidatePath("/expediciones");
+    // Si había sacas de almacén, dejan de contar como stock.
+    revalidatePath("/almacen");
+    revalidatePath("/inventario");
     return {
       ok: true,
       message: `Lote ${lot.lotNumber} creado (${lot.sackCount} sacas)`,
@@ -317,9 +322,16 @@ export async function addToLotAction(
   }
 }
 
-const removeSackSchema = z.object({ sackId: z.string().min(1) });
+const removeSackSchema = z.object({
+  sackId: z.string().min(1),
+  // Obligatoria si la saca estaba en almacén: a qué zona vuelve.
+  zoneId: z.string().optional(),
+});
 
-/** GL-39 — saca una saca de un lote no asignado (vuelve a estar suelta). */
+/**
+ * GL-39 — saca una saca de un lote no asignado (vuelve a estar suelta). Si la
+ * saca venía de almacén, vuelve a almacén, a la zona indicada.
+ */
 export async function removeSackFromLotAction(
   _prev: ActionState,
   formData: FormData,
@@ -328,15 +340,49 @@ export async function removeSackFromLotAction(
     const actor = await requireSession();
     const parsed = removeSackSchema.safeParse(Object.fromEntries(formData));
     if (!parsed.success) return { ok: false, error: "Saca inválida" };
-    await removeSackFromLot(parsed.data.sackId);
+    await removeSackFromLot(
+      parsed.data.sackId,
+      parsed.data.zoneId || undefined,
+    );
     await logAudit({
       userId: actor.id,
       action: "REMOVE_SACK_FROM_LOT",
       entity: "Sack",
       entityId: parsed.data.sackId,
+      payload: { zoneId: parsed.data.zoneId || null },
     });
+    revalidatePath("/almacen");
+    revalidatePath("/inventario");
     revalidatePath("/expediciones");
     return { ok: true, message: "Saca sacada del lote" };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : INITIAL_ERROR };
+  }
+}
+
+/**
+ * Sacas EN_ALMACEN de un material (y, opcionalmente, de una zona o que
+ * contengan un texto en el QR) para elegir cuáles meter en un lote manual.
+ */
+export async function listStockSacksForLotAction(input: {
+  materialId: string;
+  zoneId?: string;
+  search?: string;
+}): Promise<{
+  ok: boolean;
+  items?: StockSackForLot[];
+  total?: number;
+  error?: string;
+}> {
+  try {
+    await requireSession();
+    if (!input.materialId) return { ok: false, error: "Elige un material" };
+    const res = await listStockSacksForLot({
+      materialId: input.materialId,
+      zoneId: input.zoneId || undefined,
+      search: input.search,
+    });
+    return { ok: true, ...res };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : INITIAL_ERROR };
   }

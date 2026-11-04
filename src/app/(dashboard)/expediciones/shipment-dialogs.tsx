@@ -632,6 +632,23 @@ export function AddToLotDialog({
 // ─── GL-39: sacar una saca de un lote no asignado ──────────────────────────────
 export function RemoveSackButton({
   sackId,
+  fromStock = false,
+  zones = [],
+}: {
+  sackId: string;
+  /** La saca estaba en almacén: al sacarla hay que indicar a qué zona vuelve. */
+  fromStock?: boolean;
+  zones?: { id: string; name: string }[];
+}): React.JSX.Element {
+  return fromStock ? (
+    <RemoveStockSackDialog sackId={sackId} zones={zones} />
+  ) : (
+    <RemoveLooseSackButton sackId={sackId} />
+  );
+}
+
+function RemoveLooseSackButton({
+  sackId,
 }: {
   sackId: string;
 }): React.JSX.Element {
@@ -651,6 +668,76 @@ export function RemoveSackButton({
         {pending ? "…" : "Sacar"}
       </button>
     </form>
+  );
+}
+
+/** Saca que venía de almacén: al sacarla del lote vuelve a la zona elegida. */
+function RemoveStockSackDialog({
+  sackId,
+  zones,
+}: {
+  sackId: string;
+  zones: { id: string; name: string }[];
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await removeSackFromLotAction(prev, formData);
+      if (result.ok) setOpen(false);
+      return result;
+    },
+    INITIAL,
+  );
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="text-xs text-[var(--color-muted)] hover:text-red-600"
+        >
+          Sacar
+        </button>
+      </DialogTrigger>
+      <DialogContent
+        title="Sacar la saca del lote"
+        description="Esta saca estaba en almacén. Indica a qué almacén (zona) vuelve."
+      >
+        <form action={action} className="space-y-4">
+          <input type="hidden" name="sackId" value={sackId} />
+          <div>
+            <Label htmlFor={`remove-zone-${sackId}`}>
+              Almacén · zona de destino
+            </Label>
+            <Select
+              id={`remove-zone-${sackId}`}
+              name="zoneId"
+              required
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Selecciona…
+              </option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancelar
+              </Button>
+            </DialogClose>
+            <SubmitButton pendingText="Devolviendo…">
+              Sacar y devolver a almacén
+            </SubmitButton>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

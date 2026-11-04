@@ -19,6 +19,21 @@ import {
   type LooseSackOption,
   type OpenLotOption,
 } from "./shipment-dialogs";
+import {
+  CreateLotFromStockDialog,
+  type StockMaterialOption,
+} from "./stock-lot-dialog";
+
+interface ZoneOption {
+  id: string;
+  name: string;
+}
+
+/** Datos para meter sacas de almacén en un lote y para devolverlas a almacén. */
+export interface StockLotData {
+  materials: StockMaterialOption[];
+  zones: ZoneOption[];
+}
 
 /** Lotes abiertos (con hueco) de un conjunto, para «Añadir a lote». */
 function openLotOptions(lots: AvailableOutputLot[]): OpenLotOption[] {
@@ -119,7 +134,13 @@ function LotStateBadge({
 }
 
 /** Un lote de salida como fila colapsable (native <details>, sin JS). */
-function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
+function LotRow({
+  lot,
+  zones,
+}: {
+  lot: AvailableOutputLot;
+  zones: ZoneOption[];
+}): React.JSX.Element {
   const assigned = lot.state === "asignado";
   const borderClass = assigned
     ? "border-green-200 bg-green-50/40"
@@ -177,7 +198,11 @@ function LotRow({ lot }: { lot: AvailableOutputLot }): React.JSX.Element {
                 <TD className="text-right">{formatKg(s.weight)}</TD>
                 {!assigned && (
                   <TD className="text-right">
-                    <RemoveSackButton sackId={s.id} />
+                    <RemoveSackButton
+                      sackId={s.id}
+                      fromStock={s.fromStock}
+                      zones={zones}
+                    />
                   </TD>
                 )}
               </TR>
@@ -194,12 +219,16 @@ function LooseSacksSection({
   type,
   sacks,
   openLots,
+  stock,
 }: {
   type: LotType;
   sacks: LooseSackOption[];
   openLots: OpenLotOption[];
+  stock: StockLotData;
 }): React.JSX.Element | null {
-  if (sacks.length === 0) return null;
+  const hasStock = stock.materials.length > 0;
+  // Sin sacas sueltas ni sacas en almacén no hay nada que agrupar.
+  if (sacks.length === 0 && !hasStock) return null;
   const totalKg = sacks.reduce((sum, s) => sum + s.weight, 0);
   return (
     <div className="rounded-xl border border-dashed border-[var(--color-border)] p-3 mb-3">
@@ -207,41 +236,57 @@ function LooseSacksSection({
         <p className="text-sm font-medium text-[var(--color-foreground)]">
           Sacas sueltas{" "}
           <span className="text-[var(--color-muted)] font-normal">
-            {sacks.length} · {formatKg(totalKg)}
+            {sacks.length === 0
+              ? "ninguna"
+              : `${sacks.length} · ${formatKg(totalKg)}`}
           </span>
         </p>
-        <div className="flex items-center gap-1.5">
-          <AddToLotDialog
-            type={type}
-            sacks={sacks}
-            openLots={openLots}
-            maxSacks={MAX_SACKS_PER_LOT}
-          />
-          <CreateManualLotDialog
-            type={type}
-            sacks={sacks}
-            maxSacks={MAX_SACKS_PER_LOT}
-          />
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {sacks.length > 0 && (
+            <>
+              <AddToLotDialog
+                type={type}
+                sacks={sacks}
+                openLots={openLots}
+                maxSacks={MAX_SACKS_PER_LOT}
+              />
+              <CreateManualLotDialog
+                type={type}
+                sacks={sacks}
+                maxSacks={MAX_SACKS_PER_LOT}
+              />
+            </>
+          )}
+          {hasStock && (
+            <CreateLotFromStockDialog
+              type={type}
+              materials={stock.materials}
+              zones={stock.zones}
+              maxSacks={MAX_SACKS_PER_LOT}
+            />
+          )}
         </div>
       </div>
-      <Table>
-        <THead>
-          <TR>
-            <TH>QR</TH>
-            <TH>Material</TH>
-            <TH className="text-right">Peso</TH>
-          </TR>
-        </THead>
-        <TBody>
-          {sacks.map((s) => (
-            <TR key={s.id}>
-              <TD className="font-mono text-xs">{s.qrCode}</TD>
-              <TD>{s.materialName}</TD>
-              <TD className="text-right">{formatKg(s.weight)}</TD>
+      {sacks.length > 0 && (
+        <Table>
+          <THead>
+            <TR>
+              <TH>QR</TH>
+              <TH>Material</TH>
+              <TH className="text-right">Peso</TH>
             </TR>
-          ))}
-        </TBody>
-      </Table>
+          </THead>
+          <TBody>
+            {sacks.map((s) => (
+              <TR key={s.id}>
+                <TD className="font-mono text-xs">{s.qrCode}</TD>
+                <TD>{s.materialName}</TD>
+                <TD className="text-right">{formatKg(s.weight)}</TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
     </div>
   );
 }
@@ -271,12 +316,14 @@ function TypeSection({
   type,
   loose,
   lots,
+  stock,
 }: {
   icon: React.ElementType;
   title: string;
   type: LotType;
   loose: LooseSackOption[];
   lots: AvailableOutputLot[];
+  stock: StockLotData;
 }): React.JSX.Element {
   return (
     <section>
@@ -285,6 +332,7 @@ function TypeSection({
         type={type}
         sacks={loose}
         openLots={openLotOptions(lots)}
+        stock={stock}
       />
       {lots.length === 0 ? (
         loose.length === 0 ? (
@@ -295,7 +343,7 @@ function TypeSection({
       ) : (
         <div className="space-y-2">
           {lots.map((lot) => (
-            <LotRow key={lot.id} lot={lot} />
+            <LotRow key={lot.id} lot={lot} zones={stock.zones} />
           ))}
         </div>
       )}
@@ -307,9 +355,11 @@ function TypeSection({
 export function OutputLotsPanel({
   lots,
   loose,
+  stock,
 }: {
   lots: AvailableOutputLots;
   loose: LooseOutputSacks;
+  stock: StockLotData;
 }): React.JSX.Element {
   const { productoTerminado, subproducto, rechazo } = lots;
   const openLot = productoTerminado.find(
@@ -332,6 +382,7 @@ export function OutputLotsPanel({
           type={LotType.PRODUCTO_TERMINADO}
           sacks={loose.productoTerminado}
           openLots={openLotOptions(productoTerminado)}
+          stock={stock}
         />
 
         {productoTerminado.length === 0 ? (
@@ -345,7 +396,7 @@ export function OutputLotsPanel({
         ) : (
           <div className="space-y-2">
             {productoTerminado.map((lot) => (
-              <LotRow key={lot.id} lot={lot} />
+              <LotRow key={lot.id} lot={lot} zones={stock.zones} />
             ))}
           </div>
         )}
@@ -357,6 +408,7 @@ export function OutputLotsPanel({
         type={LotType.SUBPRODUCTO}
         loose={loose.subproducto}
         lots={subproducto}
+        stock={stock}
       />
 
       <TypeSection
@@ -365,6 +417,7 @@ export function OutputLotsPanel({
         type={LotType.RECHAZO}
         loose={loose.rechazo}
         lots={rechazo}
+        stock={stock}
       />
     </div>
   );

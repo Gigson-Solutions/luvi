@@ -155,6 +155,8 @@ export interface AvailableLotSack {
   qrCode: string;
   materialName: string;
   weight: number;
+  /** Estaba en almacén y se metió a mano en el lote: al sacarla vuelve a almacén. */
+  fromStock: boolean;
 }
 
 /** GL-36 — desglose del coste total de un lote de salida. */
@@ -309,6 +311,7 @@ async function availableLotsByType(
           id: true,
           qrCode: true,
           weight: true,
+          fromStock: true,
           ...lotCostSackSelect,
         },
         orderBy: { createdAt: "asc" },
@@ -345,6 +348,7 @@ async function availableLotsByType(
         qrCode: s.qrCode,
         materialName: s.material.name,
         weight: s.weight,
+        fromStock: s.fromStock,
       })),
     };
   });
@@ -423,9 +427,11 @@ export async function getLooseOutputSacks(): Promise<LooseOutputSacks> {
 }
 
 /**
- * GL-41 — crea un lote de salida MANUAL agrupando sacas sueltas del mismo tipo
- * (máximo 22). Todas las sacas deben ser del tipo indicado, estar sueltas
- * (sin lote) y compartir material. Devuelve el lote creado.
+ * GL-41 — crea un lote de salida MANUAL agrupando sacas (máximo 22). Cada saca
+ * debe ser una saca suelta del tipo del lote o una saca que esté en almacén
+ * (EN_ALMACEN, p. ej. stock o altas manuales), estar sin lote y compartir
+ * material con las demás. Las de almacén pasan al estado del lote y se marcan
+ * `fromStock` para poder devolverlas a almacén. Devuelve el lote creado.
  */
 export async function createManualLot(
   type: LotType,
@@ -449,8 +455,14 @@ export async function createManualLot(
     if (sacks.length !== sackIds.length) {
       throw new Error("Alguna saca no existe.");
     }
-    if (sacks.some((s) => s.status !== sackStatus)) {
-      throw new Error("Alguna saca no es del tipo del lote.");
+    if (
+      sacks.some(
+        (s) => s.status !== sackStatus && s.status !== SackStatus.EN_ALMACEN,
+      )
+    ) {
+      throw new Error(
+        "Alguna saca no es del tipo del lote ni está en almacén.",
+      );
     }
     if (sacks.some((s) => s.lotId !== null)) {
       throw new Error("Alguna saca ya pertenece a un lote.");
@@ -477,11 +489,18 @@ export async function createManualLot(
       },
     });
     // Lote recién creado: las sacas se numeran 1..N en el orden recibido.
+    const statusById = new Map(sacks.map((s) => [s.id, s.status]));
     let seq = 1;
     for (const sackId of sackIds) {
       await tx.sack.update({
         where: { id: sackId },
-        data: { lotId: lot.id, lotSequence: seq++ },
+        data: {
+          lotId: lot.id,
+          lotSequence: seq++,
+          ...(statusById.get(sackId) === SackStatus.EN_ALMACEN
+            ? { status: sackStatus, fromStock: true }
+            : {}),
+        },
       });
     }
     return { id: lot.id, lotNumber: lot.lotNumber, sackCount: sackIds.length };
@@ -513,8 +532,16 @@ export async function addSacksToLot(
     });
     if (sacks.length !== sackIds.length)
       throw new Error("Alguna saca no existe.");
-    if (sacks.some((s) => s.status !== sackStatus || s.lotId !== null)) {
-      throw new Error("Alguna saca no está suelta o no es del tipo del lote.");
+    if (
+      sacks.some(
+        (s) =>
+          s.lotId !== null ||
+          (s.status !== sackStatus && s.status !== SackStatus.EN_ALMACEN),
+      )
+    ) {
+      throw new Error(
+        "Alguna saca no está suelta, ni en almacén, o no es del tipo del lote.",
+      );
     }
     if (sacks.some((s) => s.materialId !== lot.materialId)) {
       throw new Error("Las sacas deben ser del mismo material que el lote.");
@@ -527,11 +554,18 @@ export async function addSacksToLot(
     }
     // Numeramos una a una: cada saca recibe su correlativo dentro del lote, así
     // que no sirve un updateMany con un valor único para todas.
+    const statusById = new Map(sacks.map((s) => [s.id, s.status]));
     let seq = await nextLotSequence(tx, lot.id);
     for (const sackId of sackIds) {
       await tx.sack.update({
         where: { id: sackId },
-        data: { lotId: lot.id, lotSequence: seq++ },
+        data: {
+          lotId: lot.id,
+          lotSequence: seq++,
+          ...(statusById.get(sackId) === SackStatus.EN_ALMACEN
+            ? { status: sackStatus, fromStock: true }
+            : {}),
+        },
       });
     }
     if (nextCount >= MAX_SACKS_PER_LOT) {
@@ -548,12 +582,19 @@ export async function addSacksToLot(
  * GL-39 — saca una saca de un lote que AÚN no está asignado a un envío. La saca
  * queda suelta (sin lote) y podrá añadirse a otro lote más adelante. Si el lote
  * se queda vacío, se elimina.
+ *
+ * Si la saca estaba en almacén antes de entrar al lote (`fromStock`), vuelve a
+ * almacén y hay que indicar la zona (`zoneId`) a la que va; se valida su
+ * capacidad.
  */
-export async function removeSackFromLot(sackId: string): Promise<void> {
+export async function removeSackFromLot(
+  sackId: string,
+  zoneId?: string,
+): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const sack = await tx.sack.findUniqueOrThrow({
       where: { id: sackId },
-      select: { id: true, lotId: true },
+      select: { id: true, lotId: true, fromStock: true },
     });
     if (!sack.lotId) throw new Error("La saca no pertenece a ningún lote.");
 
@@ -567,9 +608,31 @@ export async function removeSackFromLot(sackId: string): Promise<void> {
     }
 
     const lotId = sack.lotId;
+    let backToStock: Prisma.SackUncheckedUpdateInput = {};
+    if (sack.fromStock) {
+      if (!zoneId) {
+        throw new Error(
+          "Esta saca estaba en almacén: indica a qué almacén (zona) vuelve.",
+        );
+      }
+      const zone = await tx.zone.findUniqueOrThrow({ where: { id: zoneId } });
+      const occupied = await tx.sack.count({
+        where: { zoneId, status: SackStatus.EN_ALMACEN },
+      });
+      if (occupied >= zone.maxCapacity) {
+        throw new Error(
+          `La zona destino (${zone.name}) está a su capacidad máxima (${occupied}/${zone.maxCapacity}).`,
+        );
+      }
+      backToStock = {
+        status: SackStatus.EN_ALMACEN,
+        fromStock: false,
+        zoneId,
+      };
+    }
     await tx.sack.update({
       where: { id: sackId },
-      data: { lotId: null, lotSequence: null },
+      data: { lotId: null, lotSequence: null, ...backToStock },
     });
 
     // Renumeramos las que quedan para que el lote conserve un 1..N contiguo:
@@ -961,5 +1024,88 @@ export async function getPackingList(
       shipment.expeditedAt ?? shipment.scheduledAt ?? shipment.createdAt,
     rows,
     totalWeightKg: rows.reduce((sum, r) => sum + r.weightKg, 0),
+  };
+}
+
+// ─── Sacas de almacén que se pueden meter en un lote de salida ─────────────────
+
+export interface StockSackForLot {
+  id: string;
+  qrCode: string;
+  materialId: string;
+  materialName: string;
+  weight: number;
+  /** «Planta · Zona» donde está, o null si no tiene ubicación. */
+  zoneLabel: string | null;
+}
+
+/** Materiales con sacas en almacén (para elegir de cuál sacar un lote). */
+export async function listStockMaterialsForLots(): Promise<
+  { id: string; name: string; count: number }[]
+> {
+  const grouped = await prisma.sack.groupBy({
+    by: ["materialId"],
+    where: { status: SackStatus.EN_ALMACEN, lotId: null },
+    _count: { _all: true },
+  });
+  if (grouped.length === 0) return [];
+  const materials = await prisma.material.findMany({
+    where: { id: { in: grouped.map((g) => g.materialId) } },
+    select: { id: true, name: true },
+  });
+  const names = new Map(materials.map((m) => [m.id, m.name]));
+  return grouped
+    .map((g) => ({
+      id: g.materialId,
+      name: names.get(g.materialId) ?? g.materialId,
+      count: g._count._all,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+/**
+ * Sacas EN_ALMACEN (sin lote) de un material, para agruparlas en un lote. Un
+ * lote lleva un solo material, de ahí que el material sea obligatorio. Devuelve
+ * como mucho `limit` sacas (las más antiguas primero) y el total que hay.
+ */
+export async function listStockSacksForLot(
+  filters: { materialId: string; zoneId?: string; search?: string },
+  limit = 300,
+): Promise<{ items: StockSackForLot[]; total: number }> {
+  const where: Prisma.SackWhereInput = {
+    status: SackStatus.EN_ALMACEN,
+    lotId: null,
+    materialId: filters.materialId,
+    ...(filters.zoneId ? { zoneId: filters.zoneId } : {}),
+    ...(filters.search?.trim()
+      ? { qrCode: { contains: filters.search.trim(), mode: "insensitive" } }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.sack.findMany({
+      where,
+      select: {
+        id: true,
+        qrCode: true,
+        weight: true,
+        materialId: true,
+        material: { select: { name: true } },
+        zone: { select: { name: true, warehouse: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: "asc" },
+      take: limit,
+    }),
+    prisma.sack.count({ where }),
+  ]);
+  return {
+    total,
+    items: rows.map((r) => ({
+      id: r.id,
+      qrCode: r.qrCode,
+      materialId: r.materialId,
+      materialName: r.material.name,
+      weight: r.weight,
+      zoneLabel: r.zone ? `${r.zone.warehouse.name} · ${r.zone.name}` : null,
+    })),
   };
 }
