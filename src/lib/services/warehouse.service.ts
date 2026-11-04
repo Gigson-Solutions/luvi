@@ -89,7 +89,8 @@ export type SackWithRefs = Prisma.SackGetPayload<{
   include: {
     material: { include: { category: true } };
     zone: { include: { warehouse: true } };
-    container: true;
+    container: { include: { supplier: true } };
+    supplier: true;
     lot: true;
   };
 }>;
@@ -327,7 +328,8 @@ export function listSacks(
     include: {
       material: { include: { category: true } },
       zone: { include: { warehouse: true } },
-      container: true,
+      container: { include: { supplier: true } },
+      supplier: true,
       lot: true,
     },
     orderBy: { createdAt: "desc" },
@@ -361,7 +363,8 @@ export async function listSacksPage(
       include: {
         material: { include: { category: true } },
         zone: { include: { warehouse: true } },
-        container: true,
+        container: { include: { supplier: true } },
+        supplier: true,
         lot: true,
       },
       orderBy: { createdAt: "desc" },
@@ -508,7 +511,8 @@ export async function moveSack(input: MoveSackInput): Promise<SackWithRefs> {
     include: {
       material: { include: { category: true } },
       zone: { include: { warehouse: true } },
-      container: true,
+      container: { include: { supplier: true } },
+      supplier: true,
       lot: true,
     },
   });

@@ -65,6 +65,72 @@ export function SackSupplierForm({
   );
 }
 
+// ─── Fila del listado: asignar o cambiar el proveedor de UNA saca ──────────────
+export function AssignSackSupplierDialog({
+  sackId,
+  qrCode,
+  currentSupplierId,
+  suppliers,
+}: {
+  sackId: string;
+  qrCode: string;
+  currentSupplierId: string | null;
+  suppliers: SupplierOption[];
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [state, action] = useActionState(
+    async (prev: ActionState, formData: FormData) => {
+      const result = await setSackSupplierAction(prev, formData);
+      if (result.ok) setOpen(false);
+      return result;
+    },
+    INITIAL,
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Building2 className="w-3.5 h-3.5" />{" "}
+          {currentSupplierId ? "Cambiar proveedor" : "Asignar proveedor"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title={`Proveedor de la saca · ${qrCode}`}
+        description="Esta saca no viene de un contenedor, así que su proveedor se indica aquí."
+      >
+        <form action={action} className="space-y-4">
+          <input type="hidden" name="sackId" value={sackId} />
+          <div>
+            <Label htmlFor={`supplier-${sackId}`}>Proveedor</Label>
+            <Select
+              id={`supplier-${sackId}`}
+              name="supplierId"
+              defaultValue={currentSupplierId ?? ""}
+            >
+              <option value="">Sin proveedor</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancelar
+              </Button>
+            </DialogClose>
+            <SubmitButton pendingText="Guardando…">Guardar</SubmitButton>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Listado: asignar proveedor a todas las sacas filtradas (sin contenedor) ───
 export function AssignSupplierBulkDialog({
   count,
