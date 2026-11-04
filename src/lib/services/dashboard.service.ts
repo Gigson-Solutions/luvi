@@ -121,6 +121,7 @@ export async function getProductionDashboard(
             SackStatus.RECHAZO,
           ],
         },
+        fromStock: false,
         createdAt: period,
       },
       _count: { _all: true },

@@ -427,6 +427,11 @@ model Sack {
   // Null mientras la saca no pertenece a ningún lote.
   lotSequence Int?
 
+  // true si la saca estaba en almacén (stock) y se metió a mano en un lote de
+  // salida de Expediciones. No es producción: se excluye de las estadísticas de
+  // producción, y al sacarla del lote vuelve a almacén (a la zona que se indique).
+  fromStock Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

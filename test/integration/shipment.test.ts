@@ -11,7 +11,16 @@ import {
   getShipmentStats,
   getShipmentFormData,
   getPackingList,
+  getAvailableOutputLots,
+  createManualLot,
+  removeSackFromLot,
+  listStockMaterialsForLots,
+  listStockSacksForLot,
 } from "@/lib/services/shipment.service";
+import {
+  getOutputCounts,
+  getProductionStats,
+} from "@/lib/services/production.service";
 
 let base: Baseline;
 
@@ -388,5 +397,178 @@ describe("Expediciones — packing list", () => {
 
   it("devuelve null si el envío no existe", async () => {
     expect(await getPackingList("no-existe")).toBeNull();
+  });
+});
+
+describe("Expediciones — lotes con sacas de almacén", () => {
+  async function stockSacks(
+    n: number,
+    zoneId = base.zoneAId,
+    materialId = base.materialId,
+  ) {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = await prisma.sack.create({
+        data: {
+          qrCode: `SACK-${randomUUID().slice(0, 8).toUpperCase()}`,
+          status: SackStatus.EN_ALMACEN,
+          weight: 500,
+          materialId,
+          zoneId,
+        },
+      });
+      ids.push(s.id);
+    }
+    return ids;
+  }
+
+  it("crea un lote con sacas EN_ALMACEN: pasan al estado del lote y quedan marcadas", async () => {
+    const ids = await stockSacks(3);
+    const lot = await createManualLot(LotType.SUBPRODUCTO, ids);
+    expect(lot.sackCount).toBe(3);
+
+    const sacks = await prisma.sack.findMany({ where: { id: { in: ids } } });
+    expect(sacks.every((s) => s.status === SackStatus.SUBPRODUCTO)).toBe(true);
+    expect(sacks.every((s) => s.fromStock)).toBe(true);
+    expect(sacks.map((s) => s.lotSequence).sort()).toEqual([1, 2, 3]);
+
+    // Y aparecen en Expediciones como lote disponible, con la marca.
+    const lots = await getAvailableOutputLots();
+    const found = lots.subproducto.find((l) => l.id === lot.id);
+    expect(found?.sackCount).toBe(3);
+    expect(found?.sacks.every((s) => s.fromStock)).toBe(true);
+  });
+
+  it("también admite mezclar sacas sueltas del tipo con sacas de almacén", async () => {
+    const [stock] = await stockSacks(1);
+    const loose = await prisma.sack.create({
+      data: {
+        qrCode: "SACK-LOOSE-1",
+        status: SackStatus.RECHAZO,
+        weight: 100,
+        materialId: base.materialId,
+      },
+    });
+    const lot = await createManualLot(LotType.RECHAZO, [loose.id, stock]);
+    expect(lot.sackCount).toBe(2);
+    const reloaded = await prisma.sack.findMany({
+      where: { id: { in: [loose.id, stock] } },
+      orderBy: { qrCode: "asc" },
+    });
+    // Solo la que venía de almacén queda marcada.
+    expect(reloaded.filter((s) => s.fromStock)).toHaveLength(1);
+  });
+
+  it("rechaza sacas de otro material, en producción o ya en un lote", async () => {
+    const otro = await prisma.material.create({
+      data: { name: "Otro", code: "OTRO-L", type: "PELLET_PE" },
+    });
+    const [a] = await stockSacks(1);
+    const [b] = await stockSacks(1, base.zoneAId, otro.id);
+    await expect(createManualLot(LotType.RECHAZO, [a, b])).rejects.toThrow(
+      /mismo material/,
+    );
+
+    const enProduccion = await prisma.sack.create({
+      data: {
+        qrCode: "SACK-PROD-1",
+        status: SackStatus.EN_PRODUCCION,
+        weight: 100,
+        materialId: base.materialId,
+      },
+    });
+    await expect(
+      createManualLot(LotType.RECHAZO, [enProduccion.id]),
+    ).rejects.toThrow(/almacén/);
+
+    await createManualLot(LotType.RECHAZO, [a]);
+    await expect(createManualLot(LotType.RECHAZO, [a])).rejects.toThrow();
+  });
+
+  it("no cuenta como producción y se puede expedir en un envío", async () => {
+    const ids = await stockSacks(2);
+    const lot = await createManualLot(LotType.PRODUCTO_TERMINADO, ids);
+
+    const counts = await getOutputCounts();
+    expect(counts.PRODUCTO_TERMINADO).toBe(0);
+    expect((await getProductionStats()).ptToday).toBe(0);
+
+    const shipment = await createShipment({
+      buyerId: base.buyerId,
+      lots: [{ lotId: lot.id, weightKg: 1000 }],
+    });
+    await confirmShipment(shipment.id);
+    await expediteShipment(shipment.id);
+    const sacks = await prisma.sack.findMany({ where: { id: { in: ids } } });
+    expect(sacks.every((s) => s.status === SackStatus.EN_TRANSITO)).toBe(true);
+  });
+
+  it("al sacar del lote una saca de almacén hay que indicar la zona y vuelve a almacén", async () => {
+    const [id] = await stockSacks(2).then((a) => [a[0], a[1]]);
+    const lot = await createManualLot(LotType.SUBPRODUCTO, [id]);
+
+    await expect(removeSackFromLot(id)).rejects.toThrow(/indica a qué/);
+
+    await removeSackFromLot(id, base.zoneCId);
+    const back = await prisma.sack.findUniqueOrThrow({ where: { id } });
+    expect(back.status).toBe(SackStatus.EN_ALMACEN);
+    expect(back.zoneId).toBe(base.zoneCId);
+    expect(back.lotId).toBeNull();
+    expect(back.fromStock).toBe(false);
+    // El lote se quedó sin sacas y se eliminó.
+    expect(
+      await prisma.productionLot.findUnique({ where: { id: lot.id } }),
+    ).toBeNull();
+  });
+
+  it("no devuelve la saca a una zona llena", async () => {
+    const [id] = await stockSacks(1);
+    await createManualLot(LotType.SUBPRODUCTO, [id]);
+    await prisma.zone.update({
+      where: { id: base.zoneCId },
+      data: { maxCapacity: 1 },
+    });
+    await stockSacks(1, base.zoneCId);
+    await expect(removeSackFromLot(id, base.zoneCId)).rejects.toThrow(
+      /capacidad máxima/,
+    );
+    // Sigue en el lote.
+    const still = await prisma.sack.findUniqueOrThrow({ where: { id } });
+    expect(still.status).toBe(SackStatus.SUBPRODUCTO);
+  });
+
+  it("una saca suelta de producción sale del lote como siempre, sin pedir zona", async () => {
+    const pt = await createPtLot(base.materialId, 2);
+    await removeSackFromLot(pt.sackIds[0]);
+    const s = await prisma.sack.findUniqueOrThrow({
+      where: { id: pt.sackIds[0] },
+    });
+    expect(s.status).toBe(SackStatus.PRODUCTO_TERMINADO);
+    expect(s.lotId).toBeNull();
+  });
+
+  it("lista los materiales con sacas en almacén y sus sacas filtradas", async () => {
+    const otro = await prisma.material.create({
+      data: { name: "Otro", code: "OTRO-S", type: "PELLET_PE" },
+    });
+    await stockSacks(3);
+    await stockSacks(2, base.zoneCId, otro.id);
+
+    const materials = await listStockMaterialsForLots();
+    expect(materials.find((m) => m.id === base.materialId)?.count).toBe(3);
+    expect(materials.find((m) => m.id === otro.id)?.count).toBe(2);
+
+    const all = await listStockSacksForLot({ materialId: base.materialId });
+    expect(all.total).toBe(3);
+    const inC = await listStockSacksForLot({
+      materialId: otro.id,
+      zoneId: base.zoneCId,
+    });
+    expect(inC.items).toHaveLength(2);
+    const none = await listStockSacksForLot({
+      materialId: base.materialId,
+      zoneId: base.zoneCId,
+    });
+    expect(none.total).toBe(0);
   });
 });

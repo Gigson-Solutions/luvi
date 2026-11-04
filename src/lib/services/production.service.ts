@@ -182,6 +182,8 @@ export function listTodayOutput(): Promise<OutputSack[]> {
   return prisma.sack.findMany({
     where: {
       status: { in: OUTPUT_STATUSES },
+      // Las sacas de almacén metidas a mano en un lote no son producción.
+      fromStock: false,
       createdAt: { gte: startOfToday() },
     },
     include: {
@@ -210,7 +212,7 @@ export async function listOutputSacksByType(
     ? { id: { in: await outputSackIdsInPeriod(status, period) } }
     : {};
   return prisma.sack.findMany({
-    where: { status, ...idFilter },
+    where: { status, fromStock: false, ...idFilter },
     include: {
       material: true,
       lot: true,
@@ -233,13 +235,14 @@ export async function getOutputCounts(
     const rows = await prisma.$queryRaw<{ status: string; n: number }[]>`
       SELECT s.status::text AS status, COUNT(*)::int AS n FROM sacks s
       WHERE s.status::text IN (${Prisma.join(OUTPUT_STATUSES)})
+        AND s."fromStock" = false
         AND ${periodSql(Prisma.sql`s."createdAt"`, period)}
       GROUP BY 1`;
     for (const r of rows) byStatus.set(r.status, r.n);
   } else {
     const grouped = await prisma.sack.groupBy({
       by: ["status"],
-      where: { status: { in: OUTPUT_STATUSES } },
+      where: { status: { in: OUTPUT_STATUSES }, fromStock: false },
       _count: { _all: true },
     });
     for (const g of grouped) byStatus.set(g.status, g._count._all);
@@ -264,7 +267,9 @@ export interface ProductionStats {
 export async function getProductionStats(): Promise<ProductionStats> {
   const start = startOfToday();
   const countTodayByStatus = (status: SackStatus): Promise<number> =>
-    prisma.sack.count({ where: { status, createdAt: { gte: start } } });
+    prisma.sack.count({
+      where: { status, fromStock: false, createdAt: { gte: start } },
+    });
 
   const [inProduction, ptToday, subToday, rechazoToday, processedInputs] =
     await Promise.all([

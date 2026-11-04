@@ -260,6 +260,8 @@ export async function getProductionStats(
     prisma.sack.findMany({
       where: {
         status: { in: OUTPUT_STATUSES },
+        // No son producción: sacas de almacén metidas a mano en un lote.
+        fromStock: false,
         ...(filters.materialIds.length > 0
           ? { materialId: { in: filters.materialIds } }
           : {}),
