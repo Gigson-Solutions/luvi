@@ -164,6 +164,7 @@ model Supplier {
   notes     String?
 
   containers Container[]
+  sacks Sack[]
   purchaseOrders PurchaseOrder[]
   qualityRecords QualityRecord[]
 
@@ -386,11 +387,16 @@ model Sack {
   zoneId      String?
   containerId String?
   lotId       String?    // lote de producción (si es PT/Subproducto/Rechazo)
+  // Proveedor propio de la saca, para las que no vienen de un contenedor (altas
+  // manuales, stock inicial). Si tiene contenedor manda el de éste: ver
+  // `sackSupplier` en lib/sack-supplier.ts.
+  supplierId  String?
 
   material  Material  @relation(fields: [materialId], references: [id])
   zone      Zone?     @relation(fields: [zoneId], references: [id])
   container Container? @relation(fields: [containerId], references: [id])
   lot       ProductionLot? @relation(fields: [lotId], references: [id])
+  supplier  Supplier? @relation(fields: [supplierId], references: [id])
 
   transformationInputs  TransformationInput[]
   shipmentSacks         ShipmentSack[]
@@ -431,6 +437,7 @@ model Sack {
   @@index([lotId])
   @@index([stockEntryId])
   @@index([stockExitId])
+  @@index([supplierId])
   @@map("sacks")
 }
 

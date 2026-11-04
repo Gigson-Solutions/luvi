@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { SackStatus, ConsumableType } from "@prisma/client";
+import { sackSupplier, sackSupplierIn } from "@/lib/sack-supplier";
 
 /**
  * Servicio de Inventario (analítica) — agrega datos de Sack, ProductionLot,
@@ -9,7 +10,9 @@ import { SackStatus, ConsumableType } from "@prisma/client";
  * Concepto clave — "proveedor de material": la saca de entrada procede de un
  * Container, y el Container tiene un Supplier. Ese proveedor (container.supplier)
  * es el "proveedor de material" que se usa para desglosar producción, consumo,
- * ubicación y stock esperado. Las sacas de salida (PT/Sub/Rechazo) no tienen
+ * ubicación y stock esperado. Las sacas sin contenedor (altas manuales) pueden
+ * llevar el suyo propio (Sack.supplier); ver `sackSupplier`. Las sacas de
+ * salida (PT/Sub/Rechazo) no tienen
  * container; su proveedor de origen se aproxima trazando el lote hasta las sacas
  * de entrada que lo alimentaron (ver getLotOriginSuppliers).
  */
@@ -25,13 +28,41 @@ export interface InventoryFilters {
   supplierIds: string[];
   warehouseIds: string[];
   materialIds: string[];
+  /** Tipo de material (categoría). Se aplica a través de sus materiales. */
+  categoryIds: string[];
 }
 
 export const EMPTY_FILTERS: InventoryFilters = {
   supplierIds: [],
   warehouseIds: [],
   materialIds: [],
+  categoryIds: [],
 };
+
+/** Id que no existe: una lista de materiales vacía significaría "todos". */
+const NO_MATERIAL = "__sin-materiales__";
+
+/**
+ * Traduce el filtro de Tipo (categorías) a materiales: deja en `materialIds` solo
+ * los materiales de los tipos elegidos (y, si además se eligieron materiales, la
+ * intersección). Así el resto de cálculos solo tiene que mirar `materialIds`.
+ */
+async function resolveCategoryFilter(
+  filters: InventoryFilters,
+): Promise<InventoryFilters> {
+  if (filters.categoryIds.length === 0) return filters;
+  const inTypes = (
+    await prisma.material.findMany({
+      where: { categoryId: { in: filters.categoryIds } },
+      select: { id: true },
+    })
+  ).map((m) => m.id);
+  const ids =
+    filters.materialIds.length > 0
+      ? inTypes.filter((id) => filters.materialIds.includes(id))
+      : inTypes;
+  return { ...filters, materialIds: ids.length > 0 ? ids : [NO_MATERIAL] };
+}
 
 /** true si el valor pasa el criterio (criterio vacío = no filtra). */
 function passes(selected: string[], value: string | null | undefined): boolean {
@@ -43,11 +74,12 @@ export interface InventoryFilterOptions {
   suppliers: { id: string; name: string }[];
   warehouses: { id: string; name: string }[];
   materials: { id: string; name: string }[];
+  categories: { id: string; name: string }[];
 }
 
 /** Opciones disponibles en cada filtro del inventario. */
 export async function getInventoryFilterOptions(): Promise<InventoryFilterOptions> {
-  const [suppliers, warehouses, materials] = await Promise.all([
+  const [suppliers, warehouses, materials, categories] = await Promise.all([
     prisma.supplier.findMany({
       where: { active: true },
       select: { id: true, name: true },
@@ -63,8 +95,13 @@ export async function getInventoryFilterOptions(): Promise<InventoryFilterOption
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    prisma.materialCategory.findMany({
+      where: { active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
-  return { suppliers, warehouses, materials };
+  return { suppliers, warehouses, materials, categories };
 }
 
 const OUTPUT_STATUSES: SackStatus[] = [
@@ -183,6 +220,7 @@ async function getLotOriginSuppliers(): Promise<
           container: {
             select: { supplier: { select: { id: true, name: true } } },
           },
+          supplier: { select: { id: true, name: true } },
         },
       },
     },
@@ -194,8 +232,9 @@ async function getLotOriginSuppliers(): Promise<
   >();
   for (const i of inputs) {
     const lotId = i.transformation.lotId;
-    const provider = i.sack.container?.supplier.name ?? SIN_PROVEEDOR;
-    const supplierId = i.sack.container?.supplier.id ?? null;
+    const supplier = sackSupplier(i.sack);
+    const provider = supplier?.name ?? SIN_PROVEEDOR;
+    const supplierId = supplier?.id ?? null;
     const perLot = tally.get(lotId) ?? new Map();
     const cur = perLot.get(provider) ?? { id: supplierId, n: 0 };
     cur.n += 1;
@@ -213,8 +252,9 @@ async function getLotOriginSuppliers(): Promise<
 
 /** Tarjetas por tipo, desglose por proveedor de origen e histórico semanal. */
 export async function getProductionStats(
-  filters: InventoryFilters = EMPTY_FILTERS,
+  rawFilters: InventoryFilters = EMPTY_FILTERS,
 ): Promise<ProductionStats> {
+  const filters = await resolveCategoryFilter(rawFilters);
   const weeks = lastNWeeks(5);
   const [sacks, originByLot] = await Promise.all([
     prisma.sack.findMany({
@@ -324,8 +364,9 @@ export interface ConsumptionStats {
  * desglosadas por proveedor de material + histórico semanal por enteredAt.
  */
 export async function getConsumptionStats(
-  filters: InventoryFilters = EMPTY_FILTERS,
+  rawFilters: InventoryFilters = EMPTY_FILTERS,
 ): Promise<ConsumptionStats> {
+  const filters = await resolveCategoryFilter(rawFilters);
   const weeks = lastNWeeks(5);
   const inputs = await prisma.transformationInput.findMany({
     select: {
@@ -338,6 +379,7 @@ export async function getConsumptionStats(
           container: {
             select: { supplier: { select: { id: true, name: true } } },
           },
+          supplier: { select: { id: true, name: true } },
         },
       },
     },
@@ -356,13 +398,13 @@ export async function getConsumptionStats(
 
   for (const i of inputs) {
     if (
-      !passes(filters.supplierIds, i.sack.container?.supplier.id) ||
+      !passes(filters.supplierIds, sackSupplier(i.sack)?.id) ||
       !passes(filters.warehouseIds, i.sack.zone?.warehouseId) ||
       !passes(filters.materialIds, i.sack.materialId)
     ) {
       continue;
     }
-    const provider = i.sack.container?.supplier.name ?? SIN_PROVEEDOR;
+    const provider = sackSupplier(i.sack)?.name ?? SIN_PROVEEDOR;
     const weight = i.sack.weight;
 
     const cur = providerAcc.get(provider) ?? {
@@ -411,8 +453,9 @@ export interface ProviderLocation {
  * por almacén (nombre de la planta: Montalbos / La Gineta).
  */
 export async function getLocationStats(
-  filters: InventoryFilters = EMPTY_FILTERS,
+  rawFilters: InventoryFilters = EMPTY_FILTERS,
 ): Promise<ProviderLocation[]> {
+  const filters = await resolveCategoryFilter(rawFilters);
   const sacks = await prisma.sack.findMany({
     where: {
       status: SackStatus.EN_ALMACEN,
@@ -423,12 +466,13 @@ export async function getLocationStats(
         ? { zone: { is: { warehouseId: { in: filters.warehouseIds } } } }
         : {}),
       ...(filters.supplierIds.length > 0
-        ? { container: { is: { supplierId: { in: filters.supplierIds } } } }
+        ? { AND: [sackSupplierIn(filters.supplierIds)] }
         : {}),
     },
     select: {
       weight: true,
       container: { select: { supplier: { select: { id: true, name: true } } } },
+      supplier: { select: { id: true, name: true } },
       zone: { select: { warehouse: { select: { name: true } } } },
     },
   });
@@ -444,10 +488,11 @@ export async function getLocationStats(
   >();
 
   for (const s of sacks) {
-    const provider = s.container?.supplier.name ?? SIN_PROVEEDOR;
+    const supplier = sackSupplier(s);
+    const provider = supplier?.name ?? SIN_PROVEEDOR;
     const warehouse = s.zone?.warehouse.name ?? "Sin ubicar";
     const entry = byProvider.get(provider) ?? {
-      supplierId: s.container?.supplier.id ?? null,
+      supplierId: supplier?.id ?? null,
       totalCount: 0,
       totalWeightKg: 0,
       warehouses: new Map(),
@@ -520,8 +565,9 @@ function tonsToSacks(tons: number): number {
  * Conecta con Aprovisionamiento. 1 saca ≈ 1 t donde hace falta aproximar.
  */
 export async function getExpectedStock(
-  filters: InventoryFilters = EMPTY_FILTERS,
+  rawFilters: InventoryFilters = EMPTY_FILTERS,
 ): Promise<ExpectedStock> {
+  const filters = await resolveCategoryFilter(rawFilters);
   const [current, orders] = await Promise.all([
     prisma.sack.findMany({
       where: {
@@ -533,12 +579,15 @@ export async function getExpectedStock(
           ? { zone: { is: { warehouseId: { in: filters.warehouseIds } } } }
           : {}),
         ...(filters.supplierIds.length > 0
-          ? { container: { is: { supplierId: { in: filters.supplierIds } } } }
+          ? { AND: [sackSupplierIn(filters.supplierIds)] }
           : {}),
       },
       select: {
         weight: true,
-        container: { select: { supplier: { select: { name: true } } } },
+        container: {
+          select: { supplier: { select: { id: true, name: true } } },
+        },
+        supplier: { select: { id: true, name: true } },
       },
     }),
     prisma.purchaseOrder.findMany({
@@ -576,7 +625,7 @@ export async function getExpectedStock(
   };
 
   for (const s of current) {
-    const e = get(s.container?.supplier.name ?? SIN_PROVEEDOR);
+    const e = get(sackSupplier(s)?.name ?? SIN_PROVEEDOR);
     e.currentCount += 1;
     e.currentWeightKg += s.weight;
   }

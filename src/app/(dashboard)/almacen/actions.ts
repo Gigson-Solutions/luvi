@@ -7,9 +7,12 @@ import { logAudit } from "@/lib/services/audit.service";
 import {
   findMovableSackByQr,
   moveSack,
+  setSackSupplier,
+  setSuppliersForFilteredSacks,
   transferSacks,
   type MovableSackData,
 } from "@/lib/services/warehouse.service";
+import { resolveStatusFilter } from "./filter-params";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = { ok: boolean; error?: string; message?: string };
@@ -138,6 +141,92 @@ export async function transferSacksAction(
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Error al trasladar las sacas",
+    };
+  }
+}
+
+const sackSupplierSchema = z.object({
+  sackId: z.string().min(1),
+  // "" = quitar el proveedor asignado.
+  supplierId: z.string().optional(),
+});
+
+/** Asigna (o quita) el proveedor de una saca sin contenedor, desde su ficha. */
+export async function setSackSupplierAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = sackSupplierSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    const supplierId = parsed.data.supplierId || null;
+    await setSackSupplier(parsed.data.sackId, supplierId);
+    await logAudit({
+      userId: actor.id,
+      action: "SET_SACK_SUPPLIER",
+      entity: "Sack",
+      entityId: parsed.data.sackId,
+      payload: { supplierId },
+    });
+    revalidatePath("/almacen");
+    revalidatePath(`/almacen/${parsed.data.sackId}`);
+    revalidatePath("/inventario");
+    return { ok: true, message: "Proveedor actualizado" };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al asignar el proveedor",
+    };
+  }
+}
+
+/**
+ * Asigna un proveedor a todas las sacas sin contenedor que cumplan los filtros
+ * que está viendo el usuario (no solo a la página visible). Los filtros llegan
+ * como los parámetros de la URL de Almacén.
+ */
+export async function setSuppliersForFilteredAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const supplierId = String(formData.get("supplierId") ?? "");
+    if (!supplierId) return { ok: false, error: "Selecciona un proveedor" };
+
+    const list = (key: string): string[] =>
+      formData.getAll(key).map(String).filter(Boolean);
+    const filters = {
+      status: resolveStatusFilter(list("status")),
+      categoryId: list("tipo"),
+      materialId: list("material"),
+      zoneId: list("zone"),
+      supplierId: list("proveedor"),
+      search: String(formData.get("q") ?? "").trim() || undefined,
+    };
+    const count = await setSuppliersForFilteredSacks(filters, supplierId);
+    await logAudit({
+      userId: actor.id,
+      action: "SET_SACKS_SUPPLIER_BULK",
+      entity: "Sack",
+      payload: { supplierId, count, filters },
+    });
+    revalidatePath("/almacen");
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      message: `Proveedor asignado a ${count} saca${count === 1 ? "" : "s"}`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Error al asignar el proveedor",
     };
   }
 }

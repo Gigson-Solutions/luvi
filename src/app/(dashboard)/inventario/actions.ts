@@ -268,6 +268,8 @@ const stockEntrySchema = z.object({
     .positive("El peso por saca debe ser mayor que 0"),
   date: adjustmentDate,
   notes: z.string().optional(),
+  // Opcional: "" (sin indicar) se trata como ausente.
+  supplierId: z.string().optional(),
 });
 
 /** Alta manual de sacas en almacén (stock inicial, material sin contenedor…). */
@@ -287,6 +289,7 @@ export async function createStockEntryAction(
     const res = await createStockEntry({
       ...parsed.data,
       notes: parsed.data.notes || undefined,
+      supplierId: parsed.data.supplierId || undefined,
       userId: actor.id,
     });
     await logAudit({
@@ -297,6 +300,7 @@ export async function createStockEntryAction(
       payload: {
         materialId: parsed.data.materialId,
         zoneId: parsed.data.zoneId,
+        supplierId: parsed.data.supplierId || null,
         numSacks: res.numSacks,
         totalWeight: res.totalWeight,
       },

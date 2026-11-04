@@ -11,6 +11,7 @@ import {
   getWarehouseFilterData,
 } from "@/lib/services/warehouse.service";
 import { MoveSackDialog } from "../warehouse-client";
+import { SackSupplierForm } from "../supplier-dialogs";
 
 function Field({
   label,
@@ -157,12 +158,36 @@ export default async function SackDetailPage({
               <>
                 <Field label="Origen" value="Alta manual de inventario" />
                 <Field
+                  label="Proveedor"
+                  value={sack.supplier?.name ?? "Sin proveedor"}
+                />
+                <Field
                   label="Fecha de alta"
                   value={formatDate(sack.stockEntry.date)}
                 />
                 {sack.stockEntry.notes && (
                   <Field label="Notas" value={sack.stockEntry.notes} />
                 )}
+                <SackSupplierForm
+                  sackId={sack.id}
+                  currentSupplierId={sack.supplierId}
+                  suppliers={filterData.suppliers}
+                />
+              </>
+            ) : !sack.lotId ? (
+              <>
+                <Field
+                  label="Proveedor"
+                  value={sack.supplier?.name ?? "Sin proveedor"}
+                />
+                <p className="pt-2 text-sm text-[var(--color-muted)]">
+                  Esta saca no procede de un contenedor ni de un alta manual.
+                </p>
+                <SackSupplierForm
+                  sackId={sack.id}
+                  currentSupplierId={sack.supplierId}
+                  suppliers={filterData.suppliers}
+                />
               </>
             ) : (
               <p className="text-sm text-[var(--color-muted)]">

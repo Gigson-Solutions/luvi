@@ -22,11 +22,13 @@ export function InventoryFilters({
   const selected = {
     proveedor: searchParams.getAll("proveedor"),
     almacen: searchParams.getAll("almacen"),
+    tipo: searchParams.getAll("tipo"),
     producto: searchParams.getAll("producto"),
   };
   const activeCount =
     selected.proveedor.length +
     selected.almacen.length +
+    selected.tipo.length +
     selected.producto.length;
 
   function toggle(key: keyof typeof selected, id: string): void {
@@ -44,6 +46,7 @@ export function InventoryFilters({
     const params = new URLSearchParams(searchParams.toString());
     params.delete("proveedor");
     params.delete("almacen");
+    params.delete("tipo");
     params.delete("producto");
     router.push(`/inventario?${params.toString()}`);
   }
@@ -62,6 +65,12 @@ export function InventoryFilters({
         options={options.warehouses}
         selected={selected.almacen}
         onToggle={(id) => toggle("almacen", id)}
+      />
+      <MultiSelect
+        label="Tipo"
+        options={options.categories}
+        selected={selected.tipo}
+        onToggle={(id) => toggle("tipo", id)}
       />
       <MultiSelect
         label="Producto"

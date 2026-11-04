@@ -48,7 +48,11 @@ import {
   getCountDetail,
   listInventoryCounts,
 } from "@/lib/services/inventory-count.service";
-import { listMaterials, listWarehouses } from "@/lib/services/config.service";
+import {
+  listMaterials,
+  listSuppliers,
+  listWarehouses,
+} from "@/lib/services/config.service";
 import { InventoryCountPanel } from "./inventory-count-client";
 import {
   BROKEN_PALLET_SOURCES,
@@ -1007,15 +1011,20 @@ async function PalesRotosTab(): Promise<React.JSX.Element> {
  * etiquetas se imprimen desde aquí.
  */
 async function AltasBajasTab(): Promise<React.JSX.Element> {
-  const [adjustments, availability, zones, allMaterials] = await Promise.all([
-    listStockAdjustments(),
-    getSackAvailability(),
-    listZoneOptions(),
-    listMaterials(),
-  ]);
+  const [adjustments, availability, zones, allMaterials, allSuppliers] =
+    await Promise.all([
+      listStockAdjustments(),
+      getSackAvailability(),
+      listZoneOptions(),
+      listMaterials(),
+      listSuppliers(),
+    ]);
   const materials = allMaterials
     .filter((m) => m.active)
     .map((m) => ({ id: m.id, name: m.name }));
+  const suppliers = allSuppliers
+    .filter((s) => s.active)
+    .map((s) => ({ id: s.id, name: s.name }));
   const entries = adjustments.filter((a) => a.type === "ALTA");
   const exits = adjustments.filter((a) => a.type === "BAJA");
 
@@ -1027,7 +1036,11 @@ async function AltasBajasTab(): Promise<React.JSX.Element> {
           zones={zones}
           availability={availability}
         />
-        <StockEntryDialog materials={materials} zones={zones} />
+        <StockEntryDialog
+          materials={materials}
+          zones={zones}
+          suppliers={suppliers}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1186,6 +1199,7 @@ export default async function InventarioPage({
     tab?: string;
     proveedor?: string | string[];
     almacen?: string | string[];
+    tipo?: string | string[];
     producto?: string | string[];
   }>;
 }): Promise<React.JSX.Element> {
@@ -1196,6 +1210,7 @@ export default async function InventarioPage({
   const filters: InventoryFiltersType = {
     supplierIds: asList(params.proveedor),
     warehouseIds: asList(params.almacen),
+    categoryIds: asList(params.tipo),
     materialIds: asList(params.producto),
   };
   const filterOptions = await getInventoryFilterOptions();
@@ -1205,6 +1220,7 @@ export default async function InventarioPage({
     const qs = new URLSearchParams({ tab: value });
     for (const id of filters.supplierIds) qs.append("proveedor", id);
     for (const id of filters.warehouseIds) qs.append("almacen", id);
+    for (const id of filters.categoryIds) qs.append("tipo", id);
     for (const id of filters.materialIds) qs.append("producto", id);
     return `/inventario?${qs.toString()}`;
   }
