@@ -37,7 +37,11 @@ import { MoveSackDialog, TransferSacksDialog } from "./warehouse-client";
 import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 import { ALL_STATUSES, resolveStatusFilter } from "./filter-params";
 import { WarehouseFilters } from "./warehouse-filters";
-import { AssignSupplierBulkDialog } from "./supplier-dialogs";
+import {
+  AssignSackSupplierDialog,
+  AssignSupplierBulkDialog,
+} from "./supplier-dialogs";
+import { sackSupplier } from "@/lib/sack-supplier";
 
 const STATUS_VALUES = Object.values(SackStatus);
 
@@ -455,6 +459,7 @@ export default async function AlmacenPage({
                 <TH>QR</TH>
                 <TH>Material</TH>
                 <TH>Tipo</TH>
+                <TH>Proveedor</TH>
                 <TH>Peso</TH>
                 <TH>Estado</TH>
                 <TH>Zona</TH>
@@ -480,6 +485,13 @@ export default async function AlmacenPage({
                   </TD>
                   <TD className="text-[var(--color-muted)]">
                     {s.material.category?.name ?? "Sin categoría"}
+                  </TD>
+                  <TD>
+                    {sackSupplier(s)?.name ?? (
+                      <span className="text-[var(--color-muted)]">
+                        Sin proveedor
+                      </span>
+                    )}
                   </TD>
                   <TD>{formatKg(s.weight)}</TD>
                   <TD>
@@ -508,14 +520,25 @@ export default async function AlmacenPage({
                     )}
                   </TD>
                   <TD className="text-right">
-                    {s.status === SackStatus.EN_ALMACEN && (
-                      <MoveSackDialog
-                        sackId={s.id}
-                        qrCode={s.qrCode}
-                        currentZoneId={s.zoneId}
-                        zones={filterData.zones}
-                      />
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {/* Solo las sacas sin contenedor tienen proveedor propio. */}
+                      {!s.container && !s.lot && (
+                        <AssignSackSupplierDialog
+                          sackId={s.id}
+                          qrCode={s.qrCode}
+                          currentSupplierId={s.supplierId}
+                          suppliers={filterData.suppliers}
+                        />
+                      )}
+                      {s.status === SackStatus.EN_ALMACEN && (
+                        <MoveSackDialog
+                          sackId={s.id}
+                          qrCode={s.qrCode}
+                          currentZoneId={s.zoneId}
+                          zones={filterData.zones}
+                        />
+                      )}
+                    </div>
                   </TD>
                 </TR>
               ))}
