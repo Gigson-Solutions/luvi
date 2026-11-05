@@ -38,6 +38,24 @@ function headers(key: string): HeadersInit {
   return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
 }
 
+/**
+ * Error legible de una respuesta de Holded: estado + el motivo que devuelve
+ * (recortado). Sin él, un 400 no dice qué campo rechaza y no hay forma de
+ * corregirlo. También se deja en el log del servidor.
+ */
+async function holdedError(label: string, res: Response): Promise<Error> {
+  let detail = "";
+  try {
+    detail = (await res.text()).replace(/\s+/g, " ").trim().slice(0, 300);
+  } catch {
+    // Sin cuerpo legible: nos quedamos con el estado.
+  }
+  console.error(`[holded] ${label} ${res.status}: ${detail || "(sin cuerpo)"}`);
+  return new Error(
+    `Holded ${label} ${res.status}${detail ? `: ${detail}` : ""}`,
+  );
+}
+
 /** Crea un contacto tipo cliente y devuelve su id. */
 async function createContact(key: string, name: string): Promise<string> {
   const res = await fetch(`${API}/contacts`, {
@@ -46,7 +64,7 @@ async function createContact(key: string, name: string): Promise<string> {
     body: JSON.stringify({ name, type: "client" }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`Holded contacto ${res.status}`);
+  if (!res.ok) throw await holdedError("contacto", res);
   const data = (await res.json()) as { id?: string };
   if (!data.id) throw new Error("Holded no devolvió id de contacto");
   return data.id;
@@ -83,7 +101,7 @@ export async function createAlbaran(
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) throw new Error(`Holded waybill ${res.status}`);
+    if (!res.ok) throw await holdedError("waybill", res);
 
     const data = (await res.json()) as { id?: string };
     return { ok: true, simulated: false, holdedId: data.id, contactId };
