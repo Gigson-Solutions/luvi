@@ -43,6 +43,47 @@ describe("Holded createAlbaran (fallback simulado)", () => {
   });
 });
 
+describe("Holded createAlbaran (errores de la API)", () => {
+  const prevKey = process.env.HOLDED_API_KEY;
+  const realFetch = globalThis.fetch;
+  beforeEach(() => {
+    process.env.HOLDED_API_KEY = "pat_test";
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    if (prevKey) process.env.HOLDED_API_KEY = prevKey;
+    else delete process.env.HOLDED_API_KEY;
+  });
+
+  it("un 400 del albarán incluye el motivo que devuelve Holded", async () => {
+    globalThis.fetch = (async () =>
+      new Response('{"error":"items[0].price is required"}', {
+        status: 400,
+      })) as typeof fetch;
+    const r = await createAlbaran({
+      contactHoldedId: "c1",
+      buyerName: "Comprador X",
+      reference: "EXP-1",
+      lines: [{ name: "050126-1", units: 24640 }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("waybill 400");
+    expect(r.error).toContain("items[0].price is required");
+  });
+
+  it("un 400 sin cuerpo sigue dando el estado", async () => {
+    globalThis.fetch = (async () =>
+      new Response("", { status: 400 })) as typeof fetch;
+    const r = await createAlbaran({
+      contactHoldedId: "c1",
+      buyerName: "Comprador X",
+      reference: "EXP-1",
+      lines: [{ name: "050126-1", units: 1 }],
+    });
+    expect(r.error).toBe("Holded waybill 400");
+  });
+});
+
 describe("Impresora ZPL", () => {
   it("buildZpl genera etiqueta con QR", () => {
     const zpl = buildZpl({
