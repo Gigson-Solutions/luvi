@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { type Prisma, type SackStatus } from "@prisma/client";
-import { enqueueLabels, type LabelData } from "@/lib/integrations/qr-printer";
+import {
+  enqueueLabels,
+  type LabelData,
+  type PrinterTarget,
+} from "@/lib/integrations/qr-printer";
 import { formatSackNumber } from "@/lib/utils";
 
 /**
@@ -8,7 +12,7 @@ import { formatSackNumber } from "@/lib/utils";
  *
  * La saca (`Sack`) es la única entidad con QR del sistema. Este servicio expone
  * los datos que necesita la página `/qr`: la vista previa del código y los campos
- * que alimentan el trabajo de impresión (`POST /api/qr-print`).
+ * que alimentan la etiqueta impresa (`printSackLabels`).
  */
 
 /** Tipo de producto para la etiqueta (MP / PT / Subproducto / Rechazo). */
@@ -159,6 +163,11 @@ export function listContainerSacks(
   return listNumberedSacks({ containerId });
 }
 
+/** «1 etiqueta» / «N etiquetas». */
+function labelCount(n: number): string {
+  return `${n} etiqueta${n === 1 ? "" : "s"}`;
+}
+
 /** Etiquetas por trabajo de impresión. */
 const LABEL_BATCH = 25;
 
@@ -168,9 +177,13 @@ export interface PrintLabelsResult {
   message: string;
 }
 
-/** Envía a la impresora las etiquetas de un conjunto de sacas. */
+/**
+ * Envía a la impresora las etiquetas de un conjunto de sacas. Sin `printer`
+ * se usa la impresora de respaldo de la configuración de entorno.
+ */
 export async function printSackLabels(
   sacks: QrSackDetail[],
+  printer?: PrinterTarget,
 ): Promise<PrintLabelsResult> {
   // Por tandas: un trabajo con cientos de etiquetas tarda en llegar a la
   // Zebra por el túnel y, si falla, se sabe cuántas han salido ya.
@@ -178,12 +191,12 @@ export async function printSackLabels(
   let sent = 0;
   for (let i = 0; i < labels.length; i += LABEL_BATCH) {
     const batch = labels.slice(i, i + LABEL_BATCH);
-    const result = await enqueueLabels(batch);
+    const result = await enqueueLabels(batch, printer);
     if (result.simulated) {
       return {
         ok: true,
         status: "simulated",
-        message: `Impresora no configurada — ${labels.length} etiquetas generadas, sin impresión física.`,
+        message: `Impresora no configurada — ${labelCount(labels.length)} generada${labels.length === 1 ? "" : "s"}, sin impresión física.`,
       };
     }
     if (result.error) {
@@ -198,7 +211,7 @@ export async function printSackLabels(
   return {
     ok: true,
     status: "queued",
-    message: `${sent} etiquetas enviadas a la impresora.`,
+    message: `${labelCount(sent)} enviada${sent === 1 ? "" : "s"} a ${printer ? printer.name : "la impresora"}.`,
   };
 }
 

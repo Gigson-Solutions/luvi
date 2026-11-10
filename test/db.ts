@@ -35,6 +35,7 @@ const TABLES = [
   "zones",
   "warehouses",
   "carriers",
+  "printers",
   "buyers",
   "suppliers",
   "verification_tokens",

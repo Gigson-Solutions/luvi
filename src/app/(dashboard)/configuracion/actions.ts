@@ -39,6 +39,13 @@ import {
   deriveMaterialKind,
 } from "@/lib/services/material.service";
 import {
+  createPrinter,
+  updatePrinter,
+  setPrinterActive,
+} from "@/lib/services/printer.service";
+import { enqueueLabels } from "@/lib/integrations/qr-printer";
+import { prisma } from "@/lib/prisma";
+import {
   saveQualityRangeSet,
   deleteQualityRangeSet,
 } from "@/lib/services/quality.service";
@@ -454,6 +461,87 @@ export async function deleteZoneAction(
   }
 }
 
+// ─── Impresoras de etiquetas ────────────────────────────────────────────────────
+
+const printerSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().trim().min(1, "El nombre es obligatorio"),
+  bridgePort: z.coerce
+    .number({ invalid_type_error: "El puerto debe ser un número" })
+    .int("El puerto debe ser un número entero")
+    .min(1, "Puerto no válido")
+    .max(65535, "Puerto no válido"),
+  ip: z
+    .string()
+    .trim()
+    .ip({ version: "v4", message: "La IP no es válida (ej.: 192.168.1.213)" }),
+});
+
+export async function savePrinterAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = printerSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Datos inválidos",
+      };
+    }
+    const { id, ...input } = parsed.data;
+    const result = id
+      ? await updatePrinter(id, input)
+      : await createPrinter(input);
+    await logAudit({
+      userId: actor.id,
+      action: id ? "UPDATE_PRINTER" : "CREATE_PRINTER",
+      entity: "Printer",
+      entityId: result.id,
+      payload: { ...input },
+    });
+    revalidatePath(REVALIDATE);
+    return {
+      ok: true,
+      message: id ? "Impresora actualizada" : "Impresora creada",
+    };
+  } catch (e) {
+    return fail(e, "Error al guardar la impresora");
+  }
+}
+
+/** Manda una etiqueta de prueba para comprobar que la Zebra responde. */
+export async function testPrinterAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireSession();
+    const id = z.string().min(1).parse(formData.get("id"));
+    const printer = await prisma.printer.findUniqueOrThrow({
+      where: { id },
+      select: { name: true, bridgePort: true, ip: true },
+    });
+    const result = await enqueueLabels(
+      [
+        {
+          qrCode: "PRUEBA",
+          nombreProducto: "Etiqueta de prueba",
+          loteOSaca: printer.name,
+          fecha: new Date().toLocaleDateString("es-ES"),
+        },
+      ],
+      printer,
+    );
+    return result.error
+      ? { ok: false, error: result.error }
+      : { ok: true, message: "Etiqueta de prueba enviada" };
+  } catch (e) {
+    return fail(e, "No se pudo enviar la etiqueta de prueba");
+  }
+}
+
 // ─── Activar / desactivar (soft-delete genérico) ────────────────────────────────
 
 const toggleSchema = z.object({
@@ -464,6 +552,7 @@ const toggleSchema = z.object({
     "buyer",
     "carrier",
     "warehouse",
+    "printer",
   ]),
   id: z.string().min(1),
   active: z.enum(["true", "false"]),
@@ -487,6 +576,7 @@ export async function toggleActiveAction(
       buyer: "Buyer",
       carrier: "Carrier",
       warehouse: "Warehouse",
+      printer: "Printer",
     }[entity];
     switch (entity) {
       case "material":
@@ -506,6 +596,9 @@ export async function toggleActiveAction(
         break;
       case "warehouse":
         await setWarehouseActive(id, active);
+        break;
+      case "printer":
+        await setPrinterActive(id, active);
         break;
     }
     await logAudit({

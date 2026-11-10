@@ -62,7 +62,9 @@ export function PrintStockEntryLabelsButton({
 }): React.JSX.Element {
   return (
     <PrintLabelsButton
-      print={() => printStockEntryLabelsAction(stockEntryId)}
+      print={(printerId) =>
+        printStockEntryLabelsAction(stockEntryId, printerId)
+      }
       count={count}
       size={size}
     />
