@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { resolvePrinter } from "@/lib/services/printer.service";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import {
@@ -376,14 +377,18 @@ export async function createStockExitAction(
 /** Imprime las etiquetas QR de todas las sacas de un alta manual. */
 export async function printStockEntryLabelsAction(
   stockEntryId: string,
+  printerId: string | null = null,
 ): Promise<{ ok: boolean; status?: string; message: string }> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const sacks = await listStockEntrySacks(stockEntryId);
     if (sacks.length === 0) {
       return { ok: false, message: "Este alta no tiene sacas." };
     }
-    return await printSackLabels(sacks);
+    return await printSackLabels(
+      sacks,
+      await resolvePrinter(actor.id, printerId ?? undefined),
+    );
   } catch (e) {
     return {
       ok: false,

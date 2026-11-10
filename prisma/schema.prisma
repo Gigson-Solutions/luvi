@@ -110,6 +110,10 @@ model User {
   inventoryCounts InventoryCount[]
   stockAdjustments StockAdjustment[]
 
+  // Última impresora de etiquetas elegida: la que sale marcada al imprimir.
+  lastPrinterId String?
+  lastPrinter   Printer? @relation(fields: [lastPrinterId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -979,6 +983,26 @@ model IncidentNote {
 
   @@index([incidentId])
   @@map("incident_notes")
+}
+
+// ─── Impresoras de etiquetas ───────────────────────────────────────────────────
+
+// Zebras de planta (mismo modelo y marca). Solo hablan IPPS en el 631, así que
+// cada una tiene su propio puente en el PC de planta (631, 632, 633…) y el
+// servidor llega a ella por el túnel a ese puerto.
+model Printer {
+  id         String  @id @default(cuid())
+  name       String
+  bridgePort Int // puerto del puente en el PC de planta
+  ip         String // IP fija de la Zebra en la LAN de planta
+  active     Boolean @default(true)
+
+  lastUsedBy User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("printers")
 }
 
 // ─── Configuración (clave/valor) ───────────────────────────────────────────────

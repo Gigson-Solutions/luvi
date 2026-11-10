@@ -9,6 +9,7 @@ import {
   Users,
   ClipboardCheck,
   Euro,
+  Printer,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ import { getCostsConfig } from "@/lib/services/cost.service";
 import { listUsers } from "@/lib/services/user.service";
 import { listMaterialCategories } from "@/lib/services/material.service";
 import { listConsumables } from "@/lib/services/consumable.service";
+import { listPrinters } from "@/lib/services/printer.service";
 import {
   MaterialsSection,
   MaterialTypesSection,
@@ -39,6 +41,7 @@ import {
   UsersSection,
   QualitySection,
   CostsSection,
+  PrintersSection,
 } from "./config-sections";
 
 type TabKey =
@@ -50,7 +53,8 @@ type TabKey =
   | "almacenes"
   | "usuarios"
   | "calidad"
-  | "costes";
+  | "costes"
+  | "impresoras";
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "proveedores", label: "Proveedores", icon: Building },
@@ -62,6 +66,7 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "usuarios", label: "Usuarios", icon: Users },
   { key: "calidad", label: "Calidad", icon: ClipboardCheck },
   { key: "costes", label: "Costes", icon: Euro },
+  { key: "impresoras", label: "Impresoras", icon: Printer },
 ];
 
 function isTabKey(v: string | undefined): v is TabKey {
@@ -94,6 +99,7 @@ export default async function ConfiguracionPage({
     qualityRangeSets,
     consumables,
     costs,
+    printers,
   ] = await Promise.all([
     listMaterials(),
     listMaterialCategories(),
@@ -106,6 +112,7 @@ export default async function ConfiguracionPage({
     listQualityRangeSets(),
     listConsumables(),
     getCostsConfig(),
+    listPrinters(),
   ]);
   const currentUserId = user?.id ?? "";
   const consumableOptions = consumables.map((c) => ({
@@ -119,7 +126,7 @@ export default async function ConfiguracionPage({
     <div>
       <PageHeader
         title="Configuración"
-        description="Catálogos maestros: proveedores, materiales, transportistas, almacenes, usuarios, calidad y costes."
+        description="Catálogos maestros: proveedores, materiales, transportistas, almacenes, usuarios, calidad, costes e impresoras."
       />
 
       {/* Pestañas por ?tab= */}
@@ -181,6 +188,7 @@ export default async function ConfiguracionPage({
         />
       )}
       {activeTab === "costes" && <CostsSection costs={costs} />}
+      {activeTab === "impresoras" && <PrintersSection printers={printers} />}
     </div>
   );
 }

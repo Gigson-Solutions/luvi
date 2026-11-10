@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { resolvePrinter } from "@/lib/services/printer.service";
 import { requireModule } from "@/lib/rbac";
 import {
   registerContainer,
@@ -189,9 +190,10 @@ export async function weighAndConfirmAction(
 /** Imprime las etiquetas QR de todas las sacas de un contenedor recibido. */
 export async function printContainerLabelsAction(
   containerId: string,
+  printerId: string | null = null,
 ): Promise<PrintLabelsResult> {
   try {
-    await requireSession();
+    const actor = await requireSession();
     const sacks = await listContainerSacks(containerId);
     if (sacks.length === 0) {
       return {
@@ -200,7 +202,10 @@ export async function printContainerLabelsAction(
         message: "Este contenedor no tiene sacas.",
       };
     }
-    return await printSackLabels(sacks);
+    return await printSackLabels(
+      sacks,
+      await resolvePrinter(actor.id, printerId ?? undefined),
+    );
   } catch (e) {
     return {
       ok: false,
