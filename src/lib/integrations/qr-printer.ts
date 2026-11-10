@@ -255,7 +255,46 @@ async function sendRawZpl(
 }
 
 /**
- * Envía etiquetas a la impresora. Dos transportes, por orden de preferencia:
+ * Zebra dada de alta en Configuración. El servidor no la ve directamente: llega
+ * por el túnel al PC de planta, que reenvía cada puerto a una Zebra.
+ */
+export interface PrinterTarget {
+  name: string;
+  bridgePort: number; // puerto del puente en el PC de planta
+  ip: string; // IP de la Zebra en la LAN de planta
+}
+
+/**
+ * Host del PC de planta al otro lado del túnel. Se toma de
+ * `QR_PRINTER_BRIDGE_HOST` o, si no está, del host de `QR_PRINTER_IPP_URL`
+ * (la Zebra de la configuración inicial ya va por ese mismo PC).
+ */
+export function bridgeHost(): string {
+  if (process.env.QR_PRINTER_BRIDGE_HOST) {
+    return process.env.QR_PRINTER_BRIDGE_HOST;
+  }
+  const ippUrl = process.env.QR_PRINTER_IPP_URL;
+  return ippUrl ? new URL(ippUrl).hostname : "10.8.0.2";
+}
+
+/** URL de conexión y `printer-uri` anunciado de una Zebra dada de alta. */
+export function printerEndpoints(target: PrinterTarget): {
+  url: string;
+  printerUri: string;
+} {
+  return {
+    url: `https://${bridgeHost()}:${target.bridgePort}/ipp/print`,
+    printerUri: `ipps://${target.ip}:631/ipp/print`,
+  };
+}
+
+/**
+ * Envía etiquetas a la impresora.
+ *
+ * Con `target` (una Zebra dada de alta en Configuración) se imprime en ella
+ * por IPPS a través de su puente. Sin `target` se usa la configuración de
+ * entorno, que queda como respaldo mientras no haya impresoras dadas de alta.
+ * Dos transportes, por orden de preferencia:
  *
  *   1. `QR_PRINTER_IPP_URL` → IPP/IPPS. Es el que usa la Zebra ZT421 de planta,
  *      que solo admite IPP sobre TLS en el 631. Opcionalmente
@@ -271,12 +310,26 @@ async function sendRawZpl(
  * Regla de oro: imprimir nunca bloquea la operativa. Si falla, se informa
  * (`error`) pero no se lanza.
  */
-export async function enqueueLabels(labels: LabelData[]): Promise<{
+export async function enqueueLabels(
+  labels: LabelData[],
+  target?: PrinterTarget,
+): Promise<{
   queued: number;
   simulated: boolean;
   error?: string;
 }> {
   const payload = labels.map(buildZpl).join("\n");
+
+  if (target) {
+    const { url, printerUri } = printerEndpoints(target);
+    const ok = await sendIpp(url, printerUri, payload);
+    return {
+      queued: labels.length,
+      simulated: false,
+      error: ok ? undefined : `${target.name} rechazó el trabajo o no responde`,
+    };
+  }
+
   const ippUrl = process.env.QR_PRINTER_IPP_URL;
   const host = process.env.QR_PRINTER_HOST;
 

@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readWeight } from "@/lib/integrations/gestruck";
 import { createAlbaran } from "@/lib/integrations/holded";
-import { buildZpl, enqueueLabels } from "@/lib/integrations/qr-printer";
+import {
+  buildZpl,
+  enqueueLabels,
+  printerEndpoints,
+} from "@/lib/integrations/qr-printer";
 
 describe("Gestruck readWeight (fallback)", () => {
   const prev = {
@@ -113,5 +117,34 @@ describe("Impresora ZPL", () => {
     expect(r.simulated).toBe(true);
     expect(r.queued).toBe(1);
     if (prev) process.env.QR_PRINTER_URL = prev;
+  });
+  it("una impresora dada de alta va por su puente y anuncia su IP", () => {
+    const prev = process.env.QR_PRINTER_BRIDGE_HOST;
+    process.env.QR_PRINTER_BRIDGE_HOST = "10.8.0.2";
+    expect(
+      printerEndpoints({
+        name: "Zebra 2",
+        bridgePort: 632,
+        ip: "192.168.1.213",
+      }),
+    ).toEqual({
+      url: "https://10.8.0.2:632/ipp/print",
+      printerUri: "ipps://192.168.1.213:631/ipp/print",
+    });
+    if (prev) process.env.QR_PRINTER_BRIDGE_HOST = prev;
+    else delete process.env.QR_PRINTER_BRIDGE_HOST;
+  });
+  it("enqueueLabels con impresora elegida avisa de cuál no responde", async () => {
+    const prev = process.env.QR_PRINTER_BRIDGE_HOST;
+    process.env.QR_PRINTER_BRIDGE_HOST = "127.0.0.1";
+    const r = await enqueueLabels([{ qrCode: "SACK-1" }], {
+      name: "Zebra 2",
+      bridgePort: 1, // nadie escucha → conexión rechazada al momento
+      ip: "192.168.1.213",
+    });
+    expect(r.simulated).toBe(false);
+    expect(r.error).toContain("Zebra 2");
+    if (prev) process.env.QR_PRINTER_BRIDGE_HOST = prev;
+    else delete process.env.QR_PRINTER_BRIDGE_HOST;
   });
 });

@@ -13,7 +13,8 @@ import {
   type QrSackDetail,
 } from "@/lib/services/qr.service";
 import { QrSearch } from "./qr-search";
-import { QrPrintButton, type QrPrintJob } from "./qr-print-button";
+import { PrintLabelsButton } from "@/components/ui/print-labels-button";
+import { printSackLabelAction } from "./actions";
 
 export default async function QrPage({
   searchParams,
@@ -57,26 +58,6 @@ export default async function QrPage({
       <RecentSacksTable rows={recent} activeQr={sack?.qrCode ?? null} />
     </div>
   );
-}
-
-/** Construye el trabajo de impresión a partir del detalle de la saca. */
-function toPrintJob(sack: QrSackDetail): QrPrintJob {
-  return {
-    sackId: sack.id,
-    qrCode: sack.qrCode,
-    weight: sack.weight,
-    material: sack.materialName,
-    warehouse: sack.warehouseName ?? "",
-    batchNumber: sack.lotNumber
-      ? formatSackNumber(sack.lotSequence, sack.lotNumber)
-      : (sack.batchNumber ?? undefined),
-    codigoProducto: sack.materialCode,
-    tipoProducto: sack.tipoProducto,
-    contenedor: sack.containerReference ?? undefined,
-    bl: sack.billOfLading ?? undefined,
-    fecha: sack.fecha ?? undefined,
-    notas: sack.notes ?? undefined,
-  };
 }
 
 function Field({
@@ -155,7 +136,12 @@ function SackPanel({ sack }: { sack: QrSackDetail }): React.JSX.Element {
               />
             </dl>
           </div>
-          <QrPrintButton job={toPrintJob(sack)} />
+          <PrintLabelsButton
+            print={printSackLabelAction.bind(null, sack.id)}
+            label="Imprimir etiqueta"
+            variant="primary"
+            size="md"
+          />
         </CardContent>
       </Card>
 

@@ -11,6 +11,7 @@ import {
   Tags,
   Warehouse as WarehouseIcon,
   Users as UsersIcon,
+  Printer as PrinterIcon,
 } from "lucide-react";
 import { UserRole } from "@prisma/client";
 import type {
@@ -18,6 +19,7 @@ import type {
   Buyer,
   Carrier,
   MaterialCategory,
+  Printer,
 } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +58,8 @@ import {
   saveSupplierAction,
   saveBuyerAction,
   saveCarrierAction,
+  savePrinterAction,
+  testPrinterAction,
   saveWarehouseAction,
   saveZoneAction,
   deleteZoneAction,
@@ -117,13 +121,14 @@ function ToggleActiveButton({
     | "supplier"
     | "buyer"
     | "carrier"
-    | "warehouse";
+    | "warehouse"
+    | "printer";
   id: string;
   active: boolean;
 }): React.JSX.Element {
-  const [, action] = useActionState(toggleActiveAction, INITIAL);
+  const [state, action] = useActionState(toggleActiveAction, INITIAL);
   return (
-    <form action={action} className="inline">
+    <form action={action} className="inline" title={state.error}>
       <input type="hidden" name="entity" value={entity} />
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="active" value={active ? "false" : "true"} />
@@ -136,6 +141,9 @@ function ToggleActiveButton({
         <Power className="w-3.5 h-3.5" />
         {active ? "Desactivar" : "Activar"}
       </Button>
+      {state.error && (
+        <p className="mt-1 text-xs text-red-600 text-right">{state.error}</p>
+      )}
     </form>
   );
 }
@@ -1063,6 +1071,168 @@ export function CarriersSection({
                       entity="carrier"
                       id={c.id}
                       active={c.active}
+                    />
+                  </div>
+                </TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
+    </section>
+  );
+}
+
+// ─── Impresoras de etiquetas ────────────────────────────────────────────────────
+
+function PrinterFields({ printer }: { printer?: Printer }): React.JSX.Element {
+  return (
+    <>
+      {printer && <input type="hidden" name="id" value={printer.id} />}
+      <div>
+        <Label htmlFor="prn-name">Nombre</Label>
+        <Input
+          id="prn-name"
+          name="name"
+          required
+          placeholder="Zebra recepciones"
+          defaultValue={printer?.name}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="prn-ip">IP de la Zebra en planta</Label>
+          <Input
+            id="prn-ip"
+            name="ip"
+            required
+            inputMode="decimal"
+            placeholder="192.168.1.213"
+            defaultValue={printer?.ip}
+          />
+        </div>
+        <div>
+          <Label htmlFor="prn-port">Puerto del puente</Label>
+          <Input
+            id="prn-port"
+            name="bridgePort"
+            type="number"
+            min={1}
+            max={65535}
+            required
+            placeholder="632"
+            defaultValue={printer?.bridgePort}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-[var(--color-muted)]">
+        Cada Zebra necesita su propio puente en el PC de planta (631, 632, 633…)
+        apuntando a su IP. El puente lo crea el informático de planta antes de
+        dar de alta la impresora aquí.
+      </p>
+    </>
+  );
+}
+
+/** Manda una etiqueta de prueba y muestra si la Zebra la ha aceptado. */
+function TestPrinterButton({ id }: { id: string }): React.JSX.Element {
+  const [state, action, pending] = useActionState(testPrinterAction, INITIAL);
+  return (
+    <form action={action} className="inline">
+      <input type="hidden" name="id" value={id} />
+      <Button type="submit" size="sm" variant="outline" disabled={pending}>
+        <PrinterIcon className="w-3.5 h-3.5" />
+        {pending ? "Enviando…" : "Probar"}
+      </Button>
+      {(state.error || state.message) && (
+        <p
+          className={
+            state.ok
+              ? "mt-1 text-xs text-right text-[var(--color-primary)]"
+              : "mt-1 text-xs text-right text-red-600"
+          }
+        >
+          {state.error ?? state.message}
+        </p>
+      )}
+    </form>
+  );
+}
+
+export function PrintersSection({
+  printers,
+}: {
+  printers: Printer[];
+}): React.JSX.Element {
+  return (
+    <section>
+      <SectionHeader
+        title={`Impresoras de etiquetas (${printers.length})`}
+        action={
+          <EntityDialog
+            trigger={
+              <Button size="sm">
+                <Plus className="w-4 h-4" /> Nueva impresora
+              </Button>
+            }
+            title="Nueva impresora"
+            description="Zebra del mismo modelo que la de planta, conectada a la red de planta con IP fija."
+            action={savePrinterAction}
+            submitLabel="Crear"
+          >
+            {() => <PrinterFields />}
+          </EntityDialog>
+        }
+      />
+      <p className="mb-3 text-xs text-[var(--color-muted)]">
+        Con más de una impresora activa, al imprimir etiquetas se pregunta en
+        cuál, con la última usada ya marcada. Sin ninguna dada de alta se
+        imprime en la Zebra de la configuración inicial.
+      </p>
+      {printers.length === 0 ? (
+        <EmptyState
+          title="No hay impresoras dadas de alta"
+          description="Las etiquetas salen por la Zebra de la configuración inicial. Da de alta las impresoras para poder elegir en cuál imprimir."
+        />
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>Nombre</TH>
+              <TH>IP en planta</TH>
+              <TH>Puerto del puente</TH>
+              <TH>Estado</TH>
+              <TH className="text-right">Acciones</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {printers.map((p) => (
+              <TR key={p.id}>
+                <TD className="font-medium">{p.name}</TD>
+                <TD className="font-mono text-xs">{p.ip}</TD>
+                <TD className="font-mono text-xs">{p.bridgePort}</TD>
+                <TD>
+                  <ActiveBadge active={p.active} />
+                </TD>
+                <TD className="text-right">
+                  <div className="flex justify-end items-start gap-2">
+                    {p.active && <TestPrinterButton id={p.id} />}
+                    <EntityDialog
+                      trigger={
+                        <Button size="sm" variant="outline">
+                          <Pencil className="w-3.5 h-3.5" /> Editar
+                        </Button>
+                      }
+                      title={`Editar · ${p.name}`}
+                      action={savePrinterAction}
+                      submitLabel="Guardar"
+                    >
+                      {() => <PrinterFields printer={p} />}
+                    </EntityDialog>
+                    <ToggleActiveButton
+                      entity="printer"
+                      id={p.id}
+                      active={p.active}
                     />
                   </div>
                 </TD>
