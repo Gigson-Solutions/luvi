@@ -4,6 +4,8 @@ import { prisma, resetDb, seedBaseline, type Baseline } from "../db";
 import {
   createPurchaseOrder,
   updatePurchaseOrder,
+  getPurchaseOrderName,
+  suggestNextPoNumber,
   setPurchaseOrderStatus,
   createProviderShipment,
   updateProviderShipment,
@@ -608,5 +610,167 @@ describe("Aprovisionamiento — listado de envíos", () => {
     expect(shipments).toHaveLength(1);
     expect(shipments[0].purchaseOrder?.supplier.name).toBe("Proveedor Test");
     expect(shipments[0].containers).toHaveLength(2);
+  });
+});
+
+describe("Aprovisionamiento — nombre del pedido editable", () => {
+  const order = (extra: { poNumber?: string } = {}) =>
+    createPurchaseOrder({
+      supplierId: base.supplierId,
+      orderedTons: 10,
+      ...extra,
+    });
+
+  it("al crear, usa el nombre indicado en vez del automático", async () => {
+    const po = await order({ poNumber: "  Compra   Kenya 2026 " });
+    // Sin espacios sobrantes ni dobles.
+    expect(po.poNumber).toBe("Compra Kenya 2026");
+  });
+
+  it("rechaza un nombre vacío o demasiado largo, al crear y al editar", async () => {
+    await expect(order({ poNumber: "   " })).rejects.toThrow(/vacío/);
+    await expect(order({ poNumber: "x".repeat(81) })).rejects.toThrow(/80/);
+
+    const po = await order();
+    await expect(
+      updatePurchaseOrder({
+        id: po.id,
+        poNumber: "",
+        supplierId: base.supplierId,
+        orderedTons: 10,
+      }),
+    ).rejects.toThrow(/vacío/);
+    // El nombre no cambió.
+    const same = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+    });
+    expect(same.poNumber).toBe(po.poNumber);
+  });
+
+  it("renombra sin cambiar el id ni las relaciones, y sin distinguir el estado", async () => {
+    const po = await order();
+    const ship = await createProviderShipment({
+      purchaseOrderId: po.id,
+      etaValencia: new Date(),
+      etaPlanta: new Date(),
+      containers: [
+        { billOfLading: "BL-REN", reference: "CONT-REN", weight: 1000 },
+      ],
+    });
+    // En tránsito (tiene un envío): se puede renombrar.
+    const inTransit = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+    });
+    expect(inTransit.status).toBe(PurchaseOrderStatus.EN_TRANSITO);
+
+    const renamed = await updatePurchaseOrder({
+      id: po.id,
+      poNumber: "Pedido Kenya",
+      supplierId: base.supplierId,
+      orderedTons: 10,
+    });
+    expect(renamed.id).toBe(po.id);
+    expect(renamed.poNumber).toBe("Pedido Kenya");
+    expect(renamed.providerShipments.map((s) => s.id)).toEqual([ship.id]);
+
+    // También cuando está completada o cancelada.
+    for (const status of [
+      PurchaseOrderStatus.COMPLETADA,
+      PurchaseOrderStatus.CANCELADA,
+    ]) {
+      await setPurchaseOrderStatus(po.id, status);
+      const again = await updatePurchaseOrder({
+        id: po.id,
+        poNumber: `Pedido Kenya ${status}`,
+        supplierId: base.supplierId,
+        orderedTons: 10,
+      });
+      expect(again.poNumber).toBe(`Pedido Kenya ${status}`);
+    }
+  });
+
+  it("no permite repetir un nombre, sin distinguir mayúsculas ni espacios", async () => {
+    const a = await order({ poNumber: "Pedido Kenya" });
+    await expect(order({ poNumber: "pedido kenya" })).rejects.toThrow(
+      /Ya existe un pedido llamado «Pedido Kenya»/,
+    );
+    await expect(order({ poNumber: " PEDIDO   KENYA " })).rejects.toThrow(
+      /Ya existe/,
+    );
+
+    const b = await order({ poNumber: "Otro" });
+    await expect(
+      updatePurchaseOrder({
+        id: b.id,
+        poNumber: "PEDIDO KENYA",
+        supplierId: base.supplierId,
+        orderedTons: 10,
+      }),
+    ).rejects.toThrow(/Ya existe/);
+
+    // Guardar un pedido con su propio nombre (aunque cambie el uso de
+    // mayúsculas) no es un duplicado.
+    const same = await updatePurchaseOrder({
+      id: a.id,
+      poNumber: "PEDIDO KENYA",
+      supplierId: base.supplierId,
+      orderedTons: 12,
+    });
+    expect(same.poNumber).toBe("PEDIDO KENYA");
+  });
+
+  it("si no se indica nombre al editar, no cambia", async () => {
+    const po = await order({ poNumber: "Fijo" });
+    const edited = await updatePurchaseOrder({
+      id: po.id,
+      supplierId: base.supplierId,
+      orderedTons: 99,
+    });
+    expect(edited.poNumber).toBe("Fijo");
+    expect(edited.orderedTons).toBe(99);
+  });
+
+  it("el nombre automático no choca después de renombrar pedidos", async () => {
+    const a = await order(); // -001
+    const b = await order(); // -002
+    expect(b.poNumber.endsWith("-002")).toBe(true);
+
+    // Se renombra el -001: contar los del día daría 1 y proponer un -002 repetido.
+    await updatePurchaseOrder({
+      id: a.id,
+      poNumber: "Renombrado",
+      supplierId: base.supplierId,
+      orderedTons: 10,
+    });
+    const c = await order();
+    expect(c.poNumber.endsWith("-003")).toBe(true);
+    expect(await suggestNextPoNumber()).toMatch(/-004$/);
+
+    // Un nombre en minúsculas con el mismo prefijo también cuenta.
+    await updatePurchaseOrder({
+      id: c.id,
+      poNumber: c.poNumber.toLowerCase(),
+      supplierId: base.supplierId,
+      orderedTons: 10,
+    });
+    expect(await suggestNextPoNumber()).toMatch(/-004$/);
+  });
+
+  it("getPurchaseOrderName devuelve el nombre actual (o null)", async () => {
+    const po = await order({ poNumber: "Nombre uno" });
+    expect(await getPurchaseOrderName(po.id)).toBe("Nombre uno");
+    expect(await getPurchaseOrderName("no-existe")).toBeNull();
+  });
+
+  it("el listado y las exportaciones muestran el nombre nuevo", async () => {
+    const po = await order({ poNumber: "Antes" });
+    await updatePurchaseOrder({
+      id: po.id,
+      poNumber: "Despues",
+      supplierId: base.supplierId,
+      orderedTons: 10,
+    });
+    const pivot = await listPurchaseOrdersPivot();
+    expect(pivot.map((p) => p.order.poNumber)).toEqual(["Despues"]);
   });
 });
