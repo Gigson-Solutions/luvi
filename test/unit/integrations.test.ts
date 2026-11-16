@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readWeight } from "@/lib/integrations/gestruck";
-import { createAlbaran } from "@/lib/integrations/holded";
+import { createAlbaran, normalizeHoldedId } from "@/lib/integrations/holded";
 import {
   buildZpl,
   enqueueLabels,
@@ -47,6 +47,8 @@ describe("Holded createAlbaran (fallback simulado)", () => {
   });
 });
 
+const CONTACT_ID = "61efdba200e5b401a6495eb8";
+
 describe("Holded createAlbaran (errores de la API)", () => {
   const prevKey = process.env.HOLDED_API_KEY;
   const realFetch = globalThis.fetch;
@@ -65,7 +67,7 @@ describe("Holded createAlbaran (errores de la API)", () => {
         status: 400,
       })) as typeof fetch;
     const r = await createAlbaran({
-      contactHoldedId: "c1",
+      contactHoldedId: CONTACT_ID,
       buyerName: "Comprador X",
       reference: "EXP-1",
       lines: [{ name: "050126-1", units: 24640 }],
@@ -79,12 +81,54 @@ describe("Holded createAlbaran (errores de la API)", () => {
     globalThis.fetch = (async () =>
       new Response("", { status: 400 })) as typeof fetch;
     const r = await createAlbaran({
-      contactHoldedId: "c1",
+      contactHoldedId: CONTACT_ID,
       buyerName: "Comprador X",
       reference: "EXP-1",
       lines: [{ name: "050126-1", units: 1 }],
     });
     expect(r.error).toBe("Holded waybill 400");
+  });
+
+  it("recorta los espacios del id de contacto metido a mano", async () => {
+    let sent: { contact_id?: string } = {};
+    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      sent = JSON.parse(String(init?.body)) as { contact_id?: string };
+      return new Response('{"id":"w1"}', { status: 200 });
+    }) as typeof fetch;
+    const r = await createAlbaran({
+      contactHoldedId: ` ${CONTACT_ID} `,
+      buyerName: "Comprador X",
+      reference: "EXP-1",
+      lines: [{ name: "050126-1", units: 1 }],
+    });
+    expect(r.ok).toBe(true);
+    expect(sent.contact_id).toBe(CONTACT_ID);
+  });
+
+  it("un id de contacto que no es un id avisa sin llamar a Holded", async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const r = await createAlbaran({
+      contactHoldedId: "SODE, SA",
+      buyerName: "SODE SA",
+      reference: "EXP-1",
+      lines: [{ name: "050126-1", units: 1 }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("Configuración → Compradores");
+    expect(called).toBe(false);
+  });
+});
+
+describe("normalizeHoldedId", () => {
+  it("acepta ids con espacios y rechaza nombres", () => {
+    expect(normalizeHoldedId(` ${CONTACT_ID}`)).toBe(CONTACT_ID);
+    expect(normalizeHoldedId("COOVER VIANA SA.")).toBeNull();
+    expect(normalizeHoldedId("")).toBeNull();
+    expect(normalizeHoldedId(null)).toBeNull();
   });
 });
 
