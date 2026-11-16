@@ -464,6 +464,7 @@ export default async function AprovisionamientoPage({
             <NewPurchaseOrderDialog
               suppliers={formData.suppliers}
               materials={formData.materials}
+              suggestedPoNumber={formData.nextPoNumber}
             />
           </>
         }

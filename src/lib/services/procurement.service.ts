@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { PurchaseOrderStatus, type Prisma } from "@prisma/client";
+import { Prisma, PurchaseOrderStatus } from "@prisma/client";
 
 /**
  * Servicio de Aprovisionamiento — lógica de negocio de importaciones de MP.
@@ -214,6 +214,12 @@ export interface PurchaseOrderCosts {
 }
 
 export interface CreatePurchaseOrderInput extends PurchaseOrderCosts {
+  /**
+   * Nombre del pedido. Si no se indica al crear, se genera `PO-AAAAMMDD-NNN`.
+   * Al editar, si no se indica no cambia. Es solo una etiqueta: las relaciones
+   * van por `id`, que no cambia nunca.
+   */
+  poNumber?: string;
   supplierId: string;
   materialId?: string;
   orderedTons: number;
@@ -248,7 +254,10 @@ function costsData(input: PurchaseOrderCosts): {
  * derivado del precio total (totalPrice / toneladas, 4 decimales).
  */
 function resolvePricePerTon(
-  input: PurchaseOrderCosts & { totalPrice?: number | null; orderedTons: number },
+  input: PurchaseOrderCosts & {
+    totalPrice?: number | null;
+    orderedTons: number;
+  },
 ): number | null {
   if (input.pricePerTon != null) return input.pricePerTon;
   if (input.totalPrice != null && input.orderedTons > 0) {
@@ -257,43 +266,125 @@ function resolvePricePerTon(
   return null;
 }
 
-/** Genera el nº de PO con formato PO-YYYYMMDD-NNN (secuencial por día). */
-async function generatePoNumber(): Promise<string> {
-  const now = new Date();
+/** Longitud máxima del nombre de un pedido. */
+export const PO_NUMBER_MAX_LENGTH = 80;
+
+/** Prefijo de los nombres automáticos del día: `PO-YYYYMMDD-`. */
+function poPrefix(now = new Date()): string {
   const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
     now.getDate(),
   ).padStart(2, "0")}`;
-  const prefix = `PO-${datePart}-`;
-  const count = await prisma.purchaseOrder.count({
-    where: { poNumber: { startsWith: prefix } },
-  });
-  return `${prefix}${String(count + 1).padStart(3, "0")}`;
+  return `PO-${datePart}-`;
 }
 
-/** Crea una orden de compra con poNumber autogenerado.
+/**
+ * Siguiente nombre automático `PO-YYYYMMDD-NNN`: el mayor sufijo del día + 1.
+ * Se mira el mayor y no cuántos hay, porque los pedidos se pueden renombrar: si
+ * se contaran, renombrar el -001 haría proponer un -002 que ya existe.
+ */
+export async function suggestNextPoNumber(): Promise<string> {
+  const prefix = poPrefix();
+  const existing = await prisma.purchaseOrder.findMany({
+    where: { poNumber: { startsWith: prefix, mode: "insensitive" } },
+    select: { poNumber: true },
+  });
+  let max = 0;
+  for (const { poNumber } of existing) {
+    const suffix = /^(\d+)$/.exec(poNumber.slice(prefix.length));
+    if (suffix) max = Math.max(max, Number(suffix[1]));
+  }
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+}
+
+/** Nombre limpio (sin espacios sobrantes); no puede estar vacío ni pasarse de largo. */
+function normalizePoNumber(raw: string): string {
+  const name = raw.trim().replace(/\s+/g, " ");
+  if (name === "") {
+    throw new Error("El nombre del pedido no puede estar vacío.");
+  }
+  if (name.length > PO_NUMBER_MAX_LENGTH) {
+    throw new Error(
+      `El nombre del pedido no puede tener más de ${PO_NUMBER_MAX_LENGTH} caracteres.`,
+    );
+  }
+  return name;
+}
+
+function duplicateNameError(name: string): Error {
+  return new Error(`Ya existe un pedido llamado «${name}». Elige otro nombre.`);
+}
+
+/** Falla si otro pedido (distinto de `excludeId`) tiene ese nombre, sin distinguir mayúsculas. */
+async function assertPoNumberAvailable(
+  name: string,
+  excludeId?: string,
+): Promise<void> {
+  const clash = await prisma.purchaseOrder.findFirst({
+    where: {
+      poNumber: { equals: name, mode: "insensitive" },
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { poNumber: true },
+  });
+  if (clash) throw duplicateNameError(clash.poNumber);
+}
+
+/** Violación de la restricción única (carrera entre dos altas/renombrados). */
+function isUniqueViolation(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"
+  );
+}
+
+/** Nombre actual de un pedido (para dejar constancia del cambio en auditoría). */
+export async function getPurchaseOrderName(id: string): Promise<string | null> {
+  const order = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    select: { poNumber: true },
+  });
+  return order?.poNumber ?? null;
+}
+
+/** Crea una orden de compra con el nombre indicado o, si no, uno autogenerado.
  *  El precio por tonelada se deriva del precio total: pricePerTon =
  *  totalPrice / orderedTons (4 decimales) cuando hay precio total y toneladas>0. */
 export async function createPurchaseOrder(
   input: CreatePurchaseOrderInput,
 ): Promise<PurchaseOrderWithShipments> {
-  const poNumber = await generatePoNumber();
-  return prisma.purchaseOrder.create({
-    data: {
-      poNumber,
-      supplierId: input.supplierId,
-      materialId: input.materialId ?? null,
-      orderedTons: input.orderedTons,
-      originPort: input.originPort ?? null,
-      totalPrice: input.totalPrice ?? null,
-      pricePerTon: resolvePricePerTon(input),
-      notes: input.notes ?? null,
-      ...costsData(input),
-    },
-    include: {
-      supplier: true,
-      providerShipments: { include: { containers: true } },
-    },
-  });
+  const requested =
+    input.poNumber !== undefined
+      ? normalizePoNumber(input.poNumber)
+      : undefined;
+  if (requested) await assertPoNumberAvailable(requested);
+
+  // Si el nombre es automático y justo otro alta se lleva el mismo número, se
+  // reintenta con el siguiente; si lo eligió el usuario, se le avisa.
+  for (let attempt = 0; ; attempt++) {
+    const poNumber = requested ?? (await suggestNextPoNumber());
+    try {
+      return await prisma.purchaseOrder.create({
+        data: {
+          poNumber,
+          supplierId: input.supplierId,
+          materialId: input.materialId ?? null,
+          orderedTons: input.orderedTons,
+          originPort: input.originPort ?? null,
+          totalPrice: input.totalPrice ?? null,
+          pricePerTon: resolvePricePerTon(input),
+          notes: input.notes ?? null,
+          ...costsData(input),
+        },
+        include: {
+          supplier: true,
+          providerShipments: { include: { containers: true } },
+        },
+      });
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      if (requested) throw duplicateNameError(requested);
+      if (attempt >= 4) throw e;
+    }
+  }
 }
 
 export interface UpdatePurchaseOrderInput extends CreatePurchaseOrderInput {
@@ -301,29 +392,44 @@ export interface UpdatePurchaseOrderInput extends CreatePurchaseOrderInput {
 }
 
 /**
- * Edita un pedido ya creado: datos de cabecera y todos sus costes. El nº de PO
- * no cambia. El estado se deja como está (se corrige aparte).
+ * Edita un pedido ya creado: nombre, datos de cabecera y todos sus costes. El
+ * nombre solo cambia si se indica (y no puede repetirse); el `id` y las
+ * relaciones no cambian. Se puede renombrar en cualquier estado. El estado se
+ * deja como está (se corrige aparte).
  */
 export async function updatePurchaseOrder(
   input: UpdatePurchaseOrderInput,
 ): Promise<PurchaseOrderWithShipments> {
-  const order = await prisma.purchaseOrder.update({
-    where: { id: input.id },
-    data: {
-      supplierId: input.supplierId,
-      materialId: input.materialId ?? null,
-      orderedTons: input.orderedTons,
-      originPort: input.originPort ?? null,
-      totalPrice: input.totalPrice ?? null,
-      pricePerTon: resolvePricePerTon(input),
-      notes: input.notes ?? null,
-      ...costsData(input),
-    },
-    include: {
-      supplier: true,
-      providerShipments: { include: { containers: true } },
-    },
-  });
+  const renamed =
+    input.poNumber !== undefined
+      ? normalizePoNumber(input.poNumber)
+      : undefined;
+  if (renamed) await assertPoNumberAvailable(renamed, input.id);
+
+  let order: PurchaseOrderWithShipments;
+  try {
+    order = await prisma.purchaseOrder.update({
+      where: { id: input.id },
+      data: {
+        ...(renamed ? { poNumber: renamed } : {}),
+        supplierId: input.supplierId,
+        materialId: input.materialId ?? null,
+        orderedTons: input.orderedTons,
+        originPort: input.originPort ?? null,
+        totalPrice: input.totalPrice ?? null,
+        pricePerTon: resolvePricePerTon(input),
+        notes: input.notes ?? null,
+        ...costsData(input),
+      },
+      include: {
+        supplier: true,
+        providerShipments: { include: { containers: true } },
+      },
+    });
+  } catch (e) {
+    if (renamed && isUniqueViolation(e)) throw duplicateNameError(renamed);
+    throw e;
+  }
   // Cambiar las toneladas pedidas puede cambiar el estado (p. ej. pasa a
   // COMPLETADA), salvo que el estado esté fijado a mano.
   await recomputeOrderStatus(order.id);
@@ -697,6 +803,8 @@ export async function markArrivedPlanta(
 
 /** Datos auxiliares para los formularios de aprovisionamiento. */
 export async function getProcurementFormData(): Promise<{
+  /** Nombre automático que se propone al crear un pedido nuevo. */
+  nextPoNumber: string;
   suppliers: { id: string; name: string; code: string }[];
   materials: { id: string; name: string; code: string }[];
   openOrders: {
@@ -706,39 +814,42 @@ export async function getProcurementFormData(): Promise<{
     materialName: string | null;
   }[];
 }> {
-  const [suppliers, materials, orders, materialNames] = await Promise.all([
-    prisma.supplier.findMany({
-      where: { active: true },
-      select: { id: true, name: true, code: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.material.findMany({
-      where: { active: true },
-      select: { id: true, name: true, code: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.purchaseOrder.findMany({
-      where: {
-        status: {
-          in: [
-            PurchaseOrderStatus.ABIERTA,
-            PurchaseOrderStatus.EN_TRANSITO,
-            PurchaseOrderStatus.RECIBIDA_PARCIAL,
-          ],
+  const [suppliers, materials, orders, materialNames, nextPoNumber] =
+    await Promise.all([
+      prisma.supplier.findMany({
+        where: { active: true },
+        select: { id: true, name: true, code: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.material.findMany({
+        where: { active: true },
+        select: { id: true, name: true, code: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.purchaseOrder.findMany({
+        where: {
+          status: {
+            in: [
+              PurchaseOrderStatus.ABIERTA,
+              PurchaseOrderStatus.EN_TRANSITO,
+              PurchaseOrderStatus.RECIBIDA_PARCIAL,
+            ],
+          },
         },
-      },
-      select: {
-        id: true,
-        poNumber: true,
-        materialId: true,
-        supplier: { select: { name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    getMaterialNameMap(),
-  ]);
+        select: {
+          id: true,
+          poNumber: true,
+          materialId: true,
+          supplier: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      getMaterialNameMap(),
+      suggestNextPoNumber(),
+    ]);
 
   return {
+    nextPoNumber,
     suppliers,
     materials,
     openOrders: orders.map((o) => ({
