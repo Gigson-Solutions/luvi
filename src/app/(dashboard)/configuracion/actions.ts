@@ -43,6 +43,7 @@ import {
   updatePrinter,
   setPrinterActive,
 } from "@/lib/services/printer.service";
+import { normalizeHoldedId } from "@/lib/integrations/holded";
 import { enqueueLabels } from "@/lib/integrations/qr-printer";
 import { prisma } from "@/lib/prisma";
 import {
@@ -257,6 +258,17 @@ export async function saveSupplierAction(
   }
 }
 
+// ─── ID Holded (compradores y transportistas) ──────────────────────────────────
+
+const holdedIdSchema = z
+  .string()
+  .trim()
+  .optional()
+  .refine((v) => !v || normalizeHoldedId(v) !== null, {
+    message:
+      "El ID Holded debe ser el id del contacto (24 caracteres, p. ej. 61efdba200e5b401a6495eb8), no el nombre. Déjalo vacío si no lo sabes.",
+  });
+
 // ─── Compradores ───────────────────────────────────────────────────────────────
 
 const buyerSchema = z.object({
@@ -265,7 +277,7 @@ const buyerSchema = z.object({
   code: z.string().min(1, "El código es obligatorio"),
   country: z.string().min(1, "El país es obligatorio"),
   notes: z.string().optional(),
-  holdedId: z.string().optional(),
+  holdedId: holdedIdSchema,
 });
 
 export async function saveBuyerAction(
@@ -311,7 +323,7 @@ export async function saveBuyerAction(
 const carrierSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, "El nombre es obligatorio"),
-  holdedId: z.string().optional(),
+  holdedId: holdedIdSchema,
 });
 
 export async function saveCarrierAction(

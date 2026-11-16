@@ -877,6 +877,7 @@ function BuyerFields({ buyer }: { buyer?: Buyer }): React.JSX.Element {
             id="buy-holdedId"
             name="holdedId"
             defaultValue={buyer?.holdedId ?? ""}
+            placeholder="Id del contacto (24 caracteres) o vacío"
           />
         </div>
       </div>

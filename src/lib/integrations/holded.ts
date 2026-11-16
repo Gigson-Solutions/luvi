@@ -31,6 +31,20 @@ export interface AlbaranResult {
   error?: string;
 }
 
+/** Los ids de Holded son ObjectId de Mongo: 24 caracteres hexadecimales. */
+const HOLDED_ID_RE = /^[0-9a-f]{24}$/i;
+
+/**
+ * Normaliza un id de Holded metido a mano: quita espacios y comprueba el
+ * formato. Devuelve null si no es un id válido (p. ej. un nombre de empresa).
+ */
+export function normalizeHoldedId(
+  raw: string | null | undefined,
+): string | null {
+  const id = raw?.trim() ?? "";
+  return HOLDED_ID_RE.test(id) ? id : null;
+}
+
 const API = process.env.HOLDED_API_URL ?? "https://api.holded.com/api/v2";
 const TIMEOUT_MS = 8000;
 
@@ -84,8 +98,25 @@ export async function createAlbaran(
   }
 
   try {
-    const contactId =
-      input.contactHoldedId ?? (await createContact(key, input.buyerName));
+    // El id del comprador se mete a mano en Configuración: puede venir con
+    // espacios o ser un nombre. Holded responde un 400 críptico, así que se
+    // limpia y, si no es un id, se avisa de dónde corregirlo (no se crea otro
+    // contacto para no duplicarlo en Holded).
+    const rawContact = input.contactHoldedId?.trim();
+    let contactId: string;
+    if (rawContact) {
+      const normalized = normalizeHoldedId(rawContact);
+      if (!normalized) {
+        return {
+          ok: false,
+          simulated: false,
+          error: `El "ID Holded" de "${input.buyerName}" no es un id de contacto de Holded ("${rawContact}"). Corrígelo o déjalo vacío en Configuración → Compradores.`,
+        };
+      }
+      contactId = normalized;
+    } else {
+      contactId = await createContact(key, input.buyerName);
+    }
 
     const res = await fetch(`${API}/waybills`, {
       method: "POST",
