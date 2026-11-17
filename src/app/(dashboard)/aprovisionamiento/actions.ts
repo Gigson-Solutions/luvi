@@ -5,7 +5,9 @@ import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/rbac";
 import { logAudit } from "@/lib/services/audit.service";
 import {
+  PO_NUMBER_MAX_LENGTH,
   createPurchaseOrder,
+  getPurchaseOrderName,
   updatePurchaseOrder,
   setPurchaseOrderStatus,
   createProviderShipment,
@@ -31,6 +33,16 @@ const optionalAmount = z.preprocess(
 
 // ─── Crear orden de compra ──────────────────────────────────────────────────────
 const orderFieldsSchema = z.object({
+  // Nombre del pedido: editable, no vacío y único (sin distinguir mayúsculas; lo
+  // comprueba el servicio). El nº automático solo es el valor que se propone.
+  poNumber: z
+    .string()
+    .trim()
+    .min(1, "El nombre del pedido no puede estar vacío")
+    .max(
+      PO_NUMBER_MAX_LENGTH,
+      `El nombre no puede tener más de ${PO_NUMBER_MAX_LENGTH} caracteres`,
+    ),
   supplierId: z.string().min(1, "Selecciona un proveedor"),
   materialId: z.string().optional(),
   orderedTons: z.coerce
@@ -106,20 +118,33 @@ export async function updatePurchaseOrderAction(
       };
     }
     const { materialId, originPort, ...rest } = parsed.data;
+    const previousPoNumber = await getPurchaseOrderName(rest.id);
     const order = await updatePurchaseOrder({
       ...rest,
       materialId: materialId || undefined,
       originPort: originPort || undefined,
     });
+    // Quién y cuándo lo registra el log (userId + fecha); aquí, qué cambió.
+    const renamed =
+      previousPoNumber != null && previousPoNumber !== order.poNumber;
     await logAudit({
       userId: actor.id,
       action: "UPDATE_PURCHASE_ORDER",
       entity: "PurchaseOrder",
       entityId: order.id,
-      payload: { poNumber: order.poNumber },
+      payload: renamed
+        ? { poNumber: order.poNumber, previousPoNumber }
+        : { poNumber: order.poNumber },
     });
     revalidatePath("/aprovisionamiento");
-    return { ok: true, message: `Pedido ${order.poNumber} actualizado` };
+    // El nombre sale en los listados de otras pantallas y en el Excel.
+    revalidatePath("/expediciones");
+    return {
+      ok: true,
+      message: renamed
+        ? `Pedido renombrado: ${previousPoNumber} → ${order.poNumber}`
+        : `Pedido ${order.poNumber} actualizado`,
+    };
   } catch (e) {
     return {
       ok: false,

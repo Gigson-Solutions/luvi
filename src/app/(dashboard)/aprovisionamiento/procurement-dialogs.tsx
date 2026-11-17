@@ -99,11 +99,14 @@ function PurchaseOrderFields({
   materials,
   order,
   idPrefix,
+  suggestedPoNumber,
 }: {
   suppliers: Supplier[];
   materials: Material[];
   order?: OrderFormValues;
   idPrefix: string;
+  /** Nombre automático propuesto al crear (editable). */
+  suggestedPoNumber?: string;
 }): React.JSX.Element {
   const [orderedTons, setOrderedTons] = useState(
     order ? String(order.orderedTons) : "",
@@ -123,6 +126,21 @@ function PurchaseOrderFields({
 
   return (
     <>
+      <div>
+        <Label htmlFor={`${idPrefix}poNumber`}>Nombre del pedido</Label>
+        <Input
+          id={`${idPrefix}poNumber`}
+          name="poNumber"
+          required
+          maxLength={80}
+          defaultValue={order?.poNumber ?? suggestedPoNumber ?? ""}
+        />
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          {order
+            ? "Se puede cambiar en cualquier momento; no puede repetirse."
+            : "Se propone el siguiente número automático; puedes escribir otro nombre."}
+        </p>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label htmlFor={`${idPrefix}supplierId`}>Proveedor</Label>
@@ -286,9 +304,11 @@ function PurchaseOrderFields({
 export function NewPurchaseOrderDialog({
   suppliers,
   materials,
+  suggestedPoNumber,
 }: {
   suppliers: Supplier[];
   materials: Material[];
+  suggestedPoNumber: string;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(
@@ -309,13 +329,14 @@ export function NewPurchaseOrderDialog({
       </DialogTrigger>
       <DialogContent
         title="Nueva orden de compra"
-        description="El nº de PO se genera automáticamente (PO-fecha-secuencial)."
+        description="Se propone un nombre automático (PO-fecha-secuencial) que puedes cambiar."
       >
         <form action={action} className="space-y-4">
           <PurchaseOrderFields
             suppliers={suppliers}
             materials={materials}
             idPrefix="po-"
+            suggestedPoNumber={suggestedPoNumber}
           />
           {state.error && <p className="text-sm text-red-600">{state.error}</p>}
           <div className="flex justify-end gap-2 pt-1">
@@ -408,10 +429,7 @@ export function OrderStatusSelect({
   status: string;
   statusManual: boolean;
 }): React.JSX.Element {
-  const [state, action] = useActionState(
-    setPurchaseOrderStatusAction,
-    INITIAL,
-  );
+  const [state, action] = useActionState(setPurchaseOrderStatusAction, INITIAL);
   return (
     <form action={action} className="flex items-center gap-2">
       <input type="hidden" name="id" value={orderId} />
@@ -715,7 +733,11 @@ export function NewShipmentDialog({
   return (
     <ShipmentDialogBase
       trigger={
-        <Button variant="outline" size="sm" className="h-8 px-3 text-xs gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-3 text-xs gap-1.5"
+        >
           <Ship className="w-3.5 h-3.5" /> Nuevo envío
         </Button>
       }
@@ -737,7 +759,11 @@ export function EditShipmentDialog({
   return (
     <ShipmentDialogBase
       trigger={
-        <Button variant="outline" size="sm" className="h-8 px-3 text-xs gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-3 text-xs gap-1.5"
+        >
           <Pencil className="w-3.5 h-3.5" /> Editar envío
         </Button>
       }
