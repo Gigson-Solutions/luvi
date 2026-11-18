@@ -17,6 +17,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   ArrowDownUp,
+  Euro,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -42,6 +43,7 @@ import {
   type InventoryFilters as InventoryFiltersType,
 } from "@/lib/services/inventory.service";
 import { InventoryFilters } from "./inventory-filters";
+import { ValoracionTab } from "./valuation-tab";
 import { NO_SUPPLIER } from "@/lib/warehouse-filters";
 import {
   findOpenCount,
@@ -80,6 +82,7 @@ type Tab =
   | "consumido"
   | "ubicacion"
   | "esperado"
+  | "valoracion"
   | "consumibles"
   | "pales-rotos"
   | "altas-bajas"
@@ -90,6 +93,7 @@ const TABS: { value: Tab; label: string; icon: React.ElementType }[] = [
   { value: "consumido", label: "Consumido", icon: TrendingDown },
   { value: "ubicacion", label: "Ubicación", icon: MapPin },
   { value: "esperado", label: "Esperado", icon: Ship },
+  { value: "valoracion", label: "Valoración", icon: Euro },
   { value: "consumibles", label: "Consumibles", icon: Package },
   { value: "pales-rotos", label: "Palés rotos", icon: PackageX },
   { value: "altas-bajas", label: "Altas y bajas", icon: ArrowDownUp },
@@ -115,6 +119,7 @@ function isTab(v: string | undefined): v is Tab {
     v === "consumido" ||
     v === "ubicacion" ||
     v === "esperado" ||
+    v === "valoracion" ||
     v === "consumibles" ||
     v === "pales-rotos" ||
     v === "altas-bajas" ||
@@ -1267,6 +1272,7 @@ export default async function InventarioPage({
       {activeTab === "consumido" && <ConsumidoTab filters={filters} />}
       {activeTab === "ubicacion" && <UbicacionTab filters={filters} />}
       {activeTab === "esperado" && <EsperadoTab filters={filters} />}
+      {activeTab === "valoracion" && <ValoracionTab filters={filters} />}
       {activeTab === "consumibles" && <ConsumiblesTab />}
       {activeTab === "pales-rotos" && <PalesRotosTab />}
       {activeTab === "altas-bajas" && <AltasBajasTab />}

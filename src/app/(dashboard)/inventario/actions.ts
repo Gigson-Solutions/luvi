@@ -27,6 +27,7 @@ import {
   listStockEntrySacks,
   printSackLabels,
 } from "@/lib/services/qr.service";
+import { setSupplierMaterialPrice } from "@/lib/services/valuation.service";
 import type { CurrentUser } from "@/lib/rbac";
 
 export type ActionState = {
@@ -397,6 +398,55 @@ export async function printStockEntryLabelsAction(
         e instanceof Error
           ? e.message
           : "No se pudieron imprimir las etiquetas",
+    };
+  }
+}
+
+const supplierPriceSchema = z.object({
+  supplierId: z.string().min(1),
+  materialId: z.string().min(1),
+  // Vacío = quitar el precio.
+  pricePerTon: z.string().optional(),
+});
+
+/** Fija (o quita) el precio €/t de un proveedor y producto sin pedido. */
+export async function setSupplierPriceAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireSession();
+    const parsed = supplierPriceSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+    const raw = parsed.data.pricePerTon?.trim().replace(",", ".") ?? "";
+    const price = raw === "" ? null : Number(raw);
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      return {
+        ok: false,
+        error: "El precio debe ser un número igual o mayor que 0.",
+      };
+    }
+    await setSupplierMaterialPrice(
+      parsed.data.supplierId,
+      parsed.data.materialId,
+      price,
+    );
+    await logAudit({
+      userId: actor.id,
+      action: "SET_SUPPLIER_MATERIAL_PRICE",
+      entity: "SupplierMaterialPrice",
+      entityId: `${parsed.data.supplierId}:${parsed.data.materialId}`,
+      payload: { pricePerTon: price },
+    });
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      message: price === null ? "Precio quitado." : "Precio guardado.",
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "No se pudo guardar el precio",
     };
   }
 }
