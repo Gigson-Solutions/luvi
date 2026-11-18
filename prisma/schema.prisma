@@ -171,11 +171,33 @@ model Supplier {
   sacks Sack[]
   purchaseOrders PurchaseOrder[]
   qualityRecords QualityRecord[]
+  materialPrices SupplierMaterialPrice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("suppliers")
+}
+
+/**
+ * Precio (€/t) con el que se valora el stock de un proveedor y producto que NO
+ * viene de un pedido (altas manuales, stock inicial). Las sacas con pedido se
+ * valoran con el coste de su embarque; este precio solo es el respaldo.
+ */
+model SupplierMaterialPrice {
+  id         String   @id @default(cuid())
+  supplierId String
+  materialId String
+  pricePerTon Float
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([supplierId, materialId])
+  @@index([materialId])
+  @@map("supplier_material_prices")
 }
 
 model Buyer {
@@ -274,6 +296,7 @@ model Material {
   processingCost Float @default(0)
 
   sacks          Sack[]
+  supplierPrices SupplierMaterialPrice[]
   stockAdjustments StockAdjustment[]
   productionLots ProductionLot[]
   qualityRecords QualityRecord[]
